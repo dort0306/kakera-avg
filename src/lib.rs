@@ -1,7 +1,11 @@
 pub mod app;
 pub mod assets;
+pub mod audio;
 pub mod controller;
 pub mod loader;
+pub mod menus;
 pub mod model;
+pub mod presentation;
 pub mod save;
+pub mod settings;
 pub mod view;

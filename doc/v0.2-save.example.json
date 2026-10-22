@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "story_id": "kakera-demo",
+  "content_version": 1,
+  "frame_id": "accept",
+  "history": [
+    { "frame_id": "opening", "choice_id": null },
+    { "frame_id": "question", "choice_id": "accept" },
+    { "frame_id": "accept", "choice_id": null }
+  ],
+  "saved_at_unix_ms": 1792684800000
+}

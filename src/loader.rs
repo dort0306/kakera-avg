@@ -139,13 +139,16 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
         &["assets", "characters", "visuals", "frames"],
         false,
     )?;
-    if required(s, story_node, "schema")? != "1" {
+    let schema = required(s, story_node, "schema")?;
+    if !["1", "2"].contains(&schema) {
         return Err(error(s, story_node, "不支持的 story schema"));
     }
     let id = required(s, story_node, "id")?.to_owned();
-    if id
-        .chars()
-        .any(|c| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.')
+    if id == "."
+        || id == ".."
+        || id
+            .chars()
+            .any(|c| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.')
     {
         return Err(error(
             s,
@@ -162,7 +165,12 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
 
     let mut assets = BTreeMap::new();
     let asset_node = single(s, story_node, "assets")?;
-    check(s, asset_node, "assets", &[], &["image", "font"], false)?;
+    let asset_tags: &[&str] = if schema == "2" {
+        &["image", "font", "audio"]
+    } else {
+        &["image", "font"]
+    };
+    check(s, asset_node, "assets", &[], asset_tags, false)?;
     for node in elements(asset_node) {
         check(s, node, node.tag_name().name(), &["id", "src"], &[], false)?;
         let id = required(s, node, "id")?;
@@ -177,10 +185,21 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
                 format!("资源 {id} 必须使用游戏目录内的相对路径"),
             ));
         }
-        let kind = if node.has_tag_name("image") {
-            AssetKind::Image
-        } else {
-            AssetKind::Font
+        let kind = match node.tag_name().name() {
+            "image" => AssetKind::Image,
+            "font" => AssetKind::Font,
+            "audio" => {
+                let extension = relative
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if !["wav", "ogg"].contains(&extension.as_str()) {
+                    return Err(error(s, node, "音频仅支持 .wav 或 .ogg"));
+                }
+                AssetKind::Audio
+            }
+            _ => unreachable!(),
         };
         unique(
             s,
@@ -278,7 +297,11 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             node,
             "frame",
             &["id", "visual", "speaker"],
-            &["text", "options"],
+            if schema == "2" {
+                &["text", "options", "audio"]
+            } else {
+                &["text", "options"]
+            },
             false,
         )?;
         let id = required(s, node, "id")?;
@@ -314,6 +337,33 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
                 return Err(error(s, opt_node, "options 不能为空"));
             }
         }
+        let mut audio = AudioCue::default();
+        if node.children().any(|n| n.has_tag_name("audio")) {
+            let audio_node = single(s, node, "audio")?;
+            check(s, audio_node, "audio", &["bgm", "voice", "se"], &[], false)?;
+            for (attribute, target) in [
+                ("bgm", &mut audio.bgm),
+                ("voice", &mut audio.voice),
+                ("se", &mut audio.se),
+            ] {
+                if let Some(id) = audio_node.attribute(attribute) {
+                    if !matches!(
+                        assets.get(id),
+                        Some(Asset {
+                            kind: AssetKind::Audio,
+                            ..
+                        })
+                    ) {
+                        return Err(error(
+                            s,
+                            audio_node,
+                            format!("音频引用不存在或类型错误：{id}"),
+                        ));
+                    }
+                    *target = Some(id.to_owned());
+                }
+            }
+        }
         unique(
             s,
             node,
@@ -325,6 +375,7 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
                 speaker,
                 text,
                 options,
+                audio,
             },
         )?;
         frame_nodes.insert(id.to_owned(), node);

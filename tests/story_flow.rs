@@ -15,9 +15,7 @@ fn both_branches_restore_complete_frames_and_end_explicitly() {
     assert_eq!(question.frame_id, "question");
     assert_eq!(
         story.frame(&question),
-        story.frame(&Session {
-            frame_id: "question".into()
-        })
+        story.frame(&Session::at("question"))
     );
     assert_eq!(
         story.frame(&question).unwrap().visual.portraits[0].slot,
@@ -59,7 +57,7 @@ fn omitted_visual_means_empty_not_inherited() {
 #[test]
 fn bad_content_has_filename_and_position() {
     let cases = [
-        ("schema=\"1\"", "schema=\"2\""),
+        ("schema=\"1\"", "schema=\"9\""),
         ("content-version=\"1\"", "content-version=\"0\""),
         ("<characters>", "<characters typo=\"yes\">"),
         ("<visuals>", "<visuals><oops/>"),

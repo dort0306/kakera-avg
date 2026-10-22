@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 可运行样例；素材与许可证见 assets/licenses。 -->
-<story schema="1" id="kakera-demo" content-version="1">
+<story schema="2" id="kakera-demo" content-version="1">
   <assets>
     <image id="bg.room" src="assets/bg/room.png" />
     <image id="portrait.lin" src="assets/characters/lin.png" />
     <font id="dialogue" src="assets/fonts/chinese.otf" />
+    <audio id="bgm.room" src="assets/audio/room.wav" />
+    <audio id="se.knock" src="assets/audio/knock.wav" />
+    <audio id="voice.lin" src="assets/audio/lin.wav" />
   </assets>
 
   <characters>
@@ -21,9 +24,11 @@
   <frames>
     <frame id="opening" visual="room.empty">
       <text>午后的房间里，传来了轻轻的敲门声。</text>
+      <audio bgm="bgm.room" se="se.knock" />
     </frame>
     <frame id="question" visual="room.lin" speaker="lin">
       <text>要一起去看看吗？</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
       <options>
         <option id="accept">一起去</option>
         <option id="refuse">暂时留下</option>
@@ -31,6 +36,7 @@
     </frame>
     <frame id="accept" visual="room.lin" speaker="lin">
       <text>那就走吧。</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
     </frame>
     <frame id="refuse" visual="room.empty">
       <text>门轻轻合上，房间又安静了下来。</text>

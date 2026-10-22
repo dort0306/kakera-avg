@@ -3,7 +3,7 @@ use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, ColorImage, FontData, FontDefinitions, FontFamily, TextureHandle};
 use std::collections::BTreeMap;
 
-pub const UI_TEXT: &str = "保存读档重新开始继续已结束请选择存档成功读档成功提示关闭台词超出对话框请拆句选项文字过长请缩短图片字体加载失败";
+pub const UI_TEXT: &str = "保存读档重新开始继续已结束请选择存档成功读档成功提示关闭台词超出对话框请拆句选项文字过长请缩短图片字体加载失败历史记录旁白设置补全取消确认覆盖空槽损坏导入旧档不含仅恢复当前位置文字速度整句每秒字素簇静音背景音乐语音音效设备不可用禁用输出正常正在播放暂停刚刚分钟前小时前天前尚未保存槽位音频返回";
 
 pub struct PreparedAssets {
     images: BTreeMap<String, ColorImage>,
@@ -18,6 +18,7 @@ impl PreparedAssets {
         for (id, asset) in &story.assets {
             let context = || format!("资源 {id}：{}", asset.path.display());
             match asset.kind {
+                AssetKind::Audio => {}
                 AssetKind::Image => {
                     let mut reader = image::ImageReader::open(&asset.path).with_context(context)?;
                     let mut limits = image::Limits::default();
