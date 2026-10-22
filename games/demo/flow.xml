@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<flow schema="1" story="kakera-demo" entry="opening">
+  <next from="opening" to="question" />
+  <choice from="question">
+    <on option="accept" to="accept" />
+    <on option="refuse" to="refuse" />
+  </choice>
+  <end frame="accept" />
+  <end frame="refuse" />
+</flow>

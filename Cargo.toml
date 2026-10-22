@@ -1,0 +1,23 @@
+[package]
+name = "kakera-avg"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A minimal, frame-based visual novel player"
+
+[dependencies]
+anyhow = "1.0"
+directories = "6.0"
+eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+roxmltree = "=0.21.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.23"
+ttf-parser = "0.25"
+# eframe without default features does not enable any native wgpu backend.
+wgpu = { version = "27.0.1", default-features = false, features = ["dx12", "metal", "vulkan"] }
+
+[profile.release]
+strip = true
+

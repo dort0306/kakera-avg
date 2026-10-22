@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 可运行样例；素材与许可证见 assets/licenses。 -->
+<story schema="1" id="kakera-demo" content-version="1">
+  <assets>
+    <image id="bg.room" src="assets/bg/room.png" />
+    <image id="portrait.lin" src="assets/characters/lin.png" />
+    <font id="dialogue" src="assets/fonts/chinese.otf" />
+  </assets>
+
+  <characters>
+    <character id="lin" name="凛" />
+  </characters>
+
+  <visuals>
+    <visual id="room.empty" background="bg.room" />
+    <visual id="room.lin" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" />
+    </visual>
+  </visuals>
+
+  <frames>
+    <frame id="opening" visual="room.empty">
+      <text>午后的房间里，传来了轻轻的敲门声。</text>
+    </frame>
+    <frame id="question" visual="room.lin" speaker="lin">
+      <text>要一起去看看吗？</text>
+      <options>
+        <option id="accept">一起去</option>
+        <option id="refuse">暂时留下</option>
+      </options>
+    </frame>
+    <frame id="accept" visual="room.lin" speaker="lin">
+      <text>那就走吧。</text>
+    </frame>
+    <frame id="refuse" visual="room.empty">
+      <text>门轻轻合上，房间又安静了下来。</text>
+    </frame>
+  </frames>
+</story>
