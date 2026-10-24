@@ -1,10 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<flow schema="1" story="kakera-demo" entry="opening">
+<!-- v0.3 历史规则参考；schema 4 运行时不读取本文件，当前逻辑见 scripts/。 -->
+<flow schema="2" story="kakera-demo" entry="opening">
   <next from="opening" to="question" />
   <choice from="question">
-    <on option="accept" to="accept" />
-    <on option="refuse" to="refuse" />
+    <on option="accept" to="walk">
+      <when><cmp var="trust" op="lt" value="3" /></when>
+      <effects>
+        <add var="trust" value="1" />
+        <set var="met" value="true" />
+        <set var="mood" value="期待" />
+      </effects>
+    </on>
+    <on option="refuse" to="decision" />
+    <on option="invite" to="decision">
+      <when><all>
+        <cmp var="trust" op="ge" value="2" />
+        <cmp var="met" op="eq" value="true" />
+      </all></when>
+      <effects><set var="invited" value="true" /></effects>
+    </on>
   </choice>
+  <next from="walk" to="question" />
+  <branch from="decision">
+    <case to="accept">
+      <when><all>
+        <cmp var="invited" op="eq" value="true" />
+        <cmp var="trust" op="ge" value="2" />
+      </all></when>
+      <effects><set var="mood" value="开心" /></effects>
+    </case>
+    <case to="friendly">
+      <when><cmp var="trust" op="ge" value="1" /></when>
+      <effects><set var="mood" value="平静" /></effects>
+    </case>
+    <otherwise to="refuse">
+      <effects><set var="mood" value="安静" /></effects>
+    </otherwise>
+  </branch>
   <end frame="accept" />
+  <end frame="friendly" />
   <end frame="refuse" />
 </flow>

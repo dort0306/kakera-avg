@@ -1,4 +1,4 @@
-use crate::model::{HistoryEntry, MAX_HISTORY, Route, Session, Story};
+use crate::model::{DeclarativeLogic, HistoryEntry, Logic, MAX_HISTORY, Session, Story, rules};
 use std::fmt;
 
 #[derive(Clone, Debug)]
@@ -32,37 +32,49 @@ pub fn transition(
     session: &Session,
     intent: Intent,
 ) -> Result<Transition, ControlError> {
+    transition_with(story, session, intent, &DeclarativeLogic)
+}
+
+pub fn transition_with(
+    story: &Story,
+    session: &Session,
+    intent: Intent,
+    logic: &dyn Logic,
+) -> Result<Transition, ControlError> {
     if story.frame(session).is_none() {
         return Err(ControlError(format!(
             "当前场景不存在：{}",
             session.frame_id
         )));
     }
-    let route = story
-        .routes
-        .get(&session.frame_id)
-        .ok_or_else(|| ControlError(format!("场景缺少流转：{}", session.frame_id)))?;
+    story
+        .validate_session_with(session, logic)
+        .map_err(ControlError)?;
     let choice_id = match &intent {
         Intent::Choose(id) => Some(id.clone()),
         _ => None,
     };
-    let target = match (route, intent) {
-        (Route::Next(target), Intent::Advance) => target,
-        (Route::Choice(options), Intent::Choose(id)) => options
-            .get(&id)
-            .ok_or_else(|| ControlError(format!("无效选项：{id}")))?,
-        (Route::Choice(_), Intent::Advance) | (Route::End, Intent::Advance) => {
-            return Ok(Transition {
-                session: session.clone(),
-                entered: false,
-            });
-        }
-        _ => return Err(ControlError("当前场景不能选择选项".into())),
+    let Some(rule) = logic
+        .resolve(
+            story,
+            &session.frame_id,
+            choice_id.as_deref(),
+            &session.variables,
+        )
+        .map_err(ControlError)?
+    else {
+        return Ok(Transition {
+            session: session.clone(),
+            entered: false,
+        });
     };
+    let target = &rule.to;
     if !story.frames.contains_key(target) {
         return Err(ControlError(format!("目标场景不存在：{target}")));
     }
     let mut next = session.clone();
+    next.variables =
+        rules::apply_effects(story, &session.variables, &rule.effects).map_err(ControlError)?;
     let last = next
         .history
         .last_mut()
@@ -77,8 +89,22 @@ pub fn transition(
         choice_id: None,
     });
     if next.history.len() > MAX_HISTORY {
+        let first = &next.history[0];
+        let dropped = logic
+            .resolve(
+                story,
+                &first.frame_id,
+                first.choice_id.as_deref(),
+                &next.history_base_variables,
+            )
+            .map_err(ControlError)?
+            .ok_or_else(|| ControlError("历史检查点缺少有效流转".into()))?;
+        next.history_base_variables =
+            rules::apply_effects(story, &next.history_base_variables, &dropped.effects)
+                .map_err(ControlError)?;
         next.history.remove(0);
     }
+    logic.options(story, &next).map_err(ControlError)?;
     Ok(Transition {
         session: next,
         entered: true,

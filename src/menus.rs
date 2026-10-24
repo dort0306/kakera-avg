@@ -29,6 +29,22 @@ pub fn history(ctx: &egui::Context, story: &Story, session: &Session) -> bool {
         .default_width(720.0)
         .resizable(true)
         .show(ctx, |ui| {
+            if !story.variables.is_empty() {
+                ui.strong("当前状态");
+                egui::ScrollArea::vertical()
+                    .id_salt("current_variables")
+                    .max_height(110.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for (id, decl) in &story.variables {
+                                if let Some(value) = session.variables.get(id) {
+                                    ui.label(format!("{}：{}  ", decl.label, value));
+                                }
+                            }
+                        });
+                    });
+                ui.separator();
+            }
             ui.label(format!(
                 "最近 {} 条（最多保留 1000 条，不支持回滚）",
                 session.history.len()

@@ -1,11 +1,17 @@
 pub mod app;
 pub mod assets;
 pub mod audio;
+pub mod content;
 pub mod controller;
+pub mod effects;
+pub mod interface;
+pub mod live2d;
 pub mod loader;
+pub mod media;
 pub mod menus;
 pub mod model;
 pub mod presentation;
 pub mod save;
+pub mod script;
 pub mod settings;
 pub mod view;

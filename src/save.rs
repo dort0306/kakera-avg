@@ -1,4 +1,4 @@
-use crate::model::{HistoryEntry, Session, Story};
+use crate::model::{DeclarativeLogic, HistoryEntry, Logic, Session, Story, Variables};
 use anyhow::{Context, Result, ensure};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -8,21 +8,24 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const SLOT_COUNT: u8 = 6;
+pub const SLOT_COUNT: u16 = 200;
+pub const PAGE_SIZE: u16 = 10;
+pub const PAGE_COUNT: u16 = SLOT_COUNT / PAGE_SIZE;
+pub const AUTO_COUNT: u16 = 10;
 const MAX_JSON_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SlotId(u8);
+pub struct SlotId(u16);
 
 impl SlotId {
-    pub fn new(number: u8) -> Result<Self> {
+    pub fn new(number: u16) -> Result<Self> {
         ensure!(
             (1..=SLOT_COUNT).contains(&number),
             "槽号必须在 1–{SLOT_COUNT} 之间"
         );
         Ok(Self(number))
     }
-    pub fn number(self) -> u8 {
+    pub fn number(self) -> u16 {
         self.0
     }
     pub fn all() -> impl Iterator<Item = Self> {
@@ -38,20 +41,32 @@ pub struct Snapshot {
     pub content_version: u32,
     pub frame_id: String,
     pub history: Vec<HistoryEntry>,
+    pub variables: Variables,
+    pub history_base_variables: Variables,
     pub saved_at_unix_ms: u64,
+    pub generation: u64,
 }
 
 impl Snapshot {
     pub fn capture(story: &Story, session: &Session) -> Result<Self> {
+        Self::capture_with(story, session, &DeclarativeLogic)
+    }
+    pub fn capture_with(story: &Story, session: &Session, logic: &dyn Logic) -> Result<Self> {
         story
-            .validate_session(session)
+            .validate_session_with(session, logic)
             .map_err(anyhow::Error::msg)?;
+        Self::capture_committed(story, session)
+    }
+    pub(crate) fn capture_committed(story: &Story, session: &Session) -> Result<Self> {
         Ok(Self {
-            schema_version: 2,
+            schema_version: 6,
             story_id: story.id.clone(),
             content_version: story.content_version,
             frame_id: session.frame_id.clone(),
             history: session.history.clone(),
+            variables: session.variables.clone(),
+            history_base_variables: session.history_base_variables.clone(),
+            generation: 0,
             saved_at_unix_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .context("系统时间早于 Unix epoch")?
@@ -61,8 +76,11 @@ impl Snapshot {
     }
 
     pub fn restore(&self, story: &Story) -> Result<Session> {
+        self.restore_with(story, &DeclarativeLogic)
+    }
+    pub fn restore_with(&self, story: &Story, logic: &dyn Logic) -> Result<Session> {
         ensure!(
-            self.schema_version == 2,
+            self.schema_version == 6,
             "不支持的槽位存档 schema：{}",
             self.schema_version
         );
@@ -70,9 +88,11 @@ impl Snapshot {
         let session = Session {
             frame_id: self.frame_id.clone(),
             history: self.history.clone(),
+            variables: self.variables.clone(),
+            history_base_variables: self.history_base_variables.clone(),
         };
         story
-            .validate_session(&session)
+            .validate_session_with(&session, logic)
             .map_err(anyhow::Error::msg)?;
         Ok(session)
     }
@@ -94,6 +114,13 @@ struct LegacySnapshot {
     story_id: String,
     content_version: u32,
     frame_id: String,
+}
+
+fn parse_snapshot(data: &[u8], story: &Story, logic: &dyn Logic) -> Result<Snapshot> {
+    let snapshot: Snapshot =
+        serde_json::from_slice(data).context("需要 v0.6 schema 6 存档，请重新开始旧版本故事")?;
+    snapshot.restore_with(story, logic)?;
+    Ok(snapshot)
 }
 
 pub struct SlotInfo {
@@ -130,6 +157,97 @@ impl SaveStore {
     pub fn slot_path(&self, slot: SlotId) -> PathBuf {
         self.directory.join(format!("slot-{}.json", slot.0))
     }
+    pub fn auto_path(&self, slot: u16) -> Result<PathBuf> {
+        ensure!((1..=AUTO_COUNT).contains(&slot), "自动槽须在 1–10");
+        Ok(self.directory.join(format!("auto-{slot}.json")))
+    }
+    pub(crate) fn autosave_committed(&self, story: &Story, session: &Session) -> Result<()> {
+        let mut generation = 0u64;
+        for slot in 1..=AUTO_COUNT {
+            if let Ok(data) = read_json_bytes(&self.auto_path(slot)?)
+                && let Ok(snapshot) = serde_json::from_slice::<Snapshot>(&data)
+                && snapshot.schema_version == 6
+                && snapshot.story_id == story.id
+                && snapshot.content_version == story.content_version
+            {
+                generation = generation.max(snapshot.generation);
+            }
+        }
+        let mut snapshot = Snapshot::capture_committed(story, session)?;
+        snapshot.generation = generation.checked_add(1).context("自动存档序号溢出")?;
+        let slot = ((snapshot.generation - 1) % u64::from(AUTO_COUNT) + 1) as u16;
+        atomic_json(&self.auto_path(slot)?, &snapshot)
+    }
+    pub fn autosave_with(&self, story: &Story, session: &Session, logic: &dyn Logic) -> Result<()> {
+        story
+            .validate_session_with(session, logic)
+            .map_err(anyhow::Error::msg)?;
+        self.autosave_committed(story, session)
+    }
+    pub fn load_auto(&self, slot: u16, story: &Story, logic: &dyn Logic) -> Result<Session> {
+        parse_snapshot(&read_json_bytes(&self.auto_path(slot)?)?, story, logic)?
+            .restore_with(story, logic)
+    }
+    pub fn auto_list(&self, story: &Story) -> Vec<serde_json::Value> {
+        let mut infos = Vec::new();
+        for slot in 1..=AUTO_COUNT {
+            let path = self.auto_path(slot).expect("bounded slot");
+            if !path.exists() {
+                continue;
+            }
+            let result = read_json_bytes(&path)
+                .and_then(|data| serde_json::from_slice::<Snapshot>(&data).map_err(Into::into));
+            let (preview, loadable, generation) = match result {
+                Ok(s)
+                    if s.schema_version == 6
+                        && s.story_id == story.id
+                        && s.content_version == story.content_version
+                        && story.frames.contains_key(&s.frame_id) =>
+                {
+                    (
+                        format!("{} · {}", s.frame_id, story.frames[&s.frame_id].text),
+                        true,
+                        s.generation,
+                    )
+                }
+                _ => ("损坏或不兼容自动存档".into(), false, 0),
+            };
+            infos.push(serde_json::json!({"slot":slot,"title":format!("自动槽 {slot}"),"preview":preview,"exists":true,"loadable":loadable,"generation":generation}));
+        }
+        infos.sort_by_key(|v| std::cmp::Reverse(v["generation"].as_u64().unwrap_or(0)));
+        infos
+    }
+    pub fn list_page(&self, story: &Story, page: u16) -> Result<Vec<SlotInfo>> {
+        ensure!((1..=PAGE_COUNT).contains(&page), "存档页须在 1–20");
+        Ok(((page - 1) * PAGE_SIZE + 1..=page * PAGE_SIZE)
+            .map(|number| {
+                let slot = SlotId::new(number).expect("bounded page");
+                let path = self.slot_path(slot);
+                let state = if !path.exists() {
+                    SlotState::Empty
+                } else {
+                    match read_json_bytes(&path).and_then(|data| {
+                        serde_json::from_slice::<Snapshot>(&data).map_err(Into::into)
+                    }) {
+                        Ok(s)
+                            if s.schema_version == 6
+                                && s.story_id == story.id
+                                && s.content_version == story.content_version
+                                && story.frames.contains_key(&s.frame_id) =>
+                        {
+                            SlotState::Ready {
+                                preview: story.frames[&s.frame_id].text.clone(),
+                                frame_id: s.frame_id,
+                                saved_at_unix_ms: s.saved_at_unix_ms,
+                            }
+                        }
+                        _ => SlotState::Invalid("无效或旧版存档；加载时还会验证完整历史".into()),
+                    }
+                };
+                SlotInfo { slot, state }
+            })
+            .collect())
+    }
     pub fn legacy_path(&self) -> PathBuf {
         self.directory.join("save.json")
     }
@@ -138,27 +256,44 @@ impl SaveStore {
     }
 
     pub fn save(&self, slot: SlotId, story: &Story, session: &Session) -> Result<()> {
-        atomic_json(&self.slot_path(slot), &Snapshot::capture(story, session)?)
+        self.save_with(slot, story, session, &DeclarativeLogic)
+    }
+    pub fn save_with(
+        &self,
+        slot: SlotId,
+        story: &Story,
+        session: &Session,
+        logic: &dyn Logic,
+    ) -> Result<()> {
+        atomic_json(
+            &self.slot_path(slot),
+            &Snapshot::capture_with(story, session, logic)?,
+        )
     }
 
-    fn snapshot(&self, slot: SlotId, story: &Story) -> Result<Snapshot> {
+    fn snapshot(&self, slot: SlotId, story: &Story, logic: &dyn Logic) -> Result<Snapshot> {
         let data = read_json_bytes(&self.slot_path(slot))?;
-        let snapshot: Snapshot = serde_json::from_slice(&data).context("槽位存档 JSON 格式错误")?;
-        snapshot.restore(story)?;
-        Ok(snapshot)
+        parse_snapshot(&data, story, logic)
     }
 
     pub fn load(&self, slot: SlotId, story: &Story) -> Result<Session> {
-        self.snapshot(slot, story)?.restore(story)
+        self.load_with(slot, story, &DeclarativeLogic)
+    }
+    pub fn load_with(&self, slot: SlotId, story: &Story, logic: &dyn Logic) -> Result<Session> {
+        self.snapshot(slot, story, logic)?
+            .restore_with(story, logic)
     }
 
     pub fn list(&self, story: &Story) -> Vec<SlotInfo> {
+        self.list_with(story, &DeclarativeLogic)
+    }
+    pub fn list_with(&self, story: &Story, logic: &dyn Logic) -> Vec<SlotInfo> {
         SlotId::all()
             .map(|slot| {
                 let state = if !self.slot_path(slot).exists() {
                     SlotState::Empty
                 } else {
-                    match self.snapshot(slot, story) {
+                    match self.snapshot(slot, story, logic) {
                         Ok(snapshot) => SlotState::Ready {
                             preview: story.frames[&snapshot.frame_id].text.clone(),
                             frame_id: snapshot.frame_id,
@@ -173,14 +308,21 @@ impl SaveStore {
     }
 
     pub fn import_legacy(&self, story: &Story) -> Result<Session> {
+        self.import_legacy_with(story, &DeclarativeLogic)
+    }
+    pub fn import_legacy_with(&self, story: &Story, logic: &dyn Logic) -> Result<Session> {
         let data = read_json_bytes(&self.legacy_path())?;
         let old: LegacySnapshot =
             serde_json::from_slice(&data).context("v0.1 存档 JSON 格式错误")?;
         ensure!(old.schema_version == 1, "旧档入口只接受 schema 1");
         validate_identity(story, &old.story_id, old.content_version)?;
+        ensure!(
+            story.variables.is_empty(),
+            "有变量的故事不能从 schema 1 旧档推断变量，请重新开始"
+        );
         let session = Session::at(old.frame_id);
         story
-            .validate_session(&session)
+            .validate_session_with(&session, logic)
             .map_err(anyhow::Error::msg)?;
         Ok(session)
     }

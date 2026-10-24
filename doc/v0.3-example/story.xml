@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 可运行样例；素材与许可证见 assets/licenses。 -->
+<story schema="3" id="kakera-demo" content-version="2">
+  <assets>
+    <image id="bg.room" src="assets/bg/room.png" />
+    <image id="portrait.lin" src="assets/characters/lin.png" />
+    <font id="dialogue" src="assets/fonts/chinese.otf" />
+    <audio id="bgm.room" src="assets/audio/room.wav" />
+    <audio id="se.knock" src="assets/audio/knock.wav" />
+    <audio id="voice.lin" src="assets/audio/lin.wav" />
+  </assets>
+
+  <variables>
+    <int id="trust" label="信任" initial="0" min="0" max="3" />
+    <bool id="met" label="已相识" initial="false" />
+    <bool id="invited" label="已邀请" initial="false" />
+    <string id="mood" label="心情" initial="平静" />
+  </variables>
+
+  <characters>
+    <character id="lin" name="凛" />
+  </characters>
+
+  <visuals>
+    <visual id="room.empty" background="bg.room" />
+    <visual id="room.lin" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" />
+    </visual>
+  </visuals>
+
+  <frames>
+    <frame id="opening" visual="room.empty">
+      <text>午后的房间里，传来了轻轻的敲门声。</text>
+      <audio bgm="bgm.room" se="se.knock" />
+    </frame>
+    <frame id="question" visual="room.lin" speaker="lin">
+      <text>先散步增进了解，还是结束今天的相处？熟悉后可以邀请凛一同出发。</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+      <options>
+        <option id="accept">一起散步（信任加一）</option>
+        <option id="refuse">结束今天的相处</option>
+        <option id="invite">邀请凛一同出发</option>
+      </options>
+    </frame>
+    <frame id="walk" visual="room.lin" speaker="lin">
+      <text>一起慢慢走着，好像又熟悉了一些。回到门口，再做决定吧。</text>
+      <audio bgm="bgm.room" />
+    </frame>
+    <frame id="decision" visual="room.lin" speaker="lin">
+      <text>今天的相处会带来怎样的结果呢？</text>
+      <audio bgm="bgm.room" />
+    </frame>
+    <frame id="accept" visual="room.lin" speaker="lin">
+      <text>我们已经很熟悉了。那就一起出发吧！</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+    </frame>
+    <frame id="friendly" visual="room.lin" speaker="lin">
+      <text>今天的散步很开心。下次再一起走走吧。</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+    </frame>
+    <frame id="refuse" visual="room.empty">
+      <text>门轻轻合上，房间又安静了下来。</text>
+    </frame>
+  </frames>
+</story>

@@ -80,8 +80,8 @@ fn demo_audio_decodes_without_device_and_disabled_output_is_supported() {
 
 #[test]
 fn audio_contract_is_strict_and_original_schema_remains_supported() {
-    let story = include_str!("../games/demo/story.xml");
-    let flow = include_str!("../games/demo/flow.xml");
+    let story = include_str!("../doc/v0.3-example/story.xml");
+    let flow = include_str!("../doc/v0.3-example/flow.xml");
     let loaded = parse_story(story, flow, Path::new("demo")).unwrap();
     assert_eq!(
         loaded.story.frames["opening"].audio.bgm.as_deref(),
@@ -89,7 +89,7 @@ fn audio_contract_is_strict_and_original_schema_remains_supported() {
     );
     assert_eq!(loaded.story.frames["refuse"].audio, AudioCue::default());
     for (from, to) in [
-        ("schema=\"2\"", "schema=\"1\""),
+        ("schema=\"3\"", "schema=\"1\""),
         ("se=\"se.knock\"", "se=\"bg.room\""),
         ("bgm=\"bgm.room\"", "bgm=\"missing\""),
         ("voice=\"voice.lin\"", "unknown=\"voice.lin\""),
@@ -110,7 +110,7 @@ fn audio_contract_is_strict_and_original_schema_remains_supported() {
     }
     parse_story(
         include_str!("../doc/rust-mvc-example/story.xml"),
-        flow,
+        include_str!("../doc/rust-mvc-example/flow.xml"),
         Path::new("demo"),
     )
     .unwrap();

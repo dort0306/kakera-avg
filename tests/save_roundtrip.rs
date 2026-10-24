@@ -16,7 +16,7 @@ fn story() -> kakera_avg::model::Story {
     .unwrap()
     .story
 }
-fn slot(number: u8) -> SlotId {
+fn slot(number: u16) -> SlotId {
     SlotId::new(number).unwrap()
 }
 
@@ -42,12 +42,12 @@ fn reopening_store_restores_question_with_history_and_working_choices() {
 }
 
 #[test]
-fn six_slots_are_isolated_and_invalid_slot_numbers_are_rejected() {
+fn two_hundred_slots_are_isolated_and_invalid_slot_numbers_are_rejected() {
     let story = story();
     let directory = tempfile::tempdir().unwrap();
     let store = SaveStore::at(directory.path().into());
     assert!(SlotId::new(0).is_err());
-    assert!(SlotId::new(7).is_err());
+    assert!(SlotId::new(201).is_err());
     assert!(
         store
             .list(&story)
@@ -74,7 +74,7 @@ fn six_slots_are_isolated_and_invalid_slot_numbers_are_rejected() {
     assert_eq!(store.load(slot(1), &story).unwrap(), refuse);
     assert_eq!(store.load(slot(2), &story).unwrap(), question);
     assert_eq!(store.load(slot(6), &story).unwrap(), accept);
-    assert_eq!(store.list(&story).len(), 6);
+    assert_eq!(store.list(&story).len(), 200);
     assert!(
         matches!(&store.list(&story)[1].state, SlotState::Ready { frame_id, preview, saved_at_unix_ms } if frame_id=="question" && preview=="要一起去看看吗？" && *saved_at_unix_ms>0)
     );
@@ -149,6 +149,7 @@ fn invalid_session_cannot_overwrite_old_save() {
         Session {
             frame_id: "opening".into(),
             history: vec![],
+            ..Session::at("opening")
         },
         Session {
             frame_id: "opening".into(),
@@ -159,6 +160,7 @@ fn invalid_session_cannot_overwrite_old_save() {
                 };
                 MAX_HISTORY + 1
             ],
+            ..Session::at("opening")
         },
     ] {
         assert!(store.save(slot(1), &story, &invalid).is_err());

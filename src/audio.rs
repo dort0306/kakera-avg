@@ -19,7 +19,25 @@ pub struct PreparedAudio {
 }
 
 impl PreparedAudio {
+    pub fn insert_video(&mut self, id: &str, audio: SamplesBuffer) {
+        self.clips.insert(format!("$video:{id}"), audio);
+    }
     pub fn load(story: &Story) -> Result<Self> {
+        Self::load_bytes(story, &|path| {
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)?
+                .take(MAX_CLIP_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)?;
+            Ok(bytes)
+        })
+    }
+    pub fn load_from(story: &Story, source: &dyn crate::content::ContentSource) -> Result<Self> {
+        Self::load_bytes(story, &|path| source.read(path))
+    }
+    fn load_bytes(
+        story: &Story,
+        read: &dyn Fn(&std::path::Path) -> Result<Vec<u8>>,
+    ) -> Result<Self> {
         let mut clips = BTreeMap::new();
         let mut total_bytes = 0;
         for (id, asset) in &story.assets {
@@ -27,10 +45,7 @@ impl PreparedAudio {
                 continue;
             }
             let clip = (|| -> Result<SamplesBuffer> {
-                let mut bytes = Vec::new();
-                std::fs::File::open(&asset.path)?
-                    .take(MAX_CLIP_BYTES as u64 + 1)
-                    .read_to_end(&mut bytes)?;
+                let bytes = read(&asset.path)?;
                 ensure!(bytes.len() <= MAX_CLIP_BYTES, "音频文件超过 128MiB");
                 let decoder =
                     Decoder::try_from(Cursor::new(bytes)).context("无法解码 WAV/Ogg 音频")?;
@@ -129,6 +144,7 @@ impl AudioPlan {
 }
 
 struct Device {
+    video: Option<Sink>,
     // Keep sinks alive, and drop them before the output stream.
     bgm: Option<Sink>,
     voice: Option<Sink>,
@@ -138,6 +154,7 @@ struct Device {
 }
 
 pub struct AudioEngine {
+    video_active: bool,
     prepared: PreparedAudio,
     plan: AudioPlan,
     device: Option<Device>,
@@ -145,6 +162,26 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
+    pub fn video(&mut self, id: Option<&str>) {
+        self.video_active = id.is_some();
+        if let Some(device) = &mut self.device {
+            if let Some(old) = device.video.take() {
+                old.stop();
+            }
+            if let Some(clip) = id.and_then(|id| self.prepared.clip(&format!("$video:{id}"))) {
+                let sink = Sink::connect_new(device.stream.mixer());
+                sink.pause();
+                sink.append(clip.clone());
+                device.video = Some(sink);
+            }
+        }
+    }
+    pub fn voice_finished(&self) -> bool {
+        self.device
+            .as_ref()
+            .and_then(|d| d.voice.as_ref())
+            .is_none_or(Sink::empty)
+    }
     pub fn new(prepared: PreparedAudio, disabled: bool) -> (Self, Option<String>) {
         let mut warning = None;
         let (device, status) = if disabled || prepared.is_empty() {
@@ -172,6 +209,7 @@ impl AudioEngine {
                     eprintln!("音频设备输出流已建立：{:?}", stream.config());
                     (
                         Some(Device {
+                            video: None,
                             bgm: None,
                             voice: None,
                             se: None,
@@ -189,6 +227,7 @@ impl AudioEngine {
         };
         (
             Self {
+                video_active: false,
                 prepared,
                 plan: AudioPlan::default(),
                 device,
@@ -240,9 +279,22 @@ impl AudioEngine {
             return;
         };
         for (sink, volume, pause) in [
-            (&device.bgm, settings.bgm_volume, !focused),
-            (&device.voice, settings.voice_volume, !focused || overlay),
-            (&device.se, settings.se_volume, !focused || overlay),
+            (
+                &device.bgm,
+                settings.bgm_volume,
+                !focused || self.video_active,
+            ),
+            (
+                &device.voice,
+                settings.voice_volume,
+                !focused || overlay || self.video_active,
+            ),
+            (
+                &device.se,
+                settings.se_volume,
+                !focused || overlay || self.video_active,
+            ),
+            (&device.video, settings.video_volume, !focused || overlay),
         ] {
             if let Some(sink) = sink {
                 sink.set_volume(if settings.muted { 0.0 } else { volume });

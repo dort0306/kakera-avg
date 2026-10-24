@@ -4,17 +4,29 @@ use roxmltree::{Document, Node};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
 
+pub(crate) mod effect_xml;
+mod media_xml;
+pub(crate) mod rule_xml;
+use rule_xml::Guard;
+
 pub struct LoadedStory {
     pub story: Story,
     pub warnings: Vec<String>,
+    pub scripts: Vec<std::path::PathBuf>,
+    pub interface: Option<crate::interface::Definition>,
+    pub interface_path: Option<std::path::PathBuf>,
 }
 
-fn error(file: &str, node: Node<'_, '_>, message: impl std::fmt::Display) -> anyhow::Error {
+pub(crate) fn error(
+    file: &str,
+    node: Node<'_, '_>,
+    message: impl std::fmt::Display,
+) -> anyhow::Error {
     let pos = node.document().text_pos_at(node.range().start);
     anyhow!("{file}:{}:{}: {message}", pos.row, pos.col)
 }
 
-fn check(
+pub(crate) fn check(
     file: &str,
     node: Node<'_, '_>,
     tag: &str,
@@ -48,7 +60,7 @@ fn check(
     Ok(())
 }
 
-fn required<'a>(file: &str, node: Node<'a, '_>, name: &str) -> Result<&'a str> {
+pub(crate) fn required<'a>(file: &str, node: Node<'a, '_>, name: &str) -> Result<&'a str> {
     node.attribute(name)
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| error(file, node, format!("缺少非空属性 {name}")))
@@ -74,7 +86,7 @@ fn unique<T>(
     Ok(())
 }
 
-fn single<'a, 'input>(
+pub(crate) fn single<'a, 'input>(
     file: &str,
     parent: Node<'a, 'input>,
     name: &str,
@@ -89,7 +101,9 @@ fn single<'a, 'input>(
     Ok(node)
 }
 
-fn elements<'a, 'input>(node: Node<'a, 'input>) -> impl Iterator<Item = Node<'a, 'input>> {
+pub(crate) fn elements<'a, 'input>(
+    node: Node<'a, 'input>,
+) -> impl Iterator<Item = Node<'a, 'input>> {
     node.children().filter(Node::is_element)
 }
 
@@ -127,20 +141,47 @@ fn image_ref(
 /// Parse and validate data without touching the filesystem. Resource paths are relative to `root`.
 pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<LoadedStory> {
     let content = Document::parse(story_xml).context("story.xml 解析失败")?;
-    let flow_doc = Document::parse(flow_xml).context("flow.xml 解析失败")?;
     let s = "story.xml";
     let f = "flow.xml";
     let story_node = content.root_element();
+    let schema = required(s, story_node, "schema")?;
     check(
         s,
         story_node,
         "story",
-        &["schema", "id", "content-version"],
-        &["assets", "characters", "visuals", "frames"],
+        if ["4", "5", "6"].contains(&schema) {
+            &["schema", "id", "content-version", "entry"]
+        } else {
+            &["schema", "id", "content-version"]
+        },
+        if ["5", "6"].contains(&schema) {
+            &[
+                "assets",
+                "characters",
+                "visuals",
+                "frames",
+                "variables",
+                "scripts",
+                "interface",
+                "effects",
+            ]
+        } else if schema == "4" {
+            &[
+                "assets",
+                "characters",
+                "visuals",
+                "frames",
+                "variables",
+                "scripts",
+            ]
+        } else if schema == "3" {
+            &["assets", "characters", "visuals", "frames", "variables"]
+        } else {
+            &["assets", "characters", "visuals", "frames"]
+        },
         false,
     )?;
-    let schema = required(s, story_node, "schema")?;
-    if !["1", "2"].contains(&schema) {
+    if !["1", "2", "3", "4", "5", "6"].contains(&schema) {
         return Err(error(s, story_node, "不支持的 story schema"));
     }
     let id = required(s, story_node, "id")?.to_owned();
@@ -162,10 +203,14 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
     if content_version == 0 {
         return Err(error(s, story_node, "content-version 必须大于 0"));
     }
+    let variables = rule_xml::variables(story_node)?;
+    let effects = effect_xml::presets(story_node)?;
 
     let mut assets = BTreeMap::new();
     let asset_node = single(s, story_node, "assets")?;
-    let asset_tags: &[&str] = if schema == "2" {
+    let asset_tags: &[&str] = if schema == "6" {
+        &["image", "font", "audio", "video", "live2d"]
+    } else if schema != "1" {
         &["image", "font", "audio"]
     } else {
         &["image", "font"]
@@ -186,6 +231,8 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             ));
         }
         let kind = match node.tag_name().name() {
+            "video" => AssetKind::Video,
+            "live2d" => AssetKind::Live2D,
             "image" => AssetKind::Image,
             "font" => AssetKind::Font,
             "audio" => {
@@ -236,7 +283,11 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             s,
             node,
             "visual",
-            &["id", "background"],
+            if ["5", "6"].contains(&schema) {
+                &["id", "background", "background-effect"]
+            } else {
+                &["id", "background"]
+            },
             &["portrait"],
             false,
         )?;
@@ -251,8 +302,23 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
                 s,
                 p,
                 "portrait",
-                &["character", "image", "slot"],
-                &[],
+                if ["5", "6"].contains(&schema) {
+                    &[
+                        "character",
+                        "image",
+                        "slot",
+                        "effect",
+                        "pose",
+                        "enter",
+                        "exit",
+                        "duration",
+                        "strength",
+                        "easing",
+                    ]
+                } else {
+                    &["character", "image", "slot"]
+                },
+                if schema == "6" { &["live2d"] } else { &[] },
                 false,
             )?;
             let character = required(s, p, "character")?;
@@ -270,7 +336,22 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             if !slots.insert(slot) {
                 return Err(error(s, p, "立绘位置重复"));
             }
+            let (pose, enter, exit) = effect_xml::portrait(s, p)?;
+            let live2d = media_xml::live2d(p, &assets)?;
+            let effect = effect_xml::reference(s, p, "effect", &effects)?;
+            if live2d.is_some() && effect.filter != crate::model::effects::Filter::None {
+                return Err(error(
+                    s,
+                    p,
+                    "Live2D 不支持静态栅格滤镜；可使用透明度/染色/缩放/旋转",
+                ));
+            }
             portraits.push(Portrait {
+                live2d,
+                pose,
+                enter,
+                exit,
+                effect,
                 character: character.to_owned(),
                 image: image.to_owned(),
                 slot,
@@ -282,6 +363,7 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             &mut visuals,
             required(s, node, "id")?,
             Visual {
+                background_effect: effect_xml::reference(s, node, "background-effect", &effects)?,
                 background,
                 portraits,
             },
@@ -297,7 +379,11 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             node,
             "frame",
             &["id", "visual", "speaker"],
-            if schema == "2" {
+            if schema == "6" {
+                &["text", "options", "audio", "transition", "video"]
+            } else if schema == "5" {
+                &["text", "options", "audio", "transition"]
+            } else if schema != "1" {
                 &["text", "options", "audio"]
             } else {
                 &["text", "options"]
@@ -370,6 +456,12 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             &mut frames,
             id,
             Frame {
+                video: media_xml::video(node, &assets)?,
+                transition: if elements(node).any(|n| n.has_tag_name("transition")) {
+                    effect_xml::transition(s, single(s, node, "transition")?)?
+                } else {
+                    Default::default()
+                },
                 id: id.to_owned(),
                 visual,
                 speaker,
@@ -381,17 +473,75 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
         frame_nodes.insert(id.to_owned(), node);
     }
 
+    if ["4", "5", "6"].contains(&schema) {
+        let interface_path = if ["5", "6"].contains(&schema) {
+            let node = single(s, story_node, "interface")?;
+            check(s, node, "interface", &["src"], &[], false)?;
+            let path = Path::new(required(s, node, "src")?);
+            crate::content::validate_path(path).map_err(|e| error(s, node, e))?;
+            Some(path.to_owned())
+        } else {
+            None
+        };
+        let entry = required(s, story_node, "entry")?.to_owned();
+        if !frames.contains_key(&entry) {
+            return Err(error(s, story_node, "入口场景不存在"));
+        }
+        let scripts_node = single(s, story_node, "scripts")?;
+        check(s, scripts_node, "scripts", &[], &["script"], false)?;
+        let mut scripts = Vec::new();
+        for script in elements(scripts_node) {
+            check(s, script, "script", &["src"], &[], false)?;
+            let path = Path::new(required(s, script, "src")?);
+            crate::content::validate_path(path).map_err(|message| error(s, script, message))?;
+            if path.extension().and_then(|item| item.to_str()) != Some("js")
+                || scripts.contains(&path.to_path_buf())
+            {
+                return Err(error(s, script, "脚本必须为不重复的 .js 相对路径"));
+            }
+            scripts.push(path.to_path_buf());
+        }
+        if scripts.is_empty() || scripts.len() > 32 {
+            return Err(error(s, scripts_node, "脚本数量必须为 1–32"));
+        }
+        return Ok(LoadedStory {
+            story: Story {
+                effects,
+                id,
+                content_version,
+                entry,
+                assets,
+                characters,
+                frames,
+                routes: BTreeMap::new(),
+                variables,
+            },
+            warnings: Vec::new(),
+            scripts,
+            interface: None,
+            interface_path,
+        });
+    }
+    let flow_doc = Document::parse(flow_xml).context("flow.xml 解析失败")?;
     let flow = flow_doc.root_element();
+    let flow_schema = required(f, flow, "schema")?;
     check(
         f,
         flow,
         "flow",
         &["schema", "story", "entry"],
-        &["next", "choice", "end"],
+        if flow_schema == "2" {
+            &["next", "choice", "end", "branch"]
+        } else {
+            &["next", "choice", "end"]
+        },
         false,
     )?;
-    if required(f, flow, "schema")? != "1" {
+    if !["1", "2"].contains(&flow_schema) {
         return Err(error(f, flow, "不支持的 flow schema"));
+    }
+    if flow_schema == "2" && schema != "3" {
+        return Err(error(f, flow, "flow schema 2 需要 story schema 3"));
     }
     if required(f, flow, "story")? != id {
         return Err(error(f, flow, "flow 的 story 与故事 ID 不匹配"));
@@ -404,26 +554,74 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
     for node in elements(flow) {
         let (from, route) = match node.tag_name().name() {
             "next" => {
-                check(f, node, "next", &["from", "to"], &[], false)?;
+                check(
+                    f,
+                    node,
+                    "next",
+                    &["from", "to"],
+                    if flow_schema == "2" {
+                        &["effects"]
+                    } else {
+                        &[]
+                    },
+                    false,
+                )?;
                 (
                     required(f, node, "from")?,
-                    Route::Next(required(f, node, "to")?.to_owned()),
+                    Route::Next(rule_xml::transition(f, node, &variables, Guard::Forbidden)?),
                 )
             }
             "choice" => {
                 check(f, node, "choice", &["from"], &["on"], false)?;
                 let mut choices = BTreeMap::new();
                 for on in elements(node) {
-                    check(f, on, "on", &["option", "to"], &[], false)?;
+                    check(
+                        f,
+                        on,
+                        "on",
+                        &["option", "to"],
+                        if flow_schema == "2" {
+                            &["when", "effects"]
+                        } else {
+                            &[]
+                        },
+                        false,
+                    )?;
                     unique(
                         f,
                         on,
                         &mut choices,
                         required(f, on, "option")?,
-                        required(f, on, "to")?.to_owned(),
+                        rule_xml::transition(f, on, &variables, Guard::Optional)?,
                     )?;
                 }
                 (required(f, node, "from")?, Route::Choice(choices))
+            }
+            "branch" => {
+                check(f, node, "branch", &["from"], &["case", "otherwise"], false)?;
+                let children: Vec<_> = elements(node).collect();
+                let fallback = single(f, node, "otherwise")?;
+                if children.last().copied() != Some(fallback) || children.len() < 2 {
+                    return Err(error(
+                        f,
+                        node,
+                        "branch 至少一个 case，otherwise 必须恰好一个且在最后",
+                    ));
+                }
+                let mut cases = Vec::new();
+                for case in children
+                    .into_iter()
+                    .filter(|child| child.has_tag_name("case"))
+                {
+                    check(f, case, "case", &["to"], &["when", "effects"], false)?;
+                    cases.push(rule_xml::transition(f, case, &variables, Guard::Required)?);
+                }
+                check(f, fallback, "otherwise", &["to"], &["effects"], false)?;
+                let otherwise = rule_xml::transition(f, fallback, &variables, Guard::Forbidden)?;
+                (
+                    required(f, node, "from")?,
+                    Route::Branch { cases, otherwise },
+                )
             }
             "end" => {
                 check(f, node, "end", &["frame"], &[], false)?;
@@ -434,12 +632,7 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
         let frame = frames
             .get(from)
             .ok_or_else(|| error(f, node, format!("流转源场景不存在：{from}")))?;
-        let targets: Vec<&str> = match &route {
-            Route::Next(to) => vec![to],
-            Route::Choice(choices) => choices.values().map(String::as_str).collect(),
-            Route::End => vec![],
-        };
-        for target in targets {
+        for target in route.targets() {
             if !frames.contains_key(target) {
                 return Err(error(f, node, format!("目标场景不存在：{target}")));
             }
@@ -478,11 +671,7 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
         if !reached.insert(id.clone()) {
             continue;
         }
-        match &routes[&id] {
-            Route::Next(to) => pending.push(to.clone()),
-            Route::Choice(choices) => pending.extend(choices.values().cloned()),
-            Route::End => {}
-        }
+        pending.extend(routes[&id].targets().into_iter().map(str::to_owned));
     }
     let warnings = frames
         .keys()
@@ -491,6 +680,7 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
         .collect();
     Ok(LoadedStory {
         story: Story {
+            effects,
             id,
             content_version,
             entry,
@@ -498,8 +688,12 @@ pub fn parse_story(story_xml: &str, flow_xml: &str, root: &Path) -> Result<Loade
             characters,
             frames,
             routes,
+            variables,
         },
         warnings,
+        scripts: Vec::new(),
+        interface: None,
+        interface_path: None,
     })
 }
 
@@ -511,10 +705,27 @@ pub fn load_story(root: &Path) -> Result<LoadedStory> {
     let flow_path = root.join("flow.xml");
     let story = std::fs::read_to_string(&story_path)
         .with_context(|| format!("读取 {}", story_path.display()))?;
-    let flow = std::fs::read_to_string(&flow_path)
-        .with_context(|| format!("读取 {}", flow_path.display()))?;
-    let loaded = parse_story(&story, &flow, &root)
+    let scripted = matches!(
+        Document::parse(&story)?.root_element().attribute("schema"),
+        Some("4" | "5" | "6")
+    );
+    let flow = if scripted {
+        String::new()
+    } else {
+        std::fs::read_to_string(&flow_path)
+            .with_context(|| format!("读取 {}", flow_path.display()))?
+    };
+    let mut loaded = parse_story(&story, &flow, &root)
         .with_context(|| format!("游戏目录 {}", root.display()))?;
+    if scripted {
+        let source = crate::content::DirectorySource::new(&root)?;
+        let script = crate::script::ScriptLogic::load(&mut loaded.story, &source, &loaded.scripts)?;
+        attach_interface(
+            &mut loaded,
+            &source,
+            &crate::script::LogicEngine::Script(script),
+        )?;
+    }
     for (id, asset) in &loaded.story.assets {
         let resolved = asset
             .path
@@ -530,4 +741,121 @@ pub fn load_story(root: &Path) -> Result<LoadedStory> {
         }
     }
     Ok(loaded)
+}
+
+/// Runtime entry point for directories, memory or a future archive. Paths stay logical.
+pub fn load_game(
+    source: &dyn crate::content::ContentSource,
+) -> Result<(LoadedStory, crate::script::LogicEngine)> {
+    use crate::{
+        content,
+        script::{LogicEngine, ScriptLogic},
+    };
+    let story = content::text(source, Path::new("story.xml"))?;
+    let scripted = matches!(
+        Document::parse(&story)
+            .context("story.xml 解析失败")?
+            .root_element()
+            .attribute("schema"),
+        Some("4" | "5" | "6")
+    );
+    let flow = if scripted {
+        String::new()
+    } else {
+        content::text(source, Path::new("flow.xml"))?
+    };
+    let mut loaded = parse_story(&story, &flow, Path::new(""))?;
+    let logic = if scripted {
+        LogicEngine::Script(ScriptLogic::load(
+            &mut loaded.story,
+            source,
+            &loaded.scripts,
+        )?)
+    } else {
+        LogicEngine::Declarative
+    };
+    logic
+        .options(&loaded.story, &loaded.story.start())
+        .map_err(anyhow::Error::msg)?;
+    for frame in loaded.story.frames.values() {
+        if frame.video.as_ref().is_some_and(|v| v.advance)
+            && !matches!(
+                loaded.story.routes[&frame.id],
+                Route::Next(_) | Route::Branch { .. } | Route::Script(ScriptRoute::Advance)
+            )
+        {
+            bail!("视频场景 {} 的 advance=true 需要 Advance 路由", frame.id);
+        }
+    }
+    attach_interface(&mut loaded, source, &logic)?;
+    Ok((loaded, logic))
+}
+
+fn attach_interface(
+    loaded: &mut LoadedStory,
+    source: &dyn crate::content::ContentSource,
+    logic: &crate::script::LogicEngine,
+) -> Result<()> {
+    if let Some(path) = &loaded.interface_path {
+        let text = crate::content::text(source, path)?;
+        loaded.interface = Some(crate::interface::parse(
+            &text,
+            &path.to_string_lossy(),
+            &loaded.story,
+            &logic.ui_handlers()?,
+        )?);
+    }
+    initial_ui_plan(loaded, logic)?;
+    Ok(())
+}
+
+/// Evaluate the entry lifecycle against a fresh, IO-free snapshot for startup validation.
+pub fn initial_ui_plan(
+    loaded: &LoadedStory,
+    logic: &crate::script::LogicEngine,
+) -> Result<Option<crate::interface::host::Plan>> {
+    if let Some(def) = &loaded.interface
+        && def.enter
+    {
+        use crate::interface::{
+            Data, Event, data,
+            host::{self, Profile, State},
+        };
+        let session = loaded.story.start();
+        let state = State::new(def);
+        let profile = Profile::new(&loaded.story.id, def);
+        let settings = crate::settings::Settings::default();
+        let available = logic
+            .options(&loaded.story, &session)
+            .map_err(anyhow::Error::msg)?;
+        let data = Data::build(data::Input {
+            definition: def,
+            story: &loaded.story,
+            session: &session,
+            available: &available,
+            state: &state,
+            profile: &profile,
+            slots: &[],
+            settings: &settings,
+            complete: false,
+        });
+        let commands = logic.ui_event(
+            &Event {
+                name: "game.enter".into(),
+                item: serde_json::Value::Null,
+                value: serde_json::Value::Null,
+            },
+            &session,
+            &state.variables,
+            &data.values,
+        )?;
+        let plan = host::prepare(def, &state, &settings, &profile, commands, true)?;
+        crate::effects::validate_portraits(
+            &loaded.story.frames[&session.frame_id],
+            &plan.portraits,
+        )
+        .map_err(anyhow::Error::msg)?;
+        return Ok(Some(plan));
+    }
+    Ok(None)
 }

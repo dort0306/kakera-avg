@@ -1,6 +1,6 @@
 [package]
 name = "kakera-avg"
-version = "0.2.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A minimal, frame-based visual novel player"
@@ -12,13 +12,18 @@ eframe = { version = "=0.33.3", default-features = false, features = ["default_f
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 roxmltree = "=0.21.1"
 rodio = { version = "=0.21.1", default-features = false, features = ["playback", "wav", "vorbis"] }
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3.23"
 ttf-parser = "0.25"
 unicode-segmentation = "1.12"
+libloading = "=0.8.9"
 # eframe without default features does not enable any native wgpu backend.
 wgpu = { version = "27.0.1", default-features = false, features = ["dx12", "metal", "vulkan"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.58.0", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole"] }
 
 [profile.release]
 strip = true

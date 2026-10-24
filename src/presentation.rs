@@ -101,3 +101,36 @@ pub fn gate(intent: Intent, complete: bool) -> GatedIntent {
         (intent, true) => GatedIntent::Dispatch(intent),
     }
 }
+
+/// One shot per entry. User input always wins arbitration in App.
+#[derive(Default)]
+pub struct AutoPlay {
+    pub enabled: bool,
+    elapsed: f32,
+}
+impl AutoPlay {
+    pub fn set(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        self.enter();
+    }
+    pub fn enter(&mut self) {
+        self.elapsed = 0.0;
+    }
+    pub fn tick(&mut self, seconds: f32, ready: bool, advance_route: bool, delay: f32) -> bool {
+        if !advance_route {
+            self.set(false);
+            return false;
+        }
+        if !self.enabled || !ready {
+            self.elapsed = 0.0;
+            return false;
+        }
+        self.elapsed += seconds.max(0.0);
+        if self.elapsed >= delay {
+            self.elapsed = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+}

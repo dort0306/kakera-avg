@@ -1,0 +1,69 @@
+{
+  "schema_version": 3,
+  "story_id": "kakera-demo",
+  "content_version": 2,
+  "frame_id": "question",
+  "history": [
+    {
+      "frame_id": "opening",
+      "choice_id": null
+    },
+    {
+      "frame_id": "question",
+      "choice_id": "accept"
+    },
+    {
+      "frame_id": "walk",
+      "choice_id": null
+    },
+    {
+      "frame_id": "question",
+      "choice_id": "accept"
+    },
+    {
+      "frame_id": "walk",
+      "choice_id": null
+    },
+    {
+      "frame_id": "question",
+      "choice_id": null
+    }
+  ],
+  "variables": {
+    "invited": {
+      "type": "bool",
+      "value": false
+    },
+    "met": {
+      "type": "bool",
+      "value": true
+    },
+    "mood": {
+      "type": "string",
+      "value": "期待"
+    },
+    "trust": {
+      "type": "int",
+      "value": 2
+    }
+  },
+  "history_base_variables": {
+    "invited": {
+      "type": "bool",
+      "value": false
+    },
+    "met": {
+      "type": "bool",
+      "value": false
+    },
+    "mood": {
+      "type": "string",
+      "value": "平静"
+    },
+    "trust": {
+      "type": "int",
+      "value": 0
+    }
+  },
+  "saved_at_unix_ms": 1792697028864
+}
