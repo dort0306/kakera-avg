@@ -8,21 +8,28 @@ use crate::{
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
+    pub regions: BTreeMap<String, crate::image_layout::Region>,
     pub slot_page: u16,
     pub stack: Vec<String>,
     pub variables: Variables,
 }
 impl State {
     pub fn new(def: &Definition) -> Self {
-        Self {
+        let mut state = Self {
+            regions: BTreeMap::new(),
             slot_page: 1,
             stack: vec![def.initial.clone()],
             variables: def.initial_variables(),
-        }
+        };
+        state.regions = resolved_regions(def, &state).unwrap_or_default();
+        state
     }
     pub fn paused(&self, def: &Definition) -> bool {
         self.stack.iter().any(|id| def.screens[id].pause)
@@ -384,6 +391,7 @@ pub fn prepare(
         }
     }
     validate_images(def, &plan.state)?;
+    plan.state.regions = resolved_regions(def, &plan.state)?;
     Ok(plan)
 }
 pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
@@ -406,5 +414,66 @@ pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
     for screen in def.screens.values() {
         walk(def, state, &screen.nodes)?;
     }
+    resolved_regions(def, state)?;
     Ok(())
+}
+
+fn resolved_regions(
+    def: &Definition,
+    state: &State,
+) -> Result<BTreeMap<String, crate::image_layout::Region>> {
+    fn walk(
+        def: &Definition,
+        state: &State,
+        nodes: &[super::Node],
+        output: &mut BTreeMap<String, crate::image_layout::Region>,
+    ) -> Result<()> {
+        for node in nodes {
+            let result = (|| -> Result<()> {
+                let region = if let Some(path) = &node.region_bind {
+                    let Some(VariableValue::String(text)) =
+                        state.variables.get(path.strip_prefix("ui.").unwrap_or(""))
+                    else {
+                        anyhow::bail!("region-bind 类型错误");
+                    };
+                    Some(crate::image_layout::Region::parse(text)?)
+                } else {
+                    node.region
+                };
+                if let Some(region) = region {
+                    let image = node.image.as_deref().or_else(|| {
+                        node.image_bind
+                            .as_deref()
+                            .and_then(|p| p.strip_prefix("ui."))
+                            .and_then(|name| match state.variables.get(name) {
+                                Some(VariableValue::String(id)) => Some(id.as_str()),
+                                _ => None,
+                            })
+                    });
+                    for id in [
+                        image,
+                        node.hover_image.as_deref(),
+                        node.disabled_image.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        if let Some(size) = def.image_sizes.get(id) {
+                            region.validate(*size)?;
+                        }
+                    }
+                    output.insert(node.id.clone(), region);
+                }
+                Ok(())
+            })();
+            result.map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
+            walk(def, state, &node.children, output)?;
+        }
+        Ok(())
+    }
+    let mut output = BTreeMap::new();
+    for screen in def.screens.values() {
+        walk(def, state, &screen.nodes, &mut output)?;
+    }
+    Ok(output)
 }

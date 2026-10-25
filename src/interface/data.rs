@@ -57,7 +57,7 @@ impl Data {
             .map(String::as_str)
             .unwrap_or("");
         let mut data = Self {
-            values: json!({"game":{"frameId":frame.id,"speaker":speaker,"text":frame.text},"settings":settings,"ui":values(&state.variables)}),
+            values: json!({"game":{"frameId":frame.reference(),"speaker":speaker,"text":frame.text},"settings":settings,"ui":values(&state.variables)}),
             lists: Default::default(),
         };
         data.values["saves"] = json!({"page":state.slot_page,"pages":crate::save::PAGE_COUNT,
@@ -110,7 +110,7 @@ impl Data {
         data.lists.insert("history".into(),session.history.iter().enumerate().map(|(index,entry)|{
             let frame=&story.frames[&entry.frame_id];let speaker=frame.speaker.as_ref().and_then(|id|story.characters.get(id)).map(String::as_str).unwrap_or("旁白");
             let choice=entry.choice_id.as_ref().and_then(|id|frame.options.iter().find(|o|&o.id==id)).map(|o|format!("选择：{}",o.text)).unwrap_or_default();
-            json!({"id":format!("{} · {}",index+1,frame.id),"speaker":speaker,"text":frame.text,"choice":choice})
+            json!({"id":format!("{} · {}",index+1,frame.reference()),"speaker":speaker,"text":frame.text,"choice":choice})
         }).collect());
         data
     }

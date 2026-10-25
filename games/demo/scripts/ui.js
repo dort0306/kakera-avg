@@ -102,3 +102,9 @@ on.ui("background-advance", ctx => {
 on.ui("toggle-hud", ctx => ctx.setUi("hudVisible",!ctx.ui.hudVisible));
 
 on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
+
+
+on.ui("open-skins", ctx => ctx.open("skins"));
+for (const [event, region] of [["sprite-blue","0,0,64,64"],["sprite-green","64,0,64,64"],["sprite-red","128,0,64,64"]]) {
+  on.ui(event, ctx => ctx.setUi("spriteRegion", region));
+}

@@ -20,6 +20,8 @@ pub struct Definition {
     pub gallery: BTreeMap<String, Cg>,
     pub screens: BTreeMap<String, Screen>,
     pub images: BTreeSet<String>,
+    pub nine_patches: BTreeSet<String>,
+    pub image_sizes: BTreeMap<String, [u32; 2]>,
     pub enter: bool,
 }
 #[derive(Clone, Debug)]
@@ -41,6 +43,7 @@ pub enum Kind {
     Scene,
     Panel,
     Image,
+    NinePatch,
     Label,
     Button,
     Slider {
@@ -57,6 +60,10 @@ pub enum Kind {
 }
 #[derive(Clone, Debug)]
 pub struct Node {
+    pub location: String,
+    pub region: Option<crate::image_layout::Region>,
+    pub region_bind: Option<String>,
+    pub density: f32,
     pub effect: crate::model::effects::ImageEffect,
     pub id: String,
     pub kind: Kind,
@@ -307,14 +314,30 @@ impl Parser<'_> {
                 return Err(error(self.file, xml, "UI 超过深度 8 或 1024 节点"));
             }
             let tag = xml.tag_name().name();
-            let container = ["panel", "repeat"].contains(&tag);
+            let container = ["panel", "nine-patch", "repeat"].contains(&tag);
             let mut attrs = vec![
                 "id", "x", "y", "width", "height", "color", "visible", "enabled",
             ];
             match tag {
                 "scene" => {}
-                "panel" => attrs.extend(["image", "image-bind", "fit", "radius", "effect"]),
-                "image" => attrs.extend(["image", "image-bind", "fit", "effect"]),
+                "panel" => attrs.extend([
+                    "image",
+                    "image-bind",
+                    "fit",
+                    "radius",
+                    "effect",
+                    "region",
+                    "region-bind",
+                ]),
+                "image" => attrs.extend([
+                    "image",
+                    "image-bind",
+                    "fit",
+                    "effect",
+                    "region",
+                    "region-bind",
+                ]),
+                "nine-patch" => attrs.extend(["image", "density"]),
                 "label" => attrs.extend(["text", "bind", "font-size"]),
                 "button" => attrs.extend([
                     "text",
@@ -324,6 +347,8 @@ impl Parser<'_> {
                     "image",
                     "hover-image",
                     "disabled-image",
+                    "region",
+                    "region-bind",
                     "radius",
                 ]),
                 "slider" => attrs.extend(["value", "min", "max", "event"]),
@@ -338,7 +363,15 @@ impl Parser<'_> {
                 &attrs,
                 if container {
                     &[
-                        "scene", "panel", "image", "label", "button", "slider", "toggle", "repeat",
+                        "scene",
+                        "panel",
+                        "image",
+                        "nine-patch",
+                        "label",
+                        "button",
+                        "slider",
+                        "toggle",
+                        "repeat",
                     ]
                 } else {
                     &[]
@@ -363,6 +396,7 @@ impl Parser<'_> {
                 "scene" => Kind::Scene,
                 "panel" => Kind::Panel,
                 "image" => Kind::Image,
+                "nine-patch" => Kind::NinePatch,
                 "label" => Kind::Label,
                 "button" => Kind::Button,
                 "toggle" => Kind::Toggle,
@@ -434,10 +468,54 @@ impl Parser<'_> {
                 .into_iter()
                 .flatten()
             {
-                image(self.file, xml, id, self.story)?;
+                if tag == "nine-patch" {
+                    if !self
+                        .story
+                        .assets
+                        .get(id)
+                        .is_some_and(|a| a.kind == AssetKind::NinePatch)
+                    {
+                        return Err(error(
+                            self.file,
+                            xml,
+                            "nine-patch 节点需要 nine-patch 类型资源",
+                        ));
+                    }
+                } else {
+                    image(self.file, xml, id, self.story)?;
+                }
             }
-            if tag == "image" && image_id.is_none() && image_bind.is_none() {
+            if matches!(tag, "image" | "nine-patch") && image_id.is_none() && image_bind.is_none() {
                 return Err(error(self.file, xml, "image 节点需要图片"));
+            }
+            let region = xml
+                .attribute("region")
+                .map(crate::image_layout::Region::parse)
+                .transpose()
+                .map_err(|e| error(self.file, xml, e))?;
+            let region_bind = xml.attribute("region-bind").map(str::to_owned);
+            if region.is_some() && region_bind.is_some() {
+                return Err(error(self.file, xml, "region 与 region-bind 不能同时设置"));
+            }
+            if let Some(path) = &region_bind
+                && (!path.starts_with("ui.")
+                    || binding(path, self.vars, source) != Some(ValueKind::Text))
+            {
+                return Err(error(self.file, xml, "region-bind 需要 ui 字符串变量"));
+            }
+            if (region.is_some() || region_bind.is_some())
+                && (image_id.is_none() && image_bind.is_none()
+                    || image_bind.as_deref() == Some("item.image"))
+            {
+                return Err(error(
+                    self.file,
+                    xml,
+                    "region 需要静态资源或 UI 图片绑定，不用于 item.image 运行时预览",
+                ));
+            }
+            let density = number(self.file, xml, "density", Some(1.0))?;
+            if !(0.125..=8.0).contains(&density) {
+                return Err(error(self.file, xml, "density 必须在 0.125–8"));
             }
             let text = xml.attribute("text").unwrap_or("").to_owned();
             let bind = xml
@@ -505,6 +583,13 @@ impl Parser<'_> {
                 [255, 255, 255, 255]
             };
             nodes.push(Node {
+                location: {
+                    let p = xml.document().text_pos_at(xml.range().start);
+                    format!("{}:{}:{}", self.file, p.row, p.col)
+                },
+                region,
+                region_bind,
+                density,
                 effect: crate::loader::effect_xml::reference(
                     self.file,
                     xml,
@@ -618,7 +703,15 @@ pub fn parse(
                 "background-right-click",
             ],
             &[
-                "scene", "panel", "image", "label", "button", "slider", "toggle", "repeat",
+                "scene",
+                "panel",
+                "image",
+                "nine-patch",
+                "label",
+                "button",
+                "slider",
+                "toggle",
+                "repeat",
             ],
             false,
         )?;
@@ -671,6 +764,13 @@ pub fn parse(
         gallery,
         screens,
         images,
+        nine_patches: story
+            .assets
+            .iter()
+            .filter(|(_, a)| a.kind == AssetKind::NinePatch)
+            .map(|(id, _)| id.clone())
+            .collect(),
+        image_sizes: BTreeMap::new(),
         enter: handlers.contains("game.enter"),
     };
     for event in definition.events() {

@@ -38,8 +38,9 @@ pub struct Bundle {
 }
 impl Bundle {
     pub fn load(source: &dyn ContentSource, options: &LoadOptions) -> Result<Self> {
-        let (loaded, logic) = loader::load_game(source)?;
+        let (mut loaded, logic) = loader::load_game(source)?;
         let images = PreparedAssets::load_deferred(&loaded.story, source)?;
+        images.validate_interface(&mut loaded.interface)?;
         images.validate_text(&loaded.interface.text())?;
         let mut audio = PreparedAudio::load_from(&loaded.story, source)?;
         let media = crate::media::PreparedMedia::load(&loaded.story, source)?;

@@ -95,6 +95,7 @@ pub const MAX_HISTORY: usize = 1000;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssetKind {
     Image,
+    NinePatch,
     Font,
     Audio,
     Video,
@@ -155,6 +156,7 @@ pub struct Choice {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
+    pub name: Option<String>,
     pub video: Option<VideoCue>,
     pub id: String,
     pub visual: Visual,
@@ -163,6 +165,11 @@ pub struct Frame {
     pub text: String,
     pub options: Vec<Choice>,
     pub audio: AudioCue,
+}
+impl Frame {
+    pub fn reference(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.id)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -181,6 +188,7 @@ pub enum Route {
 
 #[derive(Clone, Debug)]
 pub struct Story {
+    pub frame_names: BTreeMap<String, String>,
     pub effects: BTreeMap<String, effects::ImageEffect>,
     pub id: String,
     pub content_version: u32,
@@ -224,6 +232,12 @@ impl Session {
 }
 
 impl Story {
+    pub fn resolve_frame(&self, reference: &str) -> Option<&str> {
+        self.frames
+            .get(reference)
+            .map(|f| f.id.as_str())
+            .or_else(|| self.frame_names.get(reference).map(String::as_str))
+    }
     pub fn start(&self) -> Session {
         let mut session = Session::at(self.entry.clone());
         session.variables = self.initial_variables();

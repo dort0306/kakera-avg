@@ -13,7 +13,8 @@
     <video id="video.credits" src="assets/video/credits.mp4" />
     <image id="bg.room" src="assets/bg/room.png" />
     <image id="portrait.lin" src="assets/characters/lin.png" />
-    <image id="ui.dialogue" src="assets/ui/dialogue.png" />
+    <nine-patch id="ui.dialogue" src="assets/ui/dialogue.9.png" />
+    <image id="ui.sprites" src="assets/ui/sprites.png" />
     <image id="ui.panel" src="assets/ui/panel.png" />
     <image id="ui.button" src="assets/ui/button.png" />
     <image id="ui.hover" src="assets/ui/button-hover.png" />

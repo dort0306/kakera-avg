@@ -1,5 +1,5 @@
 param(
-    [string]$Output = 'target/package/kakera-avg-v0.8.1',
+    [string]$Output = 'target/package/kakera-avg-v0.8.2',
     [string]$Project = 'games/demo',
     [ValidateRange(1,22)][int]$CompressionLevel = 19,
     [ValidateSet(1,2)][int]$Format = 2

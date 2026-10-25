@@ -26,7 +26,7 @@ impl ScriptLogic {
         ui: &Variables,
         snapshot: &Value,
     ) -> Result<Vec<crate::interface::host::Command>> {
-        let mut request = ScriptLogic::request("ui", &session.frame_id, None, &session.variables);
+        let mut request = self.frame_request("ui", &session.frame_id, None, &session.variables);
         request["uiVariables"] = ScriptLogic::request("ui", "", None, ui)["variables"].clone();
         request["event"] = json!(event.name);
         request["item"] = event.item.clone();
@@ -38,6 +38,7 @@ impl ScriptLogic {
 
 pub struct ScriptLogic {
     files: Vec<(String, String)>,
+    frames: BTreeMap<String, (String, String)>,
 }
 
 #[derive(Deserialize)]
@@ -80,15 +81,18 @@ impl ScriptLogic {
             ensure!(total <= 1024 * 1024, "JS 源码总量超过 1MiB");
             files.push((path.to_string_lossy().into_owned(), code));
         }
-        let logic = Self { files };
+        let mut logic = Self {
+            files,
+            frames: BTreeMap::new(),
+        };
         let manifest: Vec<Registration> =
             serde_json::from_str(&logic.evaluate(json!({"mode":"manifest"}))?)?;
         let mut routes = BTreeMap::new();
         for item in manifest {
-            let frame = story
-                .frames
-                .get(&item.frame)
+            let actual_frame = story
+                .resolve_frame(&item.frame)
                 .with_context(|| format!("{}：未知触发器场景 {}", item.location, item.frame))?;
+            let frame = &story.frames[actual_frame];
             let kind = match item.kind.as_str() {
                 "advance" => Route::Advance,
                 "choice" => Route::Choice,
@@ -108,9 +112,13 @@ impl ScriptLogic {
                 item.frame
             );
             ensure!(
-                routes.insert(item.frame.clone(), kind).is_none(),
+                routes.insert(actual_frame.to_owned(), kind).is_none(),
                 "重复触发器：{}",
                 item.frame
+            );
+            logic.frames.insert(
+                actual_frame.to_owned(),
+                (item.frame, frame.reference().to_owned()),
             );
         }
         for frame in story.frames.keys() {
@@ -186,6 +194,22 @@ impl ScriptLogic {
             .collect();
         json!({"mode":mode,"frame":frame,"choice":choice,"variables":variables})
     }
+    fn frame_request(
+        &self,
+        mode: &str,
+        frame: &str,
+        choice: Option<&str>,
+        vars: &Variables,
+    ) -> Value {
+        let (key, name) = self
+            .frames
+            .get(frame)
+            .map(|(key, name)| (key.as_str(), name.as_str()))
+            .unwrap_or((frame, frame));
+        let mut request = Self::request(mode, key, choice, vars);
+        request["frameName"] = json!(name);
+        request
+    }
 }
 
 impl Logic for ScriptLogic {
@@ -202,15 +226,14 @@ impl Logic for ScriptLogic {
             {
                 return Ok(None);
             }
-            let output = self.evaluate(Self::request("resolve", frame, choice, vars))?;
+            let output = self.evaluate(self.frame_request("resolve", frame, choice, vars))?;
             let Some(output): Option<Output> = serde_json::from_str(&output)? else {
                 return Ok(None);
             };
-            ensure!(
-                story.frames.contains_key(&output.to),
-                "JS 目标场景不存在：{}",
-                output.to
-            );
+            let to = story
+                .resolve_frame(&output.to)
+                .with_context(|| format!("JS 目标场景不存在：{}", output.to))?
+                .to_owned();
             ensure!(output.effects.len() <= 128, "JS 更新超过 128 项");
             let effects = output
                 .effects
@@ -249,10 +272,7 @@ impl Logic for ScriptLogic {
                 .collect::<Result<Vec<_>>>()?;
             // The adapter validates too, so history replay and controller share the same checks.
             rules::apply_effects(story, vars, &effects).map_err(anyhow::Error::msg)?;
-            Ok(Some(TransitionRule {
-                to: output.to,
-                effects,
-            }))
+            Ok(Some(TransitionRule { to, effects }))
         })()
         .map_err(|error| format!("{error:#}"))
     }
@@ -263,7 +283,7 @@ impl Logic for ScriptLogic {
             // Each guard sees the same fresh globals as its actual choice dispatch.
             // One guard cannot affect another guard through a captured JS variable.
             for option in &frame.options {
-                let allowed: bool = serde_json::from_str(&self.evaluate(Self::request(
+                let allowed: bool = serde_json::from_str(&self.evaluate(self.frame_request(
                     "guard",
                     &session.frame_id,
                     Some(&option.id),

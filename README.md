@@ -1,10 +1,14 @@
-# Kakera AVG Rust · v0.8.1
+# Kakera AVG Rust · v0.8.2
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
 
 窗口支持固定 **16:9 客户区缩放**，拖动窗口边/角不产生比例黑边；设置页可切换无边框全屏，关闭后恢复进入前窗口大小和位置。全屏开关用 XML toggle 和 `ctx.setting("fullscreen", bool)`，默认窗口化，独立设置跨进程保存。非 16:9 显示器全屏仍保持等比画面并留边；不拉伸或裁掉 UI。
 
 v0.8.1 新增面向大体积游戏的 **KPAK 2 流式资源包**，默认打包为 2；播放器保留 KPAK 1 小包兼容。资源包版本独立于剧情/UI/存档，不恢复旧 story/flow/存档解析器。
+
+v0.8.2 新增源 `.9.png` 点九背景、共享图集区域和打包 UUID。资源/UI 使用专用 `<nine-patch>`；普通图片通过 `region="x,y,w,h"` 或 `region-bind="ui.xxx"` 选取图集，JS 复用 `ctx.setUi` 切换，不重新上传图片。demo：效果演示 → 点九 / 图集。
+
+frame.id 可省略，省略时写稳定 `name` 供 entry/JS 引用；打包候选生成 UUID v4 并保留名字映射，源 XML 不改写。随机 ID 会随独立构建改变；要保持跨构建档案契约请显式固定 id，否则提升 content-version。细节见 API 第 26–27 节。
 
 ## 当前数据契约
 
@@ -23,7 +27,7 @@ v0.8.1 新增面向大体积游戏的 **KPAK 2 流式资源包**，默认打包�
 
 ```powershell
 cargo run --locked
-cargo run --locked -- --project games/demo --save-dir target/v081-dev-saves
+cargo run --locked -- --project games/demo --save-dir target/v082-dev-saves
 cargo run --locked -- --project games/demo --renderer cpu --no-audio
 cargo run --locked -- --check
 cargo run --locked -- --check --renderer d3d11
@@ -34,14 +38,14 @@ cargo run --locked -- --check --renderer d3d11
 ## 本地打包
 
 ```powershell
-cargo run --locked --bin kakera-pack -- games/demo target/v081-game.kpak --format 2
+cargo run --locked --bin kakera-pack -- games/demo target/v082-game.kpak --format 2
 # 小包仍可显式生成 KPAK 1
-cargo run --locked --bin kakera-pack -- games/demo target/v081-small.kpak --format 1
-cargo run --locked -- --package target/v081-game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
+cargo run --locked --bin kakera-pack -- games/demo target/v082-small.kpak --format 1
+cargo run --locked -- --package target/v082-game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.8.1，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.8.2，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -68,7 +72,7 @@ KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见
 
 Windows 原生 D3D11 负责窗口、滤镜与 Live2D 网格/蒙版合成，GPU 结果直接注册原生纹理；CPU fallback 保留，窗口仍由 D3D11/WARP 呈现。视频使用 Windows Media Foundation，Core 参数/形变仍为 CPU。GPU 失败报告并回退，设备失效最多一次 WARP 重建。
 
-demo 为 30 场景/4 变量/3 JS/11 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
+demo 为 30 场景/4 变量/3 JS/12 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
 
 ## 验证与限制
 
@@ -79,6 +83,6 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前策略见 [v0.8.1 落地文档](doc/v0.8.1-implementation-plan.zh-cn.md)，实际结果见 [v0.8.1 验收](doc/v0.8.1-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前策略见 [v0.8.2 落地文档](doc/v0.8.2-implementation-plan.zh-cn.md)，实际结果见 [v0.8.2 验收](doc/v0.8.2-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。

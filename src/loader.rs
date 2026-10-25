@@ -199,7 +199,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
 
     let mut assets = BTreeMap::new();
     let asset_node = single(s, story_node, "assets")?;
-    let asset_tags = &["image", "font", "audio", "video", "live2d"];
+    let asset_tags = &["image", "nine-patch", "font", "audio", "video", "live2d"];
     check(s, asset_node, "assets", &[], asset_tags, false)?;
     for node in elements(asset_node) {
         check(s, node, node.tag_name().name(), &["id", "src"], &[], false)?;
@@ -219,6 +219,12 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             "video" => AssetKind::Video,
             "live2d" => AssetKind::Live2D,
             "image" => AssetKind::Image,
+            "nine-patch" => {
+                if !relative.to_string_lossy().ends_with(".9.png") {
+                    return Err(error(s, node, "nine-patch 资源必须为源 .9.png"));
+                }
+                AssetKind::NinePatch
+            }
             "font" => AssetKind::Font,
             "audio" => {
                 let extension = relative
@@ -347,6 +353,8 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         )?;
     }
     let mut frames = BTreeMap::new();
+    let mut frame_names = BTreeMap::new();
+    let mut frame_references = BTreeMap::new();
     let frames_node = single(s, story_node, "frames")?;
     check(s, frames_node, "frames", &[], &["frame"], false)?;
     for node in elements(frames_node) {
@@ -354,11 +362,40 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             s,
             node,
             "frame",
-            &["id", "visual", "speaker"],
+            &["id", "name", "visual", "speaker"],
             &["text", "options", "audio", "transition", "video"],
             false,
         )?;
-        let id = required(s, node, "id")?;
+        let name = node
+            .attribute("name")
+            .map(|_| required(s, node, "name"))
+            .transpose()?;
+        let id = if node.attribute("id").is_some() {
+            required(s, node, "id")?
+        } else {
+            name.ok_or_else(|| error(s, node, "省略 frame.id 时需要稳定 name 供入口和 JS 引用"))?
+        };
+        for reference in std::iter::once(id).chain(name) {
+            if reference.chars().any(char::is_whitespace) {
+                return Err(error(s, node, "frame 的 id/name 不能包含空白"));
+            }
+            if frame_references
+                .get(reference)
+                .is_some_and(|old| *old != id)
+            {
+                return Err(error(
+                    s,
+                    node,
+                    format!("frame 的 id/name 冲突：{reference}"),
+                ));
+            }
+            frame_references.insert(reference.to_owned(), id.to_owned());
+        }
+        if let Some(name) = name
+            && frame_names.insert(name.to_owned(), id.to_owned()).is_some()
+        {
+            return Err(error(s, node, format!("重复 frame name：{name}")));
+        }
         let visual = match node.attribute("visual") {
             Some(id) => visuals
                 .get(id)
@@ -424,6 +461,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             &mut frames,
             id,
             Frame {
+                name: name.map(str::to_owned),
                 video: media_xml::video(node, &assets)?,
                 transition: if elements(node).any(|n| n.has_tag_name("transition")) {
                     effect_xml::transition(s, single(s, node, "transition")?)?
@@ -445,10 +483,10 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
     let path = Path::new(required(s, node, "src")?);
     crate::content::validate_path(path).map_err(|e| error(s, node, e))?;
     let interface_path = path.to_owned();
-    let entry = required(s, story_node, "entry")?.to_owned();
-    if !frames.contains_key(&entry) {
-        return Err(error(s, story_node, "入口场景不存在"));
-    }
+    let entry = frame_references
+        .get(required(s, story_node, "entry")?)
+        .cloned()
+        .ok_or_else(|| error(s, story_node, "入口场景不存在"))?;
     let scripts_node = single(s, story_node, "scripts")?;
     check(s, scripts_node, "scripts", &[], &["script"], false)?;
     let mut scripts = Vec::new();
@@ -468,6 +506,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
     }
     Ok(ParsedStory {
         story: Story {
+            frame_names,
             effects,
             id,
             content_version,

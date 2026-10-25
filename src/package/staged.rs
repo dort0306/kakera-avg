@@ -112,13 +112,14 @@ impl StagedProject {
 
     pub fn for_publication(&mut self) -> Result<usize> {
         let compiled = crate::story_chain::compile(self)?;
+        let xml = compiled.publication_xml()?;
         for path in &compiled.files {
             if path != "story.xml" {
                 self.files.remove(path);
                 std::fs::remove_file(self._directory.path().join(path))?;
             }
         }
-        let bytes = compiled.xml.as_bytes();
+        let bytes = xml.as_bytes();
         std::fs::write(self._directory.path().join("story.xml"), bytes)?;
         self.files.insert(
             "story.xml".into(),

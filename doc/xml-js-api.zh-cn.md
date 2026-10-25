@@ -1,6 +1,6 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.8.1。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-25。
+适用版本：Kakera AVG Rust v0.8.2。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-25。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -31,6 +31,8 @@
 23. [按住 Ctrl 快进与已读进度](#23-v073-按住-ctrl-快进与已读进度)
 24. [窗口比例与全屏](#24-v08-固定比例窗口与全屏)
 25. [KPAK 2 与创作边界](#25-v081-kpak-2-与创作边界)
+26. [点九图与图集区域](#26-v082-点九图与图集区域)
+27. [缺省场景 ID 与作者别名](#27-v082-缺省场景-id-与作者别名)
 
 ## 1. 版本与职责
 
@@ -228,7 +230,7 @@ on.ui("mute", ctx => ctx.setting("muted", ctx.value));
 | `schema` | 是 | 唯一格式写 `8`；所有章节一致 |
 | `id` | 是 | 故事 ID；ASCII 字母、数字、`.`、`-`、`_`，不能为 `.` 或 `..`；用于隔离存档 |
 | `content-version` | 是 | 1–4294967295 的整数；不兼容内容更新时显式提升 |
-| `entry` | 是 | 已存在的场景 ID |
+| `entry` | 是 | 已存在的场景 ID 或稳定 name 别名 |
 
 schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声明 schema。每个文件的同类分组至多一组；合并后必须有 `scripts`、`assets`、`characters`、`visuals`、`frames`，`variables`、`effects` 可省略。人物和视觉预设组可为空。每份文件恰好一个 next，规则见第 21 节。元素分组不靠书写顺序解析；JS 按文件链及各 scripts 内的顺序执行。
 
@@ -253,6 +255,7 @@ schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声�
 | 节点 | 支持内容 | 重要限制 |
 | --- | --- | --- |
 | `image` | PNG/JPEG；支持透明 PNG | 单边不超过 8192 像素，启动时解码；UI 与场景共用该表 |
+| `nine-patch` | Android Studio 源 `.9.png`（保留一像素标记边框） | 专用于 UI nine-patch 节点；加载去边框，每轴 1–8 段伸缩区，详见第 26 节 |
 | `font` | 可由字体解析器读取的 TTF/OTF，使用第一个字体 face | 至少配置一份；中文字符必须覆盖，随游戏分发字体及许可 |
 | `video` | Windows Media Foundation；本版验证 MP4 H.264/AAC | 1080p、60fps、5 分钟以内；详见第 19 节 |
 | `live2d` | Cubism model3.json 与其 moc3/贴图/动作等引用 | 需要受信任的 Core DLL；详见第 19 节 |
@@ -303,7 +306,8 @@ schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声�
 
 | 元素/属性 | 必填/默认 | 语义 |
 | --- | --- | --- |
-| `frame.id` | 必填 | 故事内唯一的稳定场景 ID，是存档契约 |
+| `frame.id` | 可省略 | 显式 ID 保持稳定；缺省时必须有 name，打包在候选中生成 UUID v4，不改源 XML |
+| `frame.name` | id 缺省时必填，否则可选 | 非空、无空白、全故事唯一的作者别名；不能与其他场景的 ID/别名冲突，JS 和 entry 可引用它，见第 27 节 |
 | `frame.visual` | 可省略 | 引用 visual；省略表示空画面，不沿用上一场景 |
 | `frame.speaker` | 可省略 | 引用 character；省略表示旁白 |
 | `text` | 恰好一个 | 非空普通文本，无属性；没有 HTML/富文本/变量插值 |
@@ -379,7 +383,7 @@ on.end(frameId);
 
 | 字段/方法 | 类型/签名 | 说明 |
 | --- | --- | --- |
-| `ctx.frameId` | string | 当前作为流转源的 frame ID |
+| `ctx.frameId` | string | 当前源场景的 name（若有），否则实际 id；JS 可稳定按作者名字判断 |
 | `ctx.optionId` | string 或 null | choice 时为选项 ID，advance 时为 null |
 | `ctx.vars` | 只读变量视图 | int 为 BigInt；读取未知变量报错 |
 | `ctx.set(name, value)` | name: string；value: BigInt/安全整数/boolean/string | 收集赋值；变量必须已声明，类型和范围必须匹配 |
@@ -488,10 +492,11 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
 | 节点 | 附加属性 | 可有子节点 |
 | --- | --- | --- |
 | `scene` | 无 | 否 |
-| `panel` | `image/image-bind/fit/radius/effect` | 是，任意 UI 节点，仍受 repeat 不可嵌套约束 |
-| `image` | `image/image-bind/fit/effect` | 否 |
+| `panel` | `image/image-bind/fit/radius/effect/region/region-bind` | 是，任意 UI 节点，仍受 repeat 不可嵌套约束 |
+| `image` | `image/image-bind/fit/effect/region/region-bind` | 否 |
+| `nine-patch` | `image/density` | 是，子节点使用标记内容区，见第 26 节 |
 | `label` | `text/bind/font-size` | 否 |
-| `button` | `text/bind/font-size/event/image/hover-image/disabled-image/radius` | 否 |
+| `button` | `text/bind/font-size/event/image/hover-image/disabled-image/radius/region/region-bind` | 否 |
 | `slider` | `value/min/max/event` | 否 |
 | `toggle` | `text/value/event/font-size` | 否 |
 | `repeat` | `source/columns/item-width/item-height/gap` | 是，作为每一项模板 |
@@ -598,7 +603,7 @@ repeat 自身矩形是垂直滚动视口；模板内坐标相对每项左上角�
 
 | 路径 | 类型 | 含义 |
 | --- | --- | --- |
-| `game.frameId` | string | 当前 frame ID |
+| `game.frameId` | string | 当前 frame.name（若有），否则实际 ID；剧情槽仍保存实际 ID |
 | `game.speaker` | string | 人物显示名，旁白为空字符串 |
 | `game.text` | string | 完整台词；label 使用它时另加逐字呈现 |
 | `game.complete` | bool | 台词是否完整且没有正在进行的转场 |
@@ -1424,7 +1429,7 @@ cargo run --locked --bin kakera-pack -- games/demo target/game.kpak --force --le
 
 同样的工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
 
-默认发布脚本输出 target/package/kakera-avg-v0.8.1，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
+默认发布脚本输出 target/package/kakera-avg-v0.8.2，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
 
 脚本支持 `-Project <工程>`、`-Output <新目录>`、`-CompressionLevel <1..22>`、`-Format <1|2>`（默认 2），相对路径以仓库根为准；输出目录已存在就拒绝，失败目录保留供诊断。它复制仓库固定 Core，没有单独的 Core/禁用选项。新目录示例：
 
@@ -1754,3 +1759,97 @@ on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
 资源引用、XML/JS API、story 8/UI 3/save 8/content-version=8 均不变。文件流/分块解压属于 XML/JS 不具备的宿主能力，本版扩展 Rust 内容边界；游戏作者无需更改剧情或 UI 脚本。
 
 默认 kakera-pack 生成 KPAK 2，--format 1 可生成兼容小包；播放器自动识别 1/2，未知版本明确失败。该兼容不恢复旧剧情/界面/存档。设计和实际结果见 [策略](v0.8.1-implementation-plan.zh-cn.md) 与 [验收](v0.8.1-validation.zh-cn.md)，二进制细节和流式/内存边界见 [KPAK 规范](kpak-format.zh-cn.md)。
+
+
+## 26. v0.8.2 点九图与图集区域
+
+### 26.1 专用 nine-patch 资源与节点
+
+```xml
+<!-- story.xml 的 assets 中；不写成普通 image 资源 -->
+<nine-patch id="ui.bubble" src="assets/ui/bubble.9.png"/>
+```
+
+```xml
+<!-- ui.xml 的 screen/panel/nine-patch 内；坐标为 UI 设计单位 -->
+<nine-patch id="dialogueBackground" x="36" y="505" width="1208" height="180"
+            image="ui.bubble" density="1">
+  <label id="dialogueText" width="1000" height="76" bind="game.text" font-size="26"/>
+</nine-patch>
+```
+
+资源与 UI 都用专用 nine-patch 标签，不能用普通 image/panel 的图片引用代替。src 必须以 `.9.png` 结尾，读取的是 Android Studio 保存的源 PNG，一像素标记边框仍在；APK 中已经编译/去边框的 NinePatch 二进制不在支持范围。
+
+格式依据：[Android 官方 NinePatch 概述](https://developer.android.com/develop/ui/views/graphics/drawables#nine-patch)、[Draw 9-patch 编辑器](https://developer.android.com/studio/write/draw9patch)。上/左边框定义伸缩段，下/右定义内容区。本实现的具体约束：
+
+- 原 PNG 至少 3×3，含边框单边仍受 8192 像素预算。标记是完全不透明黑色；其余边框像素为透明或不透明白色，角点不能黑色。拒绝抗锯齿灰色/半透明黑色标记。
+- 上和左每轴必须有 1–8 段伸缩区，支持多个不相邻段。额外空间按原伸缩段长度比例分配；固定段/角保持设计尺寸。目标小于固定段总尺寸时压缩固定段、将伸缩段降为零，矩形不会反转。
+- 下和右每轴至多一段内容标记；未标记时使用该轴伸缩区外包范围。加载解析后去掉标记边框，GPU 只上传内容图一次；标记线不进入绘制。
+- 子节点原点在当前大小下映射后的内容区左上角，且裁剪于内容区。下/右内容标记控制 padding；子节点的 x/y 在该原点基础上计算，不需要手动加上图片标记的一像素边框。
+- density 为“源像素/设计单位”，默认 1，范围 0.125–8。2 倍素材可写 density="2"；固定段和内容 padding 按它折算，再随整个 UI 的窗口/DPI 比例缩放。字体和子节点设计单位不受 density 改写。
+- 可用通用 id/x/y/width/height/color/visible/enabled，加 image/density；不接受 region、fit、image-bind、radius 或 effect。当前 ctx.animate 不接受 nine-patch 目标；可在父级组合已有页面/可见性效果，透明度使用 color 的 alpha。
+
+同一资源可用于多个大小的背景，复用同一纹理。每个节点最多 17×17 个源分段组合（每轴至多 8 个伸缩段），只生成网格，不产生中间大位图。demo 对话框将原 1208×180 纹理改为 64×32 内容纹理，固定边框在不同宽度下保持形状；演示入口：效果演示 → 点九 / 图集。
+
+### 26.2 图集 region 与 JS 绑定
+
+图集继续用普通 image 资源；只注册整张图一次：
+
+```xml
+<!-- story assets -->
+<image id="ui.atlas" src="assets/ui/sprites.png"/>
+```
+
+```xml
+<!-- ui variables -->
+<string id="spriteRegion" initial="0,0,64,64"/>
+<!-- screen 内 -->
+<image id="statusIcon" x="20" y="20" width="96" height="96"
+       image="ui.atlas" region-bind="ui.spriteRegion" fit="contain"/>
+<image id="fixedIcon" x="140" y="20" width="96" height="96"
+       image="ui.atlas" region="64,0,64,64"/>
+```
+
+```javascript
+on.ui("show-green", ctx => ctx.setUi("spriteRegion", "64,0,64,64"));
+on.ui("show-red", ctx => ctx.setUi("spriteRegion", "128,0,64,64"));
+```
+
+region 是四个逗号分隔的整数 `x,y,width,height`，允许数字旁空格；原点为原始图像左上角，单位是源像素。x/y 非负、宽高为正，不允许小数/负数/溢出/空值。区域必须完全在当前源图内，字符串最多 128 字节。region-bind 必须指向 UI string 变量，与 region 互斥，不能绑定 setting、剧情变量或 item 字段。
+
+普通 image、带图片的 panel 和 button 皮肤均接受 region/region-bind。没有图片时不能声明区域；image-bind="ui.xxx" 可与区域组合，更换图片时一并验证新图尺寸。button 的同一区域也用于 hover-image/disabled-image，三个资源都要容得下该区域。不支持 item.image（画廊/槽位运行时预览）与区域组合；repeat 中显式 image="ui.atlas" 的模板可用，UI 区域变量改变会作用所有该模板实例。
+
+ctx.setUi 只修改 UI 草稿，提交前验证最终区域、当前图片和皮肤尺寸；坏区域或错误类型让整批命令失败，包含同批的剧情、保存或设置操作都不执行，旧 UI/Session 保留。已解码尺寸与区域计划均被缓存；绘制不解析区域字符串、不执行 JS、不切图/解码/重新上传纹理。
+
+contain/cover 按所选区域的宽高比计算，stretch 拉伸所选区域；现有 opacity、镜像、旋转及图片动画围绕该区域工作。采样 UV 收进区域最外层像素中心，减少线性过滤相邻格串色；1 像素区域采样其中心。滤镜仍对整张图集缓存一次，因此跨像素模糊可能混入相邻格，素材需留间隔或不用该组合。此能力不自动拼接散图或做纹理压缩。
+
+## 27. v0.8.2 缺省场景 ID 与作者别名
+
+用户已确认采用稳定作者别名，避免让脚本预先知道随机 UUID。示例：
+
+```xml
+<story schema="8" id="named-demo" content-version="1" entry="opening">
+  <!-- 其余 scripts/assets/interface/characters/visuals 等按当前契约补齐 -->
+  <frames>
+    <frame name="opening"><text>第一句。</text></frame>
+    <frame name="ending"><text>结束。</text></frame>
+  </frames>
+  <next end="true"/>
+</story>
+```
+
+```javascript
+on.advance("opening", ctx => {
+  // ctx.frameId === "opening"，工程和发布一致
+  return "ending";
+});
+on.end("ending");
+```
+
+id 缺省时 name 必填；两者都缺少会给出源文件位置错误。显式 id="" 仍错误。name 非空且不含空白，全故事唯一，不能与其他场景 ID/name 冲突。也可同时显式写 id="固定契约值" name="作者名"；入口 entry、on.advance/choice/end 注册及返回目标可使用名字或实际 ID，但同一场景不能通过两个名字重复注册。
+
+工程运行/--check 对缺省 id 临时使用稳定 name，热更不会每次随机化。KPAK 1/2 打包仅在候选合并 XML 中为每个缺省 id 的 frame 插入随机 UUID v4，保留 name；显式 ID 不变。候选会重新加载，验证 XML/JS 注册、选项契约及资源，成功后原子写包；动态目标继续在执行边界校验，不承诺穷举所有分支。源 XML/JS 不改写，没有自动顺序推进或默认分支。
+
+在已打包内容中，Model/Session/save.frame_id/历史/read.json 保存实际 UUID 或显式 ID，控制器及历史重放按它校验。剧情 ctx.frameId 与 UI game.frameId 有 name 时暴露名字，否则暴露实际 ID；history.id 的可读标签也优先名字。真实存档不按名字猜测或迁移。
+
+同一个包重复启动、读档、重放的 UUID 固定；再次从无 id 的源 XML 打包会产生新 UUID，因此这类包不保证逐字节确定性或跨构建槽位兼容。工程临时 name 档与发布 UUID 档也不同。内容作者必须在重新生成随机 ID 导致契约变化时提升 content-version；需要跨构建稳定存档/已读记录时，显式固定 id。没有缺省 id 的工程继续按原确定性打包规则工作。

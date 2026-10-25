@@ -133,6 +133,7 @@ impl Snapshot {
     /// Publish only the compiled entry XML; retain unrelated UI/content files.
     pub fn for_publication(&self) -> Result<(Self, usize)> {
         let compiled = crate::story_chain::compile(self)?;
+        let xml = compiled.publication_xml()?;
         let mut data = Vec::new();
         let mut files = BTreeMap::new();
         let chapters: BTreeSet<_> = compiled.files.iter().map(String::as_str).collect();
@@ -141,7 +142,7 @@ impl Snapshot {
                 continue;
             }
             let bytes = if path == "story.xml" {
-                compiled.xml.as_bytes()
+                xml.as_bytes()
             } else {
                 &self.data[*offset..offset + len]
             };

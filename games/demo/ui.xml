@@ -9,6 +9,7 @@
     <int id="pendingSlot" initial="1" min="1" max="200" />
     <string id="confirmText" initial="确认覆盖此存档？" />
     <string id="status" initial="" />
+    <string id="spriteRegion" initial="0,0,64,64" />
     <string id="cgImage" initial="bg.room" />
     <string id="cgTitle" initial="午后房间" />
   </variables>
@@ -32,12 +33,12 @@
     <button id="loadButton" x="994" y="20" width="88" height="38" text="读档" event="open-load" image="ui.button" hover-image="ui.hover" />
     <button id="restartButton" x="1092" y="20" width="152" height="38" text="重新开始" event="restart" image="ui.button" hover-image="ui.hover" />
     <label id="status" x="44" y="466" width="700" height="26" bind="ui.status" font-size="17" color="#F0CA89" />
-    <panel id="dialogue" visible="not:game.videoPlaying" x="36" y="505" width="1208" height="180" image="ui.dialogue">
+    <nine-patch id="dialogue" visible="not:game.videoPlaying" x="36" y="505" width="1208" height="180" image="ui.dialogue">
       <label id="speaker" x="28" y="14" width="1000" height="30" bind="game.speaker" font-size="22" color="#F0CA89" />
       <label id="line" x="28" y="50" width="1146" height="78" bind="game.text" font-size="26" />
       <button id="continue" x="1058" y="132" width="120" height="34" bind="game.continueText" visible="game.canAdvance" event="advance" image="ui.button" hover-image="ui.hover" font-size="18" />
       <label id="end" x="1110" y="140" width="90" height="28" text="已结束" visible="game.ended" font-size="19" color="#F0CA89" />
-    </panel>
+    </nine-patch>
     <repeat id="choices" x="804" y="160" width="416" height="315" source="choices" item-width="396" item-height="48" gap="12" visible="game.complete">
       <button id="choice" width="396" height="48" bind="item.text" event="choose" image="ui.button" hover-image="ui.hover" font-size="22" />
     </repeat>
@@ -167,6 +168,7 @@
   <screen id="effects" pause="false">
     <panel id="effectsPanel" x="80" y="30" width="1120" height="660" image="ui.panel">
       <label id="effectsTitle" x="30" y="20" width="900" height="40" text="内置转场与图片效果" font-size="28" color="#F0CA89" />
+      <button id="openSkinDemo" x="470" y="22" width="210" height="38" text="点九 / 图集" event="open-skins" image="ui.button"/>
       <button id="effectsClose" x="1000" y="22" width="88" height="38" text="返回" event="close" image="ui.button" />
       <button id="effectsPausePreview" x="810" y="22" width="170" height="38" text="暂停预览" event="fx-pause" image="ui.button" />
       <image id="effectsPreview" x="30" y="90" width="480" height="270" image="bg.room" fit="contain" />
@@ -233,5 +235,22 @@
         </panel>
       </repeat>
     </panel>
+  </screen>
+  <screen id="skins">
+    <nine-patch id="skinDemoPanel" x="150" y="90" width="980" height="540" image="ui.dialogue">
+      <label id="skinTitle" x="30" y="24" width="800" height="44" text="点九图与共享图集" font-size="28" color="#F0CA89"/>
+      <button id="skinClose" x="860" y="24" width="88" height="38" text="返回" event="close" image="ui.button"/>
+      <label id="skinExplain" x="30" y="86" width="900" height="60" text="同一张小点九图拉伸到不同大小，固定边框保持清晰。下方图片共用一张图集。" font-size="20"/>
+      <nine-patch id="skinSmall" x="30" y="164" width="260" height="100" image="ui.dialogue"><label id="skinSmallText" x="18" y="30" width="220" height="36" text="小背景" font-size="22"/></nine-patch>
+      <nine-patch id="skinWide" x="320" y="164" width="620" height="100" image="ui.dialogue"><label id="skinWideText" x="18" y="30" width="580" height="36" text="宽背景：边角不做整图拉伸" font-size="22"/></nine-patch>
+      <image id="spriteDynamic" x="30" y="310" width="128" height="128" image="ui.sprites" region-bind="ui.spriteRegion"/>
+      <image id="spriteGreen" x="190" y="310" width="128" height="128" image="ui.sprites" region="64,0,64,64"/>
+      <image id="spriteRed" x="350" y="310" width="128" height="128" image="ui.sprites" region="128,0,64,64"/>
+      <button id="spriteBlueButton" x="530" y="310" width="170" height="40" text="切换蓝色区域" event="sprite-blue" image="ui.button"/>
+      <button id="spriteGreenButton" x="720" y="310" width="220" height="40" text="切换绿色区域" event="sprite-green" image="ui.button"/>
+      <button id="spriteRedButton" x="530" y="370" width="170" height="40" text="切换红色区域" event="sprite-red" image="ui.button"/>
+      <label id="spriteRegionText" x="530" y="434" width="410" height="32" bind="ui.spriteRegion" font-size="18"/>
+      <label id="spriteNote" x="30" y="484" width="900" height="32" text="JS 只修改 UI 区域字符串；共用纹理，无新增图片上传。" font-size="19"/>
+    </nine-patch>
   </screen>
 </ui>

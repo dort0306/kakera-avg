@@ -13,7 +13,10 @@ pub const MAX_FILES: usize = 128;
 pub const MAX_XML_BYTES: usize = 16 * 1024 * 1024;
 const GROUPS: &[(&str, &[&str])] = &[
     ("scripts", &["script"]),
-    ("assets", &["image", "font", "audio", "video", "live2d"]),
+    (
+        "assets",
+        &["image", "nine-patch", "font", "audio", "video", "live2d"],
+    ),
     ("effects", &["image-effect"]),
     ("variables", &["int", "bool", "string"]),
     ("characters", &["character"]),
@@ -37,6 +40,55 @@ pub struct CompiledStory {
     origins: Vec<Origin>,
 }
 impl CompiledStory {
+    /// Random IDs are a publication step only; the authoring XML stays unchanged.
+    pub fn publication_xml(&self) -> Result<String> {
+        let doc = Document::parse(&self.xml)?;
+        let nodes: Vec<_> = doc
+            .descendants()
+            .filter(|n| n.has_tag_name("frame"))
+            .collect();
+        let mut used: BTreeSet<_> = nodes
+            .iter()
+            .flat_map(|n| [n.attribute("id"), n.attribute("name")])
+            .flatten()
+            .map(str::to_owned)
+            .collect();
+        let mut insertions = Vec::new();
+        for node in nodes {
+            if node.attribute("id").is_some() {
+                continue;
+            }
+            loader::required("story.xml", node, "name")?;
+            let mut chosen = None;
+            for _ in 0..8 {
+                let mut bytes = [0u8; 16];
+                getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("UUID 随机源失败：{e}"))?;
+                bytes[6] = (bytes[6] & 15) | 64;
+                bytes[8] = (bytes[8] & 63) | 128;
+                let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                let id = format!(
+                    "{}-{}-{}-{}-{}",
+                    &hex[..8],
+                    &hex[8..12],
+                    &hex[12..16],
+                    &hex[16..20],
+                    &hex[20..]
+                );
+                if used.insert(id.clone()) {
+                    chosen = Some(id);
+                    break;
+                }
+            }
+            let id = chosen.context("UUID 重试碰撞超过预算")?;
+            insertions.push((node.range().start + "<frame".len(), format!(" id=\"{id}\"")));
+        }
+        let mut xml = self.xml.clone();
+        for (at, text) in insertions.into_iter().rev() {
+            xml.insert_str(at, &text);
+        }
+        ensure!(xml.len() <= MAX_XML_BYTES, "生成 UUID 后的剧本超过 16MiB");
+        Ok(xml)
+    }
     fn append(&mut self, text: &str, fragment: Fragment, verbatim: bool) {
         let start = self.xml.len();
         self.xml.push_str(text);

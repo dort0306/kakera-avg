@@ -3,6 +3,7 @@ use crate::{assets::AssetCache, model::effects::ImageEffect};
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
 
 pub struct Image<'a> {
+    pub region: Option<crate::image_layout::Region>,
     pub id: &'a str,
     pub bounds: Rect,
     pub fit: &'a str,
@@ -13,6 +14,7 @@ pub struct Image<'a> {
 }
 pub fn image(painter: &egui::Painter, assets: &AssetCache, input: Image<'_>) {
     let Image {
+        region,
         id,
         bounds,
         fit,
@@ -24,7 +26,13 @@ pub fn image(painter: &egui::Painter, assets: &AssetCache, input: Image<'_>) {
     let Some(texture) = assets.effected(id, effect.filter) else {
         return;
     };
-    let source = texture.size_vec2();
+    let texture_size = texture.size_vec2();
+    let uv = region
+        .map(|r| r.uv([texture_size.x, texture_size.y]))
+        .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+    let source = region
+        .map(|r| Vec2::new(r.0[2] as f32, r.0[3] as f32))
+        .unwrap_or(texture_size);
     let factor = if fit == "cover" {
         (bounds.width() / source.x).max(bounds.height() / source.y)
     } else {
@@ -54,8 +62,8 @@ pub fn image(painter: &egui::Painter, assets: &AssetCache, input: Image<'_>) {
         mesh.vertices.push(egui::epaint::Vertex {
             pos: center + Vec2::new(delta.x * cos - delta.y * sin, delta.x * sin + delta.y * cos),
             uv: Pos2::new(
-                if effect.flip_x { 1.0 - x } else { x },
-                if effect.flip_y { 1.0 - y } else { y },
+                uv[0] + (uv[2] - uv[0]) * if effect.flip_x { 1.0 - x } else { x },
+                uv[1] + (uv[3] - uv[1]) * if effect.flip_y { 1.0 - y } else { y },
             ),
             color,
         });

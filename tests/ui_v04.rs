@@ -131,7 +131,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 11);
+    assert_eq!(f.definition.screens.len(), 12);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));

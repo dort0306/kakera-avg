@@ -32,9 +32,16 @@ fn image(
     bounds: Rect,
     fit: &str,
     tint: Color32,
+    region: Option<crate::image_layout::Region>,
 ) {
     if let Some(texture) = assets.image(id) {
-        let size = texture.size_vec2();
+        let texture_size = texture.size_vec2();
+        let uv = region
+            .map(|r| r.uv([texture_size.x, texture_size.y]))
+            .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        let size = region
+            .map(|r| Vec2::new(r.0[2] as f32, r.0[3] as f32))
+            .unwrap_or(texture_size);
         let factor = if fit == "cover" {
             (bounds.width() / size.x).max(bounds.height() / size.y)
         } else {
@@ -50,7 +57,7 @@ fn image(
             .image(
                 texture.id(),
                 target,
-                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Rect::from_min_max(Pos2::new(uv[0], uv[1]), Pos2::new(uv[2], uv[3])),
                 tint,
             );
     }
@@ -109,6 +116,43 @@ impl Renderer<'_> {
                     .and_then(Value::as_str)
             });
             match &node.kind {
+                Kind::NinePatch => {
+                    if let Some((patch, texture)) = image_id.and_then(|id| {
+                        self.input
+                            .assets
+                            .nine_patch(id)
+                            .zip(self.input.assets.image(id))
+                    }) {
+                        let (patches, content) = patch
+                            .layout([bounds.width(), bounds.height()], self.scale / node.density);
+                        let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
+                        for patch_rect in patches {
+                            let [l, t, r, b] = patch_rect.source;
+                            let [x, y, u, v] = patch_rect.target;
+                            // Piece edges share source coordinates; clipping hides the removed marker border.
+                            mesh.add_rect_with_uv(
+                                Rect::from_min_max(
+                                    bounds.min + Vec2::new(x, y),
+                                    bounds.min + Vec2::new(u, v),
+                                ),
+                                Rect::from_min_max(
+                                    Pos2::new(l / patch.size[0] as f32, t / patch.size[1] as f32),
+                                    Pos2::new(r / patch.size[0] as f32, b / patch.size[1] as f32),
+                                ),
+                                color(node.color),
+                            );
+                        }
+                        painter.add(egui::Shape::mesh(mesh));
+                        let area = Rect::from_min_max(
+                            bounds.min + Vec2::new(content[0], content[1]),
+                            bounds.min + Vec2::new(content[2], content[3]),
+                        );
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+                            ui.set_clip_rect(ui.clip_rect().intersect(area));
+                            self.nodes(ui, &node.children, area.min, item, enabled, &id);
+                        });
+                    }
+                }
                 Kind::Scene => {
                     let mut motion = self
                         .input
@@ -137,6 +181,7 @@ impl Renderer<'_> {
                             &painter,
                             self.input.assets,
                             crate::effects::render::Image {
+                                region: self.input.state.regions.get(&node.id).copied(),
                                 id: image_id,
                                 bounds,
                                 fit: &node.fit,
@@ -215,7 +260,15 @@ impl Renderer<'_> {
                         color(node.color).gamma_multiply(0.45)
                     };
                     if let Some(skin) = skin {
-                        image(&painter, self.input.assets, skin, bounds, "stretch", tint);
+                        image(
+                            &painter,
+                            self.input.assets,
+                            skin,
+                            bounds,
+                            "stretch",
+                            tint,
+                            self.input.state.regions.get(&node.id).copied(),
+                        );
                     } else {
                         painter.rect_filled(
                             bounds,

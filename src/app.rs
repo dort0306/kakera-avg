@@ -73,13 +73,14 @@ impl PlayerApp {
 
     pub fn new_context(
         ctx: &egui::Context,
-        loaded: LoadedStory,
+        mut loaded: LoadedStory,
         runtime: RuntimeAssets,
         saves: SaveStore,
         no_audio: bool,
         logic: ScriptLogic,
         renderer: crate::render::Shared,
     ) -> anyhow::Result<Self> {
+        runtime.images.validate_interface(&mut loaded.interface)?;
         ctx.set_theme(egui::ThemePreference::Dark);
         let cpu_assets = runtime.images.clone();
         let assets = runtime.images.install_render(ctx, &renderer);

@@ -33,6 +33,7 @@ pub fn draw_scene_at(
             &painter,
             assets,
             crate::effects::render::Image {
+                region: None,
                 id,
                 bounds: stage,
                 fit: "cover",
@@ -124,6 +125,7 @@ fn paint_portrait(
             painter,
             assets,
             crate::effects::render::Image {
+                region: None,
                 id: &portrait.image,
                 bounds,
                 fit: "stretch",

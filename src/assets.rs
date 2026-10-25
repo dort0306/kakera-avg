@@ -8,6 +8,7 @@ pub const UI_TEXT: &str = "跳过转场保存读档重新开始继续已结束�
 
 #[derive(Clone)]
 pub struct PreparedAssets {
+    patches: BTreeMap<String, crate::image_layout::NinePatch>,
     images: BTreeMap<String, image::RgbaImage>,
     deferred: std::collections::BTreeSet<Filter>,
     filtered: BTreeMap<(String, Filter), ColorImage>,
@@ -15,6 +16,17 @@ pub struct PreparedAssets {
 }
 
 impl PreparedAssets {
+    pub fn validate_interface(&self, def: &mut crate::interface::Definition) -> Result<()> {
+        def.image_sizes = self
+            .images
+            .iter()
+            .map(|(id, image)| (id.clone(), [image.width(), image.height()]))
+            .collect();
+        for id in &def.nine_patches {
+            ensure!(self.patches.contains_key(id), "点九图未准备：{id}");
+        }
+        crate::interface::host::validate_images(def, &crate::interface::host::State::new(def))
+    }
     pub fn validate_text(&self, text: &str) -> Result<()> {
         let faces: Vec<_> = self
             .fonts
@@ -48,6 +60,7 @@ impl PreparedAssets {
         deferred: bool,
     ) -> Result<Self> {
         let mut images = BTreeMap::new();
+        let mut patches = BTreeMap::new();
         let mut filtered = BTreeMap::new();
         let filters: std::collections::BTreeSet<_> = story
             .effects
@@ -61,7 +74,7 @@ impl PreparedAssets {
             let context = || format!("资源 {id}：{}", asset.path.display());
             match asset.kind {
                 AssetKind::Audio | AssetKind::Video | AssetKind::Live2D => {}
-                AssetKind::Image => {
+                AssetKind::Image | AssetKind::NinePatch => {
                     let bytes = read(&asset.path).with_context(context)?;
                     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
                         .with_guessed_format()
@@ -71,8 +84,19 @@ impl PreparedAssets {
                     limits.max_image_height = Some(8192);
                     reader.limits(limits);
                     let image = reader.decode().with_context(context)?.to_rgba8();
+                    let image = if asset.kind == AssetKind::NinePatch {
+                        let (patch, image) =
+                            crate::image_layout::NinePatch::parse(image).with_context(context)?;
+                        patches.insert(id.clone(), patch);
+                        image
+                    } else {
+                        image
+                    };
                     let size = [image.width() as usize, image.height() as usize];
                     for filter in &filters {
+                        if asset.kind == AssetKind::NinePatch {
+                            continue;
+                        }
                         filtered_bytes = filtered_bytes
                             .checked_add(size[0] * size[1] * 4)
                             .context("滤镜缓存溢出")?;
@@ -129,6 +153,7 @@ impl PreparedAssets {
             );
         }
         Ok(Self {
+            patches,
             images,
             deferred: if deferred {
                 filters
@@ -150,6 +175,9 @@ impl PreparedAssets {
     ) -> AssetCache {
         let mut native_filtered = BTreeMap::new();
         for (id, image) in &self.images {
+            if self.patches.contains_key(id) {
+                continue;
+            }
             for filter in &self.deferred {
                 let result = renderer.borrow_mut().filter(image, *filter);
                 native_filtered.insert((id.clone(), *filter), Texture::from_image(ctx, result, id));
@@ -194,17 +222,25 @@ impl PreparedAssets {
             })
             .collect();
         filtered.extend(native_filtered);
-        AssetCache { textures, filtered }
+        AssetCache {
+            textures,
+            filtered,
+            patches: self.patches,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct AssetCache {
+    patches: BTreeMap<String, crate::image_layout::NinePatch>,
     textures: BTreeMap<String, Texture>,
     filtered: BTreeMap<(String, Filter), Texture>,
 }
 
 impl AssetCache {
+    pub fn nine_patch(&self, id: &str) -> Option<&crate::image_layout::NinePatch> {
+        self.patches.get(id)
+    }
     pub fn clear_save_previews(&mut self) {
         self.textures.retain(|id, _| !id.starts_with("$save:"));
     }

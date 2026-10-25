@@ -6,6 +6,7 @@ pub mod content;
 pub mod controller;
 pub mod development;
 pub mod effects;
+pub mod image_layout;
 pub mod interface;
 pub mod live2d;
 pub mod loader;

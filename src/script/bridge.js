@@ -64,7 +64,7 @@
       draft[name] = add ? draft[name] + value : value;
     }
     return { effects, ctx: freeze({
-      frameId: request.frame, optionId: request.choice ?? null,
+      frameId: request.frameName ?? request.frame, optionId: request.choice ?? null,
       get vars() {
         return new Proxy(freeze({ ...draft }), {
           get(target, name) {
