@@ -1,10 +1,26 @@
+mod common;
 use kakera_avg::{
     audio::{AudioCommand, AudioEngine, AudioPlan, Channel, PreparedAudio},
-    loader::{load_story, parse_story},
+    loader::load_game,
     model::AudioCue,
 };
+use kakera_avg::{
+    content::ContentSource,
+    model::{AssetKind, Story},
+};
 use rodio::Source;
-use std::path::Path;
+
+fn clips(story: &Story) -> common::Memory {
+    let source = common::demo();
+    common::Memory(
+        story
+            .assets
+            .values()
+            .filter(|a| a.kind == AssetKind::Audio)
+            .map(|a| (a.path.clone(), source.read(&a.path).unwrap()))
+            .collect(),
+    )
+}
 
 #[test]
 fn same_bgm_continues_while_one_shots_are_replaced_on_entry() {
@@ -62,9 +78,9 @@ fn same_bgm_continues_while_one_shots_are_replaced_on_entry() {
 
 #[test]
 fn demo_audio_decodes_without_device_and_disabled_output_is_supported() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo");
-    let story = load_story(&root).unwrap().story;
-    let prepared = PreparedAudio::load(&story).unwrap();
+    let source = common::demo();
+    let story = load_game(&source).unwrap().0.story;
+    let prepared = PreparedAudio::load_from(&story, &source).unwrap();
     assert_eq!(prepared.len(), 3);
     let clip = prepared.clip("bgm.room").unwrap();
     assert_eq!(clip.channels(), 1);
@@ -79,53 +95,13 @@ fn demo_audio_decodes_without_device_and_disabled_output_is_supported() {
 }
 
 #[test]
-fn audio_contract_is_strict_and_original_schema_remains_supported() {
-    let story = include_str!("../doc/v0.3-example/story.xml");
-    let flow = include_str!("../doc/v0.3-example/flow.xml");
-    let loaded = parse_story(story, flow, Path::new("demo")).unwrap();
-    assert_eq!(
-        loaded.story.frames["opening"].audio.bgm.as_deref(),
-        Some("bgm.room")
-    );
-    assert_eq!(loaded.story.frames["refuse"].audio, AudioCue::default());
-    for (from, to) in [
-        ("schema=\"3\"", "schema=\"1\""),
-        ("se=\"se.knock\"", "se=\"bg.room\""),
-        ("bgm=\"bgm.room\"", "bgm=\"missing\""),
-        ("voice=\"voice.lin\"", "unknown=\"voice.lin\""),
-        (
-            "<audio bgm=\"bgm.room\" se=\"se.knock\" />",
-            "<audio/><audio/>",
-        ),
-        (
-            "src=\"assets/audio/room.wav\"",
-            "src=\"assets/audio/room.mp3\"",
-        ),
-    ] {
-        assert!(story.contains(from));
-        let error = parse_story(&story.replace(from, to), flow, Path::new("demo"))
-            .err()
-            .unwrap();
-        assert!(error.to_string().starts_with("story.xml:"), "{error:#}");
-    }
-    parse_story(
-        include_str!("../doc/rust-mvc-example/story.xml"),
-        include_str!("../doc/rust-mvc-example/flow.xml"),
-        Path::new("demo"),
-    )
-    .unwrap();
-}
-
-#[test]
 fn corrupt_or_empty_audio_fails_with_resource_identity() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo");
-    let mut story = load_story(&root).unwrap().story;
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("bad.wav");
-    story.assets.get_mut("bgm.room").unwrap().path = path.clone();
+    let mut story = load_game(&common::demo()).unwrap().0.story;
+    let mut source = clips(&story);
+    story.assets.get_mut("bgm.room").unwrap().path = "bad.wav".into();
     for content in [b"not audio".as_slice(), b"".as_slice()] {
-        std::fs::write(&path, content).unwrap();
-        let error = PreparedAudio::load(&story).err().unwrap();
+        source.0.insert("bad.wav".into(), content.to_vec());
+        let error = PreparedAudio::load_from(&story, &source).err().unwrap();
         assert!(format!("{error:#}").contains("bgm.room"));
         assert!(format!("{error:#}").contains("bad.wav"));
     }
@@ -133,10 +109,14 @@ fn corrupt_or_empty_audio_fails_with_resource_identity() {
 
 #[test]
 fn ogg_vorbis_fixture_decodes_without_output_device() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut story = load_story(&root.join("games/demo")).unwrap().story;
-    story.assets.get_mut("voice.lin").unwrap().path = root.join("tests/fixtures/cue.ogg");
-    let prepared = PreparedAudio::load(&story).unwrap();
+    let mut story = load_game(&common::demo()).unwrap().0.story;
+    let mut source = clips(&story);
+    story.assets.get_mut("voice.lin").unwrap().path = "cue.ogg".into();
+    source.0.insert(
+        "cue.ogg".into(),
+        include_bytes!("fixtures/cue.ogg").to_vec(),
+    );
+    let prepared = PreparedAudio::load_from(&story, &source).unwrap();
     let clip = prepared.clip("voice.lin").unwrap();
     assert!(clip.total_duration().unwrap().as_secs_f32() > 0.5);
     assert!(clip.clone().any(|sample| sample.abs() > 0.01));

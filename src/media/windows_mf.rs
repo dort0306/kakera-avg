@@ -121,7 +121,7 @@ impl Decoder {
                 )?;
                 self.ended = flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0;
                 if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
-                    anyhow::bail!("播放中视频格式改变，v0.6 不支持");
+                    anyhow::bail!("不支持播放中改变视频格式");
                 }
                 if let Some(sample) = sample {
                     let buffer = sample.ConvertToContiguousBuffer()?;

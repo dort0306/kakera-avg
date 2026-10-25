@@ -17,24 +17,6 @@ pub trait Logic {
     fn options(&self, story: &Story, session: &Session) -> Result<Vec<String>, String>;
 }
 
-pub struct DeclarativeLogic;
-impl Logic for DeclarativeLogic {
-    fn resolve(
-        &self,
-        story: &Story,
-        frame: &str,
-        choice: Option<&str>,
-        variables: &Variables,
-    ) -> Result<Option<TransitionRule>, String> {
-        rules::resolve(story, frame, choice, variables).map(|rule| rule.cloned())
-    }
-    fn options(&self, story: &Story, session: &Session) -> Result<Vec<String>, String> {
-        story
-            .available_options(session)
-            .map(|items| items.iter().map(|item| item.id.clone()).collect())
-    }
-}
-
 pub type Variables = BTreeMap<String, VariableValue>;
 pub const MAX_VARIABLES: usize = 128;
 pub const MAX_STRING_BYTES: usize = 4096;
@@ -70,28 +52,6 @@ pub struct VariableDecl {
     pub max: Option<i64>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CompareOp {
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-}
-
-#[derive(Clone, Debug)]
-pub enum Condition {
-    Compare {
-        variable: String,
-        op: CompareOp,
-        value: VariableValue,
-    },
-    All(Vec<Condition>),
-    Any(Vec<Condition>),
-    Not(Box<Condition>),
-}
-
 #[derive(Clone, Debug)]
 pub enum Effect {
     Set {
@@ -107,7 +67,6 @@ pub enum Effect {
 #[derive(Clone, Debug)]
 pub struct TransitionRule {
     pub to: String,
-    pub when: Option<Condition>,
     pub effects: Vec<Effect>,
 }
 
@@ -115,7 +74,6 @@ impl TransitionRule {
     pub fn plain(to: impl Into<String>) -> Self {
         Self {
             to: to.into(),
-            when: None,
             effects: Vec::new(),
         }
     }
@@ -214,48 +172,11 @@ pub struct AudioCue {
     pub se: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-pub enum Route {
-    Next(TransitionRule),
-    Choice(BTreeMap<String, TransitionRule>),
-    Branch {
-        cases: Vec<TransitionRule>,
-        otherwise: TransitionRule,
-    },
-    End,
-    Script(ScriptRoute),
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScriptRoute {
+pub enum Route {
     Advance,
     Choice,
     End,
-}
-
-impl Route {
-    pub fn rules(&self) -> Vec<&TransitionRule> {
-        match self {
-            Self::Next(rule) => vec![rule],
-            Self::Choice(choices) => choices.values().collect(),
-            Self::Branch { cases, otherwise } => {
-                cases.iter().chain(std::iter::once(otherwise)).collect()
-            }
-            Self::End | Self::Script(_) => Vec::new(),
-        }
-    }
-    pub fn targets(&self) -> Vec<&str> {
-        match self {
-            Self::Next(rule) => vec![&rule.to],
-            Self::Choice(choices) => choices.values().map(|rule| rule.to.as_str()).collect(),
-            Self::Branch { cases, otherwise } => cases
-                .iter()
-                .chain(std::iter::once(otherwise))
-                .map(|rule| rule.to.as_str())
-                .collect(),
-            Self::End | Self::Script(_) => Vec::new(),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -287,7 +208,7 @@ pub struct HistoryEntry {
 }
 
 impl Session {
-    /// Start at an explicit position, including imported v0.1 saves with no earlier history.
+    /// Construct an explicit history checkpoint; Story::start supplies declared variables.
     pub fn at(frame_id: impl Into<String>) -> Self {
         let frame_id = frame_id.into();
         Self {
@@ -317,39 +238,8 @@ impl Story {
             .collect()
     }
 
-    pub fn available_options(&self, session: &Session) -> Result<Vec<&Choice>, String> {
-        let frame = self
-            .frame(session)
-            .ok_or_else(|| "当前场景不存在".to_owned())?;
-        if matches!(self.routes.get(&session.frame_id), Some(Route::Script(_))) {
-            return Err("脚本选项需要注入逻辑执行器".into());
-        }
-        let Some(Route::Choice(routes)) = self.routes.get(&session.frame_id) else {
-            return Ok(Vec::new());
-        };
-        frame
-            .options
-            .iter()
-            .filter_map(|option| {
-                let result = routes
-                    .get(&option.id)
-                    .ok_or_else(|| format!("选项缺少路由：{}", option.id))
-                    .and_then(|rule| rules::matches(rule.when.as_ref(), &session.variables));
-                match result {
-                    Ok(true) => Some(Ok(option)),
-                    Ok(false) => None,
-                    Err(error) => Some(Err(error)),
-                }
-            })
-            .collect()
-    }
-
     pub fn frame(&self, session: &Session) -> Option<&Frame> {
         self.frames.get(&session.frame_id)
-    }
-
-    pub fn validate_session(&self, session: &Session) -> Result<(), String> {
-        self.validate_session_with(session, &DeclarativeLogic)
     }
 
     pub fn validate_session_with(

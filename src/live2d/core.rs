@@ -157,7 +157,7 @@ impl Model {
             ensure!(!ptr.is_null(), "无法初始化 Cubism 模型");
             ensure!(
                 (core.offscreen_count)(ptr) == 0,
-                "v0.6 不支持 Cubism 5.3 离屏分组混合，请导出普通网格模型"
+                "不支持 Cubism 5.3 离屏分组混合，请导出普通网格模型"
             );
             let n = count((core.parameter_count)(ptr), 4096)?;
             let names = ids((core.parameter_ids)(ptr), n)?;

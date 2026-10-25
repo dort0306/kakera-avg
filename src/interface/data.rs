@@ -3,7 +3,7 @@ use super::{
     host::{Profile, State},
 };
 use crate::{
-    model::{Route, ScriptRoute, Session, Story, VariableValue, Variables},
+    model::{Route, Session, Story, VariableValue, Variables},
     save::{SlotInfo, SlotState},
     settings::Settings,
 };
@@ -73,10 +73,38 @@ impl Data {
                 .map(|option| json!({"id":option.id,"text":option.text}))
                 .collect(),
         );
-        data.lists.insert("slots".into(),slots.iter().map(|info|{
-            let (preview,exists,loadable)=match &info.state{SlotState::Empty=>("空槽".into(),false,false),SlotState::Ready{frame_id,preview,..}=>(format!("{frame_id} · {preview}"),true,true),SlotState::Invalid(error)=>(format!("损坏或不兼容：{error}"),true,false)};
-            json!({"slot":info.slot.number(),"title":format!("槽位 {}",info.slot.number()),"preview":preview,"exists":exists,"loadable":loadable})
-        }).collect());
+        data.lists.insert(
+            "slots".into(),
+            slots
+                .iter()
+                .map(|info| {
+                    // Slot metadata never exposes internal frame ids; previews are text only.
+                    let (preview, exists, loadable, saved_at, has_image) = match &info.state {
+                        SlotState::Empty => ("空槽".into(), false, false, String::new(), false),
+                        SlotState::Ready {
+                            preview,
+                            saved_at_unix_ms,
+                            screenshot,
+                            ..
+                        } => (
+                            preview.clone(),
+                            true,
+                            true,
+                            crate::save_preview::saved_at(*saved_at_unix_ms),
+                            screenshot.is_some(),
+                        ),
+                        SlotState::Invalid(error) => (
+                            format!("损坏或不兼容：{error}"),
+                            true,
+                            false,
+                            String::new(),
+                            false,
+                        ),
+                    };
+                    json!({"slot":info.slot.number(),"title":format!("槽位 {}",info.slot.number()),"excerpt":crate::save_preview::excerpt(&preview),"preview":preview,"exists":exists,"loadable":loadable,"savedAt":saved_at,"hasScreenshot":has_image,"image":if has_image {crate::save_preview::image_id(info.slot.number(),false)} else {String::new()}})
+                })
+                .collect(),
+        );
         data.lists.insert("gallery".into(),definition.gallery.iter().map(|(id,cg)|json!({"id":id,"title":cg.title,"image":cg.image,"unlocked":profile.unlocked.contains(id)})).collect());
         data.lists.insert("variables".into(),story.variables.iter().map(|(id,decl)|json!({"id":id,"label":decl.label,"value":session.variables[id].to_string()})).collect());
         data.lists.insert("history".into(),session.history.iter().enumerate().map(|(index,entry)|{
@@ -89,20 +117,10 @@ impl Data {
     pub fn progress(&mut self, complete: bool, route: &Route, empty: bool) {
         self.values["game"]["transitioning"] = json!(false);
         self.values["game"]["complete"] = json!(complete);
-        self.values["game"]["canAdvance"] = json!(
-            !complete
-                || matches!(
-                    route,
-                    Route::Next(_) | Route::Branch { .. } | Route::Script(ScriptRoute::Advance)
-                )
-        );
-        self.values["game"]["ended"] =
-            json!(complete && matches!(route, Route::End | Route::Script(ScriptRoute::End)));
-        self.values["game"]["noChoices"] = json!(
-            complete
-                && empty
-                && matches!(route, Route::Choice(_) | Route::Script(ScriptRoute::Choice))
-        );
+        self.values["game"]["canAdvance"] = json!(!complete || matches!(route, Route::Advance));
+        self.values["game"]["ended"] = json!(complete && matches!(route, Route::End));
+        self.values["game"]["noChoices"] =
+            json!(complete && empty && matches!(route, Route::Choice));
         self.values["game"]["continueText"] = json!(if complete { "继续" } else { "补全" });
     }
 }

@@ -1,4 +1,4 @@
-use crate::model::{DeclarativeLogic, HistoryEntry, Logic, MAX_HISTORY, Session, Story, rules};
+use crate::model::{HistoryEntry, Logic, MAX_HISTORY, Session, Story, rules};
 use std::fmt;
 
 #[derive(Clone, Debug)]
@@ -21,18 +21,6 @@ impl std::error::Error for ControlError {}
 pub struct Transition {
     pub session: Session,
     pub entered: bool,
-}
-
-pub fn reduce(story: &Story, session: &Session, intent: Intent) -> Result<Session, ControlError> {
-    transition(story, session, intent).map(|result| result.session)
-}
-
-pub fn transition(
-    story: &Story,
-    session: &Session,
-    intent: Intent,
-) -> Result<Transition, ControlError> {
-    transition_with(story, session, intent, &DeclarativeLogic)
 }
 
 pub fn transition_with(

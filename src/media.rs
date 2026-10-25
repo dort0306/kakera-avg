@@ -36,12 +36,10 @@ impl PreparedMedia {
                 continue;
             }
             ensure!(videos.len() < 16, "视频资源超过 16 项");
-            let bytes = source
-                .read(&a.path)
-                .with_context(|| format!("视频资源 {id}"))?;
-            ensure!(bytes.len() <= 128 * 1024 * 1024, "单视频超过 128MiB");
             let mut file = tempfile::Builder::new().suffix(".mp4").tempfile()?;
-            file.write_all(&bytes)?;
+            source
+                .copy_to(&a.path, file.as_file_mut())
+                .with_context(|| format!("视频资源 {id}"))?;
             file.flush()?;
             #[cfg(windows)]
             let asset = windows_mf::prepare(file)
@@ -49,7 +47,7 @@ impl PreparedMedia {
             #[cfg(not(windows))]
             let asset: VideoAsset = {
                 let _ = file;
-                anyhow::bail!("v0.6 视频后端需要 Windows Media Foundation")
+                anyhow::bail!("视频后端需要 Windows Media Foundation")
             };
             if let Some(audio) = &asset.audio {
                 total += audio.size_hint().0 * 4;

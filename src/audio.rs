@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source, buffer::SamplesBuffer};
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::Cursor,
     sync::mpsc::{self, Receiver},
 };
 
@@ -21,15 +21,6 @@ pub struct PreparedAudio {
 impl PreparedAudio {
     pub fn insert_video(&mut self, id: &str, audio: SamplesBuffer) {
         self.clips.insert(format!("$video:{id}"), audio);
-    }
-    pub fn load(story: &Story) -> Result<Self> {
-        Self::load_bytes(story, &|path| {
-            let mut bytes = Vec::new();
-            std::fs::File::open(path)?
-                .take(MAX_CLIP_BYTES as u64 + 1)
-                .read_to_end(&mut bytes)?;
-            Ok(bytes)
-        })
     }
     pub fn load_from(story: &Story, source: &dyn crate::content::ContentSource) -> Result<Self> {
         Self::load_bytes(story, &|path| source.read(path))

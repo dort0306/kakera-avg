@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- v0.3 历史规则参考；schema 4 运行时不读取本文件，当前逻辑见 scripts/。 -->
+<!-- 归档：v0.3 demo 的声明式规则参考。story schema 4 起运行时不读取 flow.xml，
+     当前 demo 逻辑见 games/demo/scripts/，等价契约样例见 doc/v0.3-example/flow.xml。 -->
 <flow schema="2" story="kakera-demo" entry="opening">
   <next from="opening" to="question" />
   <choice from="question">

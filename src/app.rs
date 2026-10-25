@@ -3,28 +3,24 @@ use crate::{
     audio::{AudioEngine, PreparedAudio},
     controller,
     loader::LoadedStory,
-    menus::{self, MenuAction, SlotMode},
     model::{Logic, Session, Story},
     presentation::{self, GatedIntent, PresentationClock, Typewriter},
-    save::{SaveStore, SlotId, SlotInfo},
-    script::LogicEngine,
+    save::SaveStore,
+    script::ScriptLogic,
     settings::Settings,
-    view::{self, RenderState, UiIntent},
 };
 use eframe::egui;
 use std::time::{Duration, Instant};
+mod capture;
 mod custom;
+mod development;
 mod media;
+mod skip;
 use custom::CustomUi;
 
-enum Overlay {
-    History,
-    Slots {
-        mode: SlotMode,
-        infos: Vec<SlotInfo>,
-        pending: Option<SlotId>,
-    },
-    Settings,
+enum UiIntent {
+    Custom(crate::interface::Event),
+    Play(controller::Intent),
 }
 
 pub struct RuntimeAssets {
@@ -34,41 +30,60 @@ pub struct RuntimeAssets {
     pub live2d: crate::live2d::PreparedLive2D,
 }
 pub struct PlayerApp {
+    capture: Option<crate::capture::Shared>,
+    revision: u64,
+    painted: (u64, bool),
+    pending_auto: Option<(u64, crate::save::Snapshot)>,
     context: egui::Context,
+    renderer: crate::render::Shared,
+    cpu_assets: PreparedAssets,
+    project: Option<crate::development::ProjectMonitor>,
+    no_audio: bool,
     prepared_media: crate::media::PreparedMedia,
     prepared_live2d: crate::live2d::PreparedLive2D,
     video: crate::media::VideoPlayer,
     live2d: crate::live2d::Live2DPlayer,
 
     auto_play: presentation::AutoPlay,
+    skip: presentation::FastForward,
+    // Track raw Ctrl across pauses so its release interval never counts as auto wait.
+    ctrl_held: bool,
     effects: crate::effects::Player,
     story: Story,
     session: Session,
-    logic: LogicEngine,
+    logic: ScriptLogic,
     available: Vec<String>,
     assets: AssetCache,
     saves: SaveStore,
+    read: crate::read_history::ReadHistory,
+    read_flush_at: Instant,
+    read_error_reported: bool,
     typewriter: Typewriter,
     clock: PresentationClock,
     audio: AudioEngine,
     settings: Settings,
-    overlay: Option<Overlay>,
     message: Option<String>,
-    custom: Option<CustomUi>,
+    custom: CustomUi,
 }
 
 impl PlayerApp {
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
+    pub fn fullscreen(&self) -> bool {
+        self.settings.fullscreen
+    }
+
+    pub fn new_context(
+        ctx: &egui::Context,
         loaded: LoadedStory,
         runtime: RuntimeAssets,
         saves: SaveStore,
         no_audio: bool,
-        logic: LogicEngine,
+        logic: ScriptLogic,
+        renderer: crate::render::Shared,
     ) -> anyhow::Result<Self> {
-        cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
-        let assets = runtime.images.install(&cc.egui_ctx);
-        let mut warnings = loaded.warnings;
+        ctx.set_theme(egui::ThemePreference::Dark);
+        let cpu_assets = runtime.images.clone();
+        let assets = runtime.images.install_render(ctx, &renderer);
+        let mut warnings = Vec::new();
         let settings = if saves.settings_path().exists() {
             Settings::load(&saves.settings_path()).unwrap_or_else(|error| {
                 warnings.push(format!("设置无效，已使用默认值：{error:#}"));
@@ -87,21 +102,36 @@ impl PlayerApp {
         }
         let frame = loaded.story.frame(&session).expect("validated entry");
         let typewriter = Typewriter::new(&frame.text, settings.text_speed == 0.0);
-        let custom = loaded.interface.map(|definition| {
-            CustomUi::new(definition, &loaded.story, &saves, &logic, &mut warnings)
-        });
+        let custom = CustomUi::new(
+            loaded.interface,
+            &loaded.story,
+            &saves,
+            &logic,
+            &mut warnings,
+        );
+        let read = Self::load_read_history(&saves, &loaded.story.id, &mut warnings);
         let message = if warnings.is_empty() {
             None
         } else {
             Some(warnings.join("\n"))
         };
         let mut app = Self {
-            context: cc.egui_ctx.clone(),
+            capture: None,
+            revision: 0,
+            painted: (0, false),
+            pending_auto: None,
+            context: ctx.clone(),
+            renderer,
+            cpu_assets,
+            project: None,
+            no_audio,
             prepared_media: runtime.media,
             prepared_live2d: runtime.live2d,
             video: Default::default(),
             live2d: Default::default(),
             auto_play: Default::default(),
+            skip: Default::default(),
+            ctrl_held: false,
             effects: Default::default(),
             story: loaded.story,
             session,
@@ -109,25 +139,27 @@ impl PlayerApp {
             available,
             assets,
             saves,
+            read,
+            read_flush_at: Instant::now(),
+            read_error_reported: false,
             typewriter,
             clock: PresentationClock::new(Instant::now()),
             audio,
             settings,
-            overlay: None,
             message,
             custom,
         };
         app.enter(app.session.clone(), false, true)?;
+        app.sync_save_previews();
         Ok(app)
     }
 
     fn blocked(&self) -> bool {
-        self.overlay.is_some()
-            || self.message.is_some()
-            || self
-                .custom
-                .as_ref()
-                .is_some_and(|ui| ui.state.paused(&ui.definition))
+        self.message.is_some() || self.custom.state.paused(&self.custom.definition)
+    }
+
+    fn autosave_enabled(&self) -> bool {
+        self.settings.autosave
     }
 
     fn enter(&mut self, session: Session, restored: bool, force_audio: bool) -> anyhow::Result<()> {
@@ -149,10 +181,12 @@ impl PlayerApp {
         let candidate = &self.story.frames[&session.frame_id];
         let video =
             crate::media::VideoPlayer::prepare(candidate.video.as_ref(), &self.prepared_media)?;
-        let live2d = crate::live2d::Live2DPlayer::prepare(candidate, &self.prepared_live2d)?;
-        if let Some(plan) = &plan
-            && matches!(plan.operation, crate::interface::host::Operation::Profile)
-        {
+        let live2d = crate::live2d::Live2DPlayer::prepare_with(
+            candidate,
+            &self.prepared_live2d,
+            self.renderer.clone(),
+        )?;
+        if matches!(plan.operation, crate::interface::host::Operation::Profile) {
             plan.profile
                 .save(&self.saves.directory().join("profile.json"))?;
         }
@@ -162,8 +196,7 @@ impl PlayerApp {
             None
         };
         let transition = plan
-            .as_ref()
-            .and_then(|p| p.transition)
+            .transition
             .unwrap_or(self.story.frames[&session.frame_id].transition);
         self.effects.enter_scene(
             previous,
@@ -172,7 +205,7 @@ impl PlayerApp {
             restored,
         );
         for (slot, image) in &self.live2d.images {
-            self.assets.update_stream(
+            self.assets.update_render(
                 &self.context,
                 crate::live2d::old_texture_id(*slot),
                 image.clone(),
@@ -193,9 +226,7 @@ impl PlayerApp {
         self.audio.enter(&frame.audio, force_audio);
         self.audio
             .video(frame.video.as_ref().map(|v| v.asset.as_str()));
-        if let Some(plan) = plan {
-            self.commit_ui(plan, false);
-        }
+        self.commit_ui(plan, false);
         if restored {
             self.effects.age = 6.0;
             self.effects.ui_age = 6.0;
@@ -203,14 +234,10 @@ impl PlayerApp {
             self.effects.portrait_actions.clear();
             self.effects.departing.clear();
         }
-        if !restored
-            && self.settings.autosave
-            && let Err(error) = self.saves.autosave_committed(&self.story, &self.session)
-        {
-            self.settings.autosave = false;
-            self.message = Some(format!(
-                "剧情已进入，但自动存档失败（已有文件保留）：{error:#}"
-            ));
+        self.revision = self.revision.wrapping_add(1);
+        self.pending_auto = None;
+        if !restored && self.autosave_enabled() {
+            self.queue_autosave();
         }
         Ok(())
     }
@@ -247,77 +274,7 @@ impl PlayerApp {
                     }
                 }
             }
-            UiIntent::Save | UiIntent::Load => {
-                let mode = if matches!(intent, UiIntent::Save) {
-                    SlotMode::Save
-                } else {
-                    SlotMode::Load
-                };
-                self.overlay = Some(Overlay::Slots {
-                    mode,
-                    infos: self.saves.list_with(&self.story, &self.logic),
-                    pending: None,
-                });
-            }
-            UiIntent::History => self.overlay = Some(Overlay::History),
-            UiIntent::Settings => self.overlay = Some(Overlay::Settings),
-            UiIntent::Restart => self.enter(self.story.start(), false, true)?,
         }
-        Ok(())
-    }
-
-    fn menu_action(&mut self, action: MenuAction) -> anyhow::Result<()> {
-        match action {
-            MenuAction::Close => self.overlay = None,
-            MenuAction::Cancel => {
-                if let Some(Overlay::Slots { pending, .. }) = &mut self.overlay {
-                    *pending = None;
-                }
-            }
-            MenuAction::Slot(slot) => {
-                if let Some(Overlay::Slots { mode, pending, .. }) = &mut self.overlay {
-                    match mode {
-                        SlotMode::Save if self.saves.slot_path(slot).exists() => {
-                            *pending = Some(slot)
-                        }
-                        SlotMode::Save => self.write_slot(slot)?,
-                        SlotMode::Load => {
-                            let session = self.saves.load_with(slot, &self.story, &self.logic)?;
-                            self.enter(session, true, true)?;
-                            self.overlay = None;
-                            self.message = Some(format!("槽位 {} 读档成功", slot.number()));
-                        }
-                    }
-                }
-            }
-            MenuAction::Confirm(slot) => {
-                if matches!(&self.overlay, Some(Overlay::Slots { mode: SlotMode::Save, pending: Some(expected), .. }) if *expected == slot)
-                {
-                    self.write_slot(slot)?;
-                }
-            }
-            MenuAction::ImportLegacy => {
-                let session = self.saves.import_legacy_with(&self.story, &self.logic)?;
-                self.enter(session, true, true)?;
-                self.overlay = None;
-                self.message = Some("已导入 v0.1 存档。旧档不含历史，仅恢复当前位置；原文件未改写。请手动保存到新槽位。".into());
-            }
-        }
-        Ok(())
-    }
-
-    fn write_slot(&mut self, slot: SlotId) -> anyhow::Result<()> {
-        self.saves
-            .save_with(slot, &self.story, &self.session, &self.logic)?;
-        if let Some(Overlay::Slots { infos, pending, .. }) = &mut self.overlay {
-            *infos = self.saves.list_with(&self.story, &self.logic);
-            *pending = None;
-        }
-        self.message = Some(format!(
-            "槽位 {} 存档成功\n{}",
-            slot.number(),
-            self.saves.slot_path(slot).display()
-        ));
         Ok(())
     }
 
@@ -336,46 +293,15 @@ impl PlayerApp {
                 });
             return Ok(());
         }
-        match &self.overlay {
-            Some(Overlay::History) => {
-                if !menus::history(ctx, &self.story, &self.session) {
-                    self.overlay = None;
-                }
-            }
-            Some(Overlay::Slots {
-                mode,
-                infos,
-                pending,
-            }) => {
-                if let Some(action) = menus::slots(
-                    ctx,
-                    infos,
-                    *mode,
-                    *pending,
-                    self.saves.legacy_path().is_file(),
-                ) {
-                    self.menu_action(action)?;
-                }
-            }
-            Some(Overlay::Settings) => {
-                let (edited, open) = menus::settings(ctx, &self.settings, &self.audio.status());
-                self.settings = edited;
-                if self.settings.text_speed == 0.0 {
-                    self.typewriter.finish();
-                }
-                if !open {
-                    self.overlay = None;
-                    self.settings.save(&self.saves.settings_path())?;
-                }
-            }
-            None => {}
-        }
         Ok(())
     }
 }
 
-impl eframe::App for PlayerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl PlayerApp {
+    pub fn update_ui(&mut self, ctx: &egui::Context) {
+        self.finish_autosave();
+        let capture_busy = self.pending_auto.is_some();
+        let reloaded = !capture_busy && self.poll_project(ctx);
         let focused = ctx.input(|input| input.focused);
         if let Some(error) = self.audio.poll_error() {
             self.message = Some(error);
@@ -383,6 +309,13 @@ impl eframe::App for PlayerApp {
         let paused = self.blocked() || !focused;
         let now = Instant::now();
         let elapsed = self.clock.elapsed(now, paused);
+        // Holding Ctrl fast-forwards; pause, host prompts and videos suspend the hold.
+        let ctrl = ctx.input(|input| input.modifiers.ctrl);
+        let ctrl_released = std::mem::replace(&mut self.ctrl_held, ctrl) && !ctrl;
+        let story_input =
+            !paused && !capture_busy && self.custom.state.keyboard(&self.custom.definition);
+        let skip_held = ctrl && story_input && !self.video.playing();
+        let skip = self.skip.tick(elapsed.as_secs_f32(), skip_held) && self.may_fast_forward();
         let transitioning = self.effects.active();
         self.effects.tick(elapsed.as_secs_f32());
         let video_event = match self
@@ -410,12 +343,18 @@ impl eframe::App for PlayerApp {
         if !transitioning && !self.video.playing() {
             self.typewriter.tick(elapsed, self.settings.text_speed);
         }
+        self.mark_current_read();
         let mut intent = None;
+        self.painted = (
+            self.revision,
+            !self.blocked() && self.custom.state.stack.len() == 1,
+        );
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
                 let frame = self.story.frame(&self.session).expect("validated session");
-                if let Some(custom) = &mut self.custom {
+                {
+                    let custom = &mut self.custom;
                     custom.data.progress(
                         self.typewriter.complete()
                             && !self.effects.active()
@@ -457,63 +396,47 @@ impl eframe::App for PlayerApp {
                             frame,
                             assets: &self.assets,
                             visible_text: self.typewriter.visible_text(),
-                            blocked: self.message.is_some(),
+                            blocked: self.message.is_some() || capture_busy,
                         },
                     )
                     .map(UiIntent::Custom);
                     if intent.is_none()
+                        && !capture_busy
                         && self.message.is_none()
                         && custom.state.keyboard(&custom.definition)
                         && ctx.input(|i| i.key_pressed(egui::Key::Space))
                     {
                         intent = Some(UiIntent::Play(controller::Intent::Advance));
                     }
-                    return;
                 }
-                let options: Vec<_> = frame
-                    .options
-                    .iter()
-                    .filter(|option| self.available.contains(&option.id))
-                    .collect();
-                intent = view::draw(
-                    ui,
-                    &self.story,
-                    frame,
-                    &self.assets,
-                    RenderState {
-                        visible_text: self.typewriter.visible_text(),
-                        complete: self.typewriter.complete(),
-                        blocked: self.blocked(),
-                        options: &options,
-                    },
-                );
             });
         let route = &self.story.routes[&self.session.frame_id];
-        let advance_route = matches!(
-            route,
-            crate::model::Route::Next(_)
-                | crate::model::Route::Branch { .. }
-                | crate::model::Route::Script(crate::model::ScriptRoute::Advance)
-        );
+        let advance_route = matches!(route, crate::model::Route::Advance);
         let auto_advance = self.auto_play.tick(
             elapsed.as_secs_f32(),
-            self.typewriter.complete()
+            story_input
+                && !ctrl
+                && !ctrl_released
+                && self.typewriter.complete()
                 && !self.effects.active()
                 && !self.video.playing()
                 && self.audio.voice_finished(),
             advance_route,
             self.settings.auto_delay,
         );
-        let result = if let Some(intent) = intent {
+        let result = if reloaded {
+            Ok(())
+        } else if let Some(intent) = intent {
             if matches!(intent, UiIntent::Play(_)) {
                 self.auto_play.set(false);
             }
             ctx.request_repaint();
             self.handle(intent)
-        } else if video_event && !paused {
+        } else if video_event && !paused && !capture_busy {
             self.video.pending_advance = false;
             self.advance_video()
-        } else if auto_advance && !paused {
+        } else if skip || (auto_advance && !paused && !capture_busy) {
+            // Ctrl fast-forward and auto-play share the single sanctioned advance per update.
             self.handle(UiIntent::Play(controller::Intent::Advance))
         } else {
             Ok(())
@@ -530,18 +453,31 @@ impl eframe::App for PlayerApp {
             && (!self.typewriter.complete()
                 || self.effects.repaint()
                 || self.auto_play.enabled
+                || skip_held
                 || self.video.playing()
                 || self.live2d.active())
         {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+        self.maybe_flush_read(now);
         // Poll backend failures without relying on further user input.
         ctx.request_repaint_after(Duration::from_secs(1));
     }
 
-    fn on_exit(&mut self) {
+    pub fn shutdown(&mut self) {
+        self.finish_autosave();
+        self.flush_read();
         if let Err(error) = self.settings.save(&self.saves.settings_path()) {
             eprintln!("保存设置失败：{error:#}");
         }
+    }
+}
+
+impl eframe::App for PlayerApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_ui(ctx);
+    }
+    fn on_exit(&mut self) {
+        self.shutdown();
     }
 }

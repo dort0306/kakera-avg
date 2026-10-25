@@ -132,13 +132,11 @@ pub enum Command {
     },
     Save {
         slot: u16,
-        #[serde(default)]
         overwrite: bool,
     },
     Load {
         slot: u16,
     },
-    ImportLegacy,
     Restart,
     Advance,
     Choose {
@@ -161,7 +159,6 @@ pub enum Operation {
     None,
     Save(SlotId, bool),
     Load(SlotId),
-    ImportLegacy,
     LoadAuto(u16),
     Restart,
     Advance,
@@ -337,7 +334,6 @@ pub fn prepare(
             Command::Load { slot } => {
                 operation(&mut plan.operation, Operation::Load(SlotId::new(slot)?))?
             }
-            Command::ImportLegacy => operation(&mut plan.operation, Operation::ImportLegacy)?,
             Command::Restart => operation(&mut plan.operation, Operation::Restart)?,
             Command::Advance => operation(&mut plan.operation, Operation::Advance)?,
             Command::Choose { option } => {
@@ -350,14 +346,18 @@ pub fn prepare(
                 }
             }
             Command::Setting { name, value } => {
-                if name == "muted" || name == "autosave" {
+                if matches!(
+                    name.as_str(),
+                    "muted" | "autosave" | "skip_all" | "fullscreen"
+                ) {
                     let enabled = value
                         .as_bool()
                         .ok_or_else(|| anyhow::anyhow!("设置需要 bool"))?;
-                    if name == "muted" {
-                        plan.settings.muted = enabled;
-                    } else {
-                        plan.settings.autosave = enabled;
+                    match name.as_str() {
+                        "muted" => plan.settings.muted = enabled,
+                        "autosave" => plan.settings.autosave = enabled,
+                        "fullscreen" => plan.settings.fullscreen = enabled,
+                        _ => plan.settings.skip_all = enabled,
                     }
                 } else {
                     let value = value

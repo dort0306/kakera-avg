@@ -59,6 +59,7 @@ struct Renderer<'a> {
     input: Input<'a>,
     scale: f32,
     event: Option<Event>,
+    controls: Vec<Rect>,
 }
 impl Renderer<'_> {
     fn nodes(
@@ -82,6 +83,14 @@ impl Renderer<'_> {
                 continue;
             }
             let enabled = active && self.input.data.flag(&node.enabled, item);
+            if active
+                && matches!(
+                    node.kind,
+                    Kind::Button | Kind::Slider { .. } | Kind::Toggle | Kind::Repeat { .. }
+                )
+            {
+                self.controls.push(bounds.intersect(ui.clip_rect()));
+            }
             let painter = ui
                 .painter()
                 .with_clip_rect(ui.clip_rect().intersect(bounds));
@@ -350,6 +359,7 @@ pub fn draw(ui: &mut egui::Ui, input: Input<'_>) -> Option<Event> {
         input,
         scale,
         event: None,
+        controls: Vec::new(),
     };
     ui.scope_builder(egui::UiBuilder::new().max_rect(stage), |ui| {
         ui.set_clip_rect(stage);
@@ -359,5 +369,94 @@ pub fn draw(ui: &mut egui::Ui, input: Input<'_>) -> Option<Event> {
             renderer.nodes(ui, &screen.nodes, stage.min, &Value::Null, active, id);
         }
     });
+    let top = renderer
+        .input
+        .state
+        .stack
+        .last()
+        .expect("validated UI stack");
+    let screen = &renderer.input.definition.screens[top];
+    let eligible = |p: Pos2| {
+        stage.contains(p)
+            && !renderer.controls.iter().any(|r| r.contains(p))
+            && ui
+                .ctx()
+                .layer_id_at(p)
+                .is_none_or(|layer| layer == ui.layer_id())
+            && !renderer.input.blocked
+            && ui.input(|i| i.focused)
+    };
+    let candidate = ui.input(|i| i.pointer.interact_pos()).is_some_and(eligible);
+    let id = ui.id().with("xml-background-gesture");
+    let mut gesture = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<BackgroundGesture>(id).unwrap_or_default());
+    if gesture.screen != *top {
+        gesture = BackgroundGesture {
+            screen: top.clone(),
+            ..Default::default()
+        };
+    }
+    for (index, button) in [egui::PointerButton::Primary, egui::PointerButton::Secondary]
+        .into_iter()
+        .enumerate()
+    {
+        let press = ui.input(|i| {
+            i.events.iter().rev().find_map(|event| match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button: b,
+                    pressed: true,
+                    ..
+                } if *b == button => Some(*pos),
+                _ => None,
+            })
+        });
+        if let Some(pos) = press {
+            gesture.pressed[index] = eligible(pos);
+        }
+    }
+    if renderer.event.is_none() {
+        // Right click wins if both buttons are released together. Never dispatch two intents.
+        for (index, button, event) in [
+            (
+                1,
+                egui::PointerButton::Secondary,
+                &screen.background_right_click,
+            ),
+            (0, egui::PointerButton::Primary, &screen.background_click),
+        ] {
+            if candidate
+                && gesture.pressed[index]
+                && ui.input(|i| i.pointer.button_clicked(button))
+                && let Some(event) = event
+            {
+                renderer.event = Some(Event {
+                    name: event.clone(),
+                    item: Value::Null,
+                    value: Value::Null,
+                });
+                break;
+            }
+        }
+    }
+    for (index, button) in [egui::PointerButton::Primary, egui::PointerButton::Secondary]
+        .into_iter()
+        .enumerate()
+    {
+        if renderer.input.blocked
+            || !ui.input(|i| i.focused)
+            || !ui.input(|i| i.pointer.button_down(button))
+        {
+            gesture.pressed[index] = false;
+        }
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(id, gesture));
     renderer.event
+}
+
+#[derive(Clone, Default)]
+struct BackgroundGesture {
+    screen: String,
+    pressed: [bool; 2],
 }

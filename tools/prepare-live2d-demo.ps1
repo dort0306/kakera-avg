@@ -8,7 +8,7 @@ try {
     $model=Join-Path $sdkPath 'Samples/Resources/Haru'
     if (-not (Test-Path -LiteralPath $dll) -or -not (Test-Path -LiteralPath $model)) { throw 'SDK must contain Windows x64 Core and Haru sample.' }
     New-Item -ItemType Directory -Path $Output | Out-Null
-    Copy-Item -LiteralPath games/demo/story.xml,games/demo/ui.xml,games/demo/assets,games/demo/scripts -Destination $Output -Recurse
+    Copy-Item -LiteralPath games/demo/story.xml,games/demo/ui.xml,games/demo/assets,games/demo/scripts,games/demo/chapters -Destination $Output -Recurse
     # The base demo already registers dedicated Live2D scenes. Refresh assets only.
     $destination=Join-Path $Output 'assets/live2d/Haru'
     New-Item -ItemType Directory -Path $destination -Force | Out-Null

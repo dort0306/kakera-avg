@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story schema="8">
+  <frames>
+    <frame id="intro"><text>片头动画：可以打开历史暂停，或点击跳过。</text><video asset="video.intro" skippable="true" advance="true" /></frame>
+    <frame id="credits"><text>片尾动画结束，感谢体验 v0.6。</text><video asset="video.credits" skippable="true" advance="false" /></frame>
+    <frame id="live2d.stage" visual="live2d.stage" speaker="haru">
+      <text>这是 Haru 的真实 Live2D 模型。可测试待机、点击动作、表情与参数；菜单会暂停动画，存档会记录当前测试场景。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="idle">待机与重置</option>
+        <option id="tap">播放点击动作</option>
+        <option id="expression">切换表情 F02</option>
+        <option id="angle">查看参数姿态</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="live2d.expression" visual="live2d.expression" speaker="haru">
+      <text>当前使用 F02 表情和 Idle 待机动作。选择“待机与重置”恢复 F01，或继续测试其他功能。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="idle">待机与重置</option>
+        <option id="tap">播放点击动作</option>
+        <option id="expression">切换表情 F02</option>
+        <option id="angle">查看参数姿态</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="live2d.angle" visual="live2d.angle" speaker="haru">
+      <text>当前参数：头部水平角度 25、垂直角度 -10。此场景不播放待机动作，便于观察 XML 参数形变。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="idle">待机与重置</option>
+        <option id="tap">播放点击动作</option>
+        <option id="expression">切换表情 F02</option>
+        <option id="angle">查看参数姿态</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+  </frames>
+  <next end="true"/>
+</story>

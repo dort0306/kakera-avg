@@ -9,8 +9,10 @@ use eframe::egui;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 pub mod core;
 pub mod motion;
-mod raster;
+pub(crate) mod raster;
 pub struct ModelAsset {
+    /// Process-unique identity so GPU texture caches never key on image addresses.
+    pub id: u64,
     pub moc: Vec<u8>,
     pub textures: Vec<image::RgbaImage>,
     pub motions: BTreeMap<String, motion::Motion>,
@@ -18,6 +20,7 @@ pub struct ModelAsset {
     pub groups: BTreeMap<String, Vec<String>>,
     pub pose_groups: Vec<Vec<(String, Vec<String>)>>,
 }
+static NEXT_MODEL_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 fn relative(base: &Path, text: &str) -> Result<std::path::PathBuf> {
     let p = Path::new(text);
     content::validate_path(p)?;
@@ -167,6 +170,7 @@ impl ModelAsset {
             }
         }
         Ok(Self {
+            id: NEXT_MODEL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             moc,
             textures,
             motions,
@@ -291,7 +295,7 @@ struct Instance {
     accum: f32,
 }
 impl Instance {
-    fn image(&mut self) -> Result<egui::ColorImage> {
+    fn image(&mut self, renderer: &crate::render::Shared) -> Result<crate::render::Image> {
         let mut values: BTreeMap<_, _> = self
             .raw
             .parameters
@@ -338,20 +342,21 @@ impl Instance {
             }
         }
         self.raw.update(&values, &parts)?;
-        raster::composite(
-            self.raw.drawables(self.asset.textures.len())?,
-            &self.asset.textures,
-            self.raw.canvas,
-            self.raw.origin,
-            self.raw.ppu,
+        renderer.borrow_mut().model(crate::render::ModelDraw {
+            meshes: self.raw.drawables(self.asset.textures.len())?,
+            model: self.asset.id,
+            textures: &self.asset.textures,
+            canvas: self.raw.canvas,
+            origin: self.raw.origin,
+            ppu: self.raw.ppu,
             opacity,
-        )
+        })
     }
 }
-#[derive(Default)]
 pub struct Live2DPlayer {
     instances: BTreeMap<Slot, Instance>,
-    pub images: BTreeMap<Slot, egui::ColorImage>,
+    pub images: BTreeMap<Slot, crate::render::Image>,
+    renderer: crate::render::Shared,
 }
 pub fn texture_id(slot: Slot) -> &'static str {
     match slot {
@@ -369,7 +374,17 @@ pub fn old_texture_id(slot: Slot) -> &'static str {
 }
 impl Live2DPlayer {
     pub fn prepare(frame: &Frame, prepared: &PreparedLive2D) -> Result<Self> {
-        let mut result = Self::default();
+        Self::prepare_with(frame, prepared, crate::render::Renderer::cpu())
+    }
+    pub fn prepare_with(
+        frame: &Frame,
+        prepared: &PreparedLive2D,
+        renderer: crate::render::Shared,
+    ) -> Result<Self> {
+        let mut result = Self {
+            renderer,
+            ..Self::default()
+        };
         if prepared.disabled {
             return Ok(result);
         }
@@ -399,7 +414,9 @@ impl Live2DPlayer {
                     dirty: true,
                     accum: 0.0,
                 };
-                result.images.insert(p.slot, instance.image()?);
+                result
+                    .images
+                    .insert(p.slot, instance.image(&result.renderer)?);
                 result.instances.insert(p.slot, instance);
             }
         }
@@ -419,7 +436,7 @@ impl Live2DPlayer {
     ) -> Result<()> {
         for (slot, image) in &self.images {
             if !assets.has_stream(texture_id(*slot)) {
-                assets.update_stream(ctx, texture_id(*slot), image.clone());
+                assets.update_render(ctx, texture_id(*slot), image.clone());
             }
         }
         for (slot, i) in &mut self.instances {
@@ -431,9 +448,17 @@ impl Live2DPlayer {
                     i.override_motion = None;
                 }
             }
-            if i.dirty || i.accum >= 1.0 / 30.0 {
-                let image = i.image()?;
-                assets.update_stream(ctx, texture_id(*slot), image.clone());
+            if i.dirty
+                || i.accum
+                    >= 1.0
+                        / if self.renderer.borrow().is_gpu() {
+                            60.0
+                        } else {
+                            30.0
+                        }
+            {
+                let image = i.image(&self.renderer)?;
+                assets.update_render(ctx, texture_id(*slot), image.clone());
                 self.images.insert(*slot, image);
                 i.dirty = false;
                 i.accum = 0.0;
@@ -443,5 +468,15 @@ impl Live2DPlayer {
     }
     pub fn active(&self) -> bool {
         !self.instances.is_empty()
+    }
+}
+
+impl Default for Live2DPlayer {
+    fn default() -> Self {
+        Self {
+            instances: Default::default(),
+            images: Default::default(),
+            renderer: crate::render::Renderer::cpu(),
+        }
     }
 }

@@ -32,6 +32,8 @@ pub struct Cg {
 pub struct Screen {
     pub modal: bool,
     pub pause: bool,
+    pub background_click: Option<String>,
+    pub background_right_click: Option<String>,
     pub nodes: Vec<Node>,
 }
 #[derive(Clone, Debug)]
@@ -153,6 +155,8 @@ impl Definition {
         }
         let mut out = BTreeSet::new();
         for screen in self.screens.values() {
+            out.extend(screen.background_click.iter().cloned());
+            out.extend(screen.background_right_click.iter().cloned());
             collect(&screen.nodes, &mut out);
         }
         out
@@ -251,7 +255,7 @@ fn binding(
     }
     if let Some(id) = path.strip_prefix("settings.") {
         return match id {
-            "muted" | "autosave" => Some(ValueKind::Bool),
+            "muted" | "autosave" | "skip_all" | "fullscreen" => Some(ValueKind::Bool),
             "text_speed" | "bgm_volume" | "voice_volume" | "se_volume" | "auto_delay"
             | "video_volume" => Some(ValueKind::Number),
             _ => None,
@@ -269,8 +273,10 @@ fn binding(
     let field = path.strip_prefix("item.")?;
     match (source?, field) {
         ("slots", "slot") => Some(ValueKind::Number),
-        ("slots", "exists" | "loadable") | ("gallery", "unlocked") => Some(ValueKind::Bool),
-        ("slots", "title" | "preview")
+        ("slots", "exists" | "loadable" | "hasScreenshot") | ("gallery", "unlocked") => {
+            Some(ValueKind::Bool)
+        }
+        ("slots", "title" | "preview" | "excerpt" | "savedAt" | "image")
         | ("choices", "id" | "text")
         | ("history", "id" | "speaker" | "text" | "choice")
         | ("gallery", "id" | "title" | "image")
@@ -464,12 +470,14 @@ impl Parser<'_> {
             }
             if let Some(path) = &image_bind
                 && (binding(path, self.vars, source) != Some(ValueKind::Text)
-                    || !(path.starts_with("ui.") || path == "item.image"))
+                    || !(path.starts_with("ui.")
+                        || (path == "item.image"
+                            && matches!(source, Some("gallery" | "slots" | "autosaves")))))
             {
                 return Err(error(
                     self.file,
                     xml,
-                    "image-bind 需要 ui 字符串或 gallery item.image",
+                    "image-bind 需要 ui 字符串，或 gallery/slots/autosaves 模板的 item.image",
                 ));
             }
             let event = xml.attribute("event").map(str::to_owned);
@@ -543,7 +551,7 @@ pub fn parse(
         &["variables", "gallery", "screen"],
         false,
     )?;
-    if !["1", "2"].contains(&required(file, root, "schema")?) {
+    if required(file, root, "schema")? != "3" {
         return Err(error(file, root, "不支持的 UI schema"));
     }
     let size = [
@@ -553,7 +561,7 @@ pub fn parse(
     if size[0] < 640.0 || size[1] < 360.0 || (size[0] * 9.0 - size[1] * 16.0).abs() > 0.1 {
         return Err(error(file, root, "UI 画布需要至少 640×360 的 16:9 尺寸"));
     }
-    let variables = crate::loader::rule_xml::variables_in(root, file)?;
+    let variables = crate::loader::variables::variables_in(root, file)?;
     let mut gallery = BTreeMap::new();
     if elements(root).any(|n| n.has_tag_name("gallery")) {
         let group = single(file, root, "gallery")?;
@@ -602,16 +610,39 @@ pub fn parse(
             file,
             screen,
             "screen",
-            &["id", "modal", "pause"],
+            &[
+                "id",
+                "modal",
+                "pause",
+                "background-click",
+                "background-right-click",
+            ],
             &[
                 "scene", "panel", "image", "label", "button", "slider", "toggle", "repeat",
             ],
             false,
         )?;
         let id = required(file, screen, "id")?.to_owned();
+        let event = |name| -> Result<Option<String>> {
+            screen
+                .attribute(name)
+                .map(|value| {
+                    if !handlers.contains(value) || value == "game.enter" {
+                        return Err(error(
+                            file,
+                            screen,
+                            format!("背景事件未注册或为保留事件：{value}"),
+                        ));
+                    }
+                    Ok(value.to_owned())
+                })
+                .transpose()
+        };
         let value = Screen {
             modal: boolean(file, screen, "modal", true)?,
             pause: boolean(file, screen, "pause", true)?,
+            background_click: event("background-click")?,
+            background_right_click: event("background-right-click")?,
             nodes: parser.nodes(screen, 1, None)?,
         };
         if screens.insert(id.clone(), value).is_some() {

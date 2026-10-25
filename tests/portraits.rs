@@ -14,7 +14,11 @@ use kakera_avg::{
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-const STORY: &str = include_str!("../games/demo/story.xml");
+static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let source =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    kakera_avg::story_chain::compile(&source).unwrap().xml
+});
 struct Source {
     story: String,
     js: String,
@@ -33,7 +37,7 @@ impl ContentSource for Source {
 }
 fn source() -> Source {
     Source {
-        story: STORY.into(),
+        story: STORY.to_string(),
         js: include_str!("../games/demo/scripts/ui.js").into(),
     }
 }
@@ -180,7 +184,7 @@ fn js_commands_validate_candidate_slot_and_pose_without_mutating_old_state() {
     let mut src = source();
     src.js.push_str("\non.ui('test-portrait',ctx=>{ctx.setUi('status','changed');ctx.portrait('center','fall-left');ctx.choose('fall-left');});");
     let (loaded, logic) = load_game(&src).unwrap();
-    let def = loaded.interface.unwrap();
+    let def = loaded.interface;
     let state = State::new(&def);
     let commands = logic
         .ui_event(
@@ -247,7 +251,7 @@ fn every_demo_branch_replays_and_restores_final_pose_without_animation_state() {
         let restored = snapshot.restore_with(story, &logic).unwrap();
         assert_eq!(restored, session);
         let json = serde_json::to_value(snapshot).unwrap();
-        assert_eq!(json.as_object().unwrap().len(), 9);
+        assert_eq!(json.as_object().unwrap().len(), 10);
         assert!(json.get("portrait_actions").is_none());
         assert_eq!(restored.variables, question.variables);
     }

@@ -45,16 +45,27 @@ fn real_cubism_model_deforms_and_composites_with_motion_and_validates_commands()
     }));
     let frame = &loaded.story.frames["live2d.stage"];
     let player = Live2DPlayer::prepare(frame, &prepared)?;
-    let image = player.images.values().next().unwrap();
+    let kakera_avg::render::Image::Cpu(image) = player.images.values().next().unwrap() else {
+        anyhow::bail!("expected CPU image");
+    };
     assert!(image.pixels.iter().filter(|p| p.a() > 0).count() > 10000);
     // The bundled demo includes independent expression and XML-parameter scenes.
     let expression = Live2DPlayer::prepare(&loaded.story.frames["live2d.expression"], &prepared)?;
     let angle = Live2DPlayer::prepare(&loaded.story.frames["live2d.angle"], &prepared)?;
     assert_ne!(
-        image.pixels,
-        expression.images.values().next().unwrap().pixels
+        &image.pixels,
+        match expression.images.values().next().unwrap() {
+            kakera_avg::render::Image::Cpu(i) => &i.pixels,
+            _ => unreachable!(),
+        }
     );
-    assert_ne!(image.pixels, angle.images.values().next().unwrap().pixels);
+    assert_ne!(
+        &image.pixels,
+        match angle.images.values().next().unwrap() {
+            kakera_avg::render::Image::Cpu(i) => &i.pixels,
+            _ => unreachable!(),
+        }
+    );
     assert!(
         prepared
             .validate_commands(

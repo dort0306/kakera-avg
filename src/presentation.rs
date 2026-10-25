@@ -134,3 +134,70 @@ impl AutoPlay {
         }
     }
 }
+
+/// Hold-to-fast-forward pacing. Callers supply pause-aware elapsed time; one step per call.
+pub struct FastForward {
+    step: f32,
+    elapsed: f32,
+    held: bool,
+}
+impl Default for FastForward {
+    fn default() -> Self {
+        Self {
+            step: 0.04,
+            elapsed: 0.0,
+            held: false,
+        }
+    }
+}
+impl FastForward {
+    /// True on the frame the key goes down and then once per step; at most one step per call.
+    pub fn tick(&mut self, seconds: f32, held: bool) -> bool {
+        if !held {
+            self.elapsed = 0.0;
+            self.held = false;
+            return false;
+        }
+        if !self.held {
+            self.held = true;
+            self.elapsed = self.step;
+        }
+        self.elapsed = (self.elapsed + seconds.max(0.0)).min(self.step);
+        if self.elapsed >= self.step {
+            self.elapsed = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_forward_steps_immediately_then_once_per_interval_and_resets() {
+        let mut skip = FastForward::default();
+        assert!(
+            skip.tick(0.0, true),
+            "pressing Ctrl must act on the same update"
+        );
+        assert!(!skip.tick(0.01, true));
+        assert!(!skip.tick(0.01, true));
+        assert!(skip.tick(0.03, true), "one step after the interval");
+        assert!(!skip.tick(0.0, true), "no second step in the same update");
+        // A long stall still yields at most one step per update, and release resets pacing.
+        assert!(skip.tick(5.0, true));
+        assert!(!skip.tick(0.0, false));
+        assert!(skip.tick(0.0, true), "a fresh press acts immediately again");
+    }
+
+    #[test]
+    fn auto_play_never_fires_without_an_advance_route() {
+        let mut auto = AutoPlay::default();
+        auto.set(true);
+        assert!(!auto.tick(10.0, true, false, 1.5));
+        assert!(!auto.enabled);
+    }
+}

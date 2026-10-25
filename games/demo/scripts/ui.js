@@ -91,5 +91,14 @@ on.ui("open-autosaves", ctx => ctx.open("autosaves"));
 on.ui("load-auto-slot", ctx => {ctx.loadAuto(ctx.item.slot);ctx.setUi("status","自动存档读取完成");ctx.close();ctx.close();});
 on.ui("auto-delay", ctx => ctx.setting("auto_delay", ctx.value));
 on.ui("autosave-setting", ctx => ctx.setting("autosave", ctx.value));
+on.ui("skip-all", ctx => ctx.setting("skip_all", ctx.value));
 on.ui("video-volume", ctx => ctx.setting("video_volume", ctx.value));
 on.ui("live2d-tap", ctx => ctx.live2d("center", "TapBody:0"));
+
+on.ui("background-advance", ctx => {
+  if (!ctx.ui.hudVisible) {ctx.setUi("hudVisible",true);return;}
+  if (ctx.game.canAdvance) ctx.advance();
+});
+on.ui("toggle-hud", ctx => ctx.setUi("hudVisible",!ctx.ui.hudVisible));
+
+on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));

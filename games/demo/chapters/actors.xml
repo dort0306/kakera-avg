@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story schema="8">
+  <frames>
+    <frame id="actor.stage" visual="actor.stage" speaker="lin">
+      <text>立绘动作舞台。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.left" visual="actor.left" speaker="lin">
+      <text>从左侧入场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.right" visual="actor.right" speaker="lin">
+      <text>从右侧入场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.up" visual="actor.up" speaker="lin">
+      <text>从上方入场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.down" visual="actor.down" speaker="lin">
+      <text>从下方入场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.exit-left" visual="actor.exit-left" speaker="lin">
+      <text>向左退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.exit-right" visual="actor.exit-right" speaker="lin">
+      <text>向右退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.fade" visual="actor.fade" speaker="lin">
+      <text>淡入。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.shake" visual="actor.shake" speaker="lin">
+      <text>震动。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.bounce" visual="actor.bounce" speaker="lin">
+      <text>弹跳。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.turn" visual="actor.turn" speaker="lin">
+      <text>翻转方向。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.spin" visual="actor.spin" speaker="lin">
+      <text>团团转。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.fall-left" visual="actor.fall-left" speaker="lin">
+      <text>向左摔倒。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.fall-right" visual="actor.fall-right" speaker="lin">
+      <text>向右摔倒。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.empty" visual="actor.empty" speaker="lin">
+      <text>移除立绘自动退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.fade-out" visual="actor.fade-out" speaker="lin">
+      <text>淡出退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.exit-up" visual="actor.exit-up" speaker="lin">
+      <text>向上退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+    <frame id="actor.exit-down" visual="actor.exit-down" speaker="lin">
+      <text>向下退场。可从右侧选择其他动作，或重播当前动作。</text>
+      <audio bgm="bgm.room" />
+      <options>
+        <option id="stage">立绘动作舞台</option>
+        <option id="left">从左侧入场</option>
+        <option id="right">从右侧入场</option>
+        <option id="up">从上方入场</option>
+        <option id="down">从下方入场</option>
+        <option id="exit-left">向左退场</option>
+        <option id="exit-right">向右退场</option>
+        <option id="fade">淡入</option>
+        <option id="shake">震动</option>
+        <option id="bounce">弹跳</option>
+        <option id="turn">翻转方向</option>
+        <option id="spin">团团转</option>
+        <option id="fall-left">向左摔倒</option>
+        <option id="fall-right">向右摔倒</option>
+        <option id="fade-out">淡出退场</option>
+        <option id="exit-up">向上退场</option>
+        <option id="exit-down">向下退场</option>
+        <option id="empty">移除立绘自动退场</option>
+        <option id="return">返回剧情</option>
+      </options>
+    </frame>
+  </frames>
+  <next src="chapters/media.xml"/>
+</story>

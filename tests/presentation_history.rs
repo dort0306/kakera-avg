@@ -1,21 +1,9 @@
+mod common;
 use kakera_avg::{
-    controller::{Intent, reduce, transition},
-    loader::parse_story,
-    model::{MAX_HISTORY, Route},
+    controller::{Intent, transition_with},
     presentation::{GatedIntent, Typewriter, gate},
 };
-use std::{path::Path, time::Duration};
-
-fn story() -> kakera_avg::model::Story {
-    parse_story(
-        include_str!("../doc/rust-mvc-example/story.xml"),
-        include_str!("../doc/rust-mvc-example/flow.xml"),
-        Path::new("demo"),
-    )
-    .unwrap()
-    .story
-}
-
+use std::time::Duration;
 #[test]
 fn typewriter_uses_graphemes_and_preserves_unicode_sequences() {
     let mut writer = Typewriter::new("中e\u{301}👨‍👩‍👧‍👦文", false);
@@ -47,78 +35,6 @@ fn typewriter_timing_is_frame_rate_independent_and_zero_speed_is_instant() {
     b.tick(Duration::ZERO, 0.0);
     assert!(b.complete());
     assert!(Typewriter::new(text, true).complete());
-}
-
-#[test]
-fn first_advance_reveals_second_advance_transitions_and_choices_are_gated() {
-    let story = story();
-    let mut session = story.start();
-    let mut writer = Typewriter::new(&story.frames[&session.frame_id].text, false);
-    match gate(Intent::Advance, writer.complete()) {
-        GatedIntent::Reveal => writer.finish(),
-        _ => panic!("must reveal first"),
-    }
-    assert_eq!(session, story.start());
-    assert_eq!(session.history.len(), 1);
-    if let GatedIntent::Dispatch(intent) = gate(Intent::Advance, writer.complete()) {
-        session = reduce(&story, &session, intent).unwrap();
-    } else {
-        panic!("must advance after reveal");
-    }
-    assert_eq!(session.frame_id, "question");
-    assert_eq!(session.history.len(), 2);
-    assert!(matches!(
-        gate(Intent::Choose("accept".into()), false),
-        GatedIntent::Ignore
-    ));
-}
-
-#[test]
-fn history_records_only_real_transitions_and_selected_branch() {
-    let story = story();
-    let question = transition(&story, &story.start(), Intent::Advance).unwrap();
-    assert!(question.entered);
-    let ignored = transition(&story, &question.session, Intent::Advance).unwrap();
-    assert!(!ignored.entered);
-    assert_eq!(ignored.session, question.session);
-    assert!(transition(&story, &question.session, Intent::Choose("missing".into())).is_err());
-    let end = reduce(&story, &question.session, Intent::Choose("accept".into())).unwrap();
-    assert_eq!(end.history.len(), 3);
-    assert_eq!(end.history[1].choice_id.as_deref(), Some("accept"));
-    assert!(end.history[2].choice_id.is_none());
-    assert!(!transition(&story, &end, Intent::Advance).unwrap().entered);
-    story.validate_session(&end).unwrap();
-    assert_eq!(story.start().history.len(), 1);
-}
-
-#[test]
-fn self_loops_keep_entry_event_even_when_capped_history_is_identical() {
-    let mut story = story();
-    story
-        .routes
-        .insert("opening".into(), Route::Next("opening".into()));
-    let mut session = story.start();
-    for _ in 0..MAX_HISTORY + 2 {
-        let result = transition(&story, &session, Intent::Advance).unwrap();
-        assert!(result.entered);
-        session = result.session;
-    }
-    assert_eq!(session.history.len(), MAX_HISTORY);
-    let result = transition(&story, &session, Intent::Advance).unwrap();
-    assert!(result.entered);
-    assert_eq!(result.session, session);
-    story.validate_session(&session).unwrap();
-}
-
-#[test]
-fn forged_choice_and_target_in_saved_history_are_rejected() {
-    let story = story();
-    let question = reduce(&story, &story.start(), Intent::Advance).unwrap();
-    let mut end = reduce(&story, &question, Intent::Choose("accept".into())).unwrap();
-    end.history[1].choice_id = Some("refuse".into());
-    assert!(story.validate_session(&end).is_err());
-    end.history[1].choice_id = Some("invented".into());
-    assert!(story.validate_session(&end).is_err());
 }
 
 #[test]
@@ -178,4 +94,42 @@ fn hidden_suffix_keeps_final_line_breaks_and_glyph_positions() {
             }
         });
     });
+}
+
+#[test]
+fn reveal_choose_history_and_invalid_input_share_the_current_script_boundary() {
+    let (loaded, logic) = common::game();
+    let story = &loaded.story;
+    let mut session = story.start();
+    let mut writer = Typewriter::new(&story.frames["opening"].text, false);
+    assert!(matches!(
+        gate(Intent::Advance, writer.complete()),
+        GatedIntent::Reveal
+    ));
+    writer.finish();
+    assert_eq!(session.history.len(), 1);
+    session = transition_with(story, &session, Intent::Advance, &logic)
+        .unwrap()
+        .session;
+    assert!(matches!(
+        gate(Intent::Choose("accept".into()), false),
+        GatedIntent::Ignore
+    ));
+    assert!(
+        !transition_with(story, &session, Intent::Advance, &logic)
+            .unwrap()
+            .entered
+    );
+    session = transition_with(story, &session, Intent::Choose("accept".into()), &logic)
+        .unwrap()
+        .session;
+    assert_eq!(session.history.len(), 3);
+    assert_eq!(session.history[1].choice_id.as_deref(), Some("accept"));
+    assert!(
+        !transition_with(story, &session, Intent::Advance, &logic)
+            .unwrap()
+            .entered
+    );
+    session.history[1].choice_id = Some("refuse".into());
+    assert!(story.validate_session_with(&session, &logic).is_err());
 }

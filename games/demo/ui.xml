@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- All normal controls, layouts and menus are authored here; coordinates use a 1280×720 canvas. -->
-<ui schema="2" width="1280" height="720" initial="hud">
+<ui schema="3" width="1280" height="720" initial="hud">
   <variables>
+    <bool id="hudVisible" initial="true" />
     <bool id="portraitMode" initial="false" />
     <string id="fxTransition" initial="" />
     <int id="fxDuration" initial="1500" min="0" max="5000" />
@@ -15,8 +16,9 @@
     <cg id="cg.room" image="bg.room" title="午后房间" unlocked="true" />
     <cg id="cg.lin" image="portrait.lin" title="一同出发" />
   </gallery>
-  <screen id="hud" modal="false" pause="false">
+  <screen id="hud" modal="false" pause="false" background-click="background-advance" background-right-click="toggle-hud">
     <scene id="scene" width="1280" height="720" />
+    <panel id="hudControls" width="1280" height="720" color="#00000000" visible="ui.hudVisible">
     <label id="brand" x="44" y="28" width="510" height="30" text="KAKERA / XML UI" font-size="19" color="#EEDDB8" />
     <button id="portraitStageButton" x="44" y="420" width="150" height="38" text="立绘舞台" visible="ui.portraitMode" event="open-portrait-stage" image="ui.button" hover-image="ui.hover" />
     <button id="autoPlayButton" x="260" y="20" width="150" height="38" bind="game.autoText" event="toggle-auto" image="ui.button" hover-image="ui.hover" />
@@ -40,16 +42,21 @@
       <button id="choice" width="396" height="48" bind="item.text" event="choose" image="ui.button" hover-image="ui.hover" font-size="22" />
     </repeat>
     <label id="noChoices" x="804" y="160" width="416" height="100" text="当前没有可用选项，请读档或重新开始" visible="game.noChoices" color="#F0CA89" />
+    </panel>
   </screen>
 
   <screen id="save">
     <panel id="savePanel" x="110" y="80" width="1060" height="560" image="ui.panel">
       <label id="saveTitle" x="30" y="24" width="700" height="40" text="保存旅程" font-size="28" color="#F0CA89" />
       <button id="saveClose" x="940" y="22" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
-      <repeat id="saveSlots" x="30" y="94" width="1000" height="410" source="slots" columns="2" item-width="480" item-height="120" gap="18">
-        <panel id="saveCard" width="480" height="120" color="#203449">
+      <repeat id="saveSlots" x="30" y="94" width="1000" height="410" source="slots" columns="2" item-width="480" item-height="146" gap="18">
+        <panel id="saveCard" width="480" height="146" color="#203449">
           <label id="saveSlotTitle" x="16" y="10" width="300" height="26" bind="item.title" color="#F0CA89" />
-          <label id="savePreview" x="16" y="48" width="444" height="64" bind="item.preview" font-size="17" />
+          <panel id="savePreviewBase" x="16" y="48" width="128" height="72" color="#101C2C" />
+          <image id="saveScreenshot" x="16" y="48" width="128" height="72" image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+          <label id="saveNoScreenshot" x="30" y="72" width="100" height="28" text="无截图" font-size="15" visible="not:item.hasScreenshot" color="#8195A3" />
+          <label id="saveSavedAt" x="160" y="42" width="300" height="24" bind="item.savedAt" font-size="15" color="#9FC8E8" />
+          <label id="savePreview" x="160" y="70" width="300" height="62" bind="item.excerpt" font-size="15" />
           <button id="saveSlotButton" x="350" y="8" width="110" height="32" text="存入" event="save-slot" image="ui.button" hover-image="ui.hover" font-size="17" />
         </panel>
       </repeat>
@@ -65,10 +72,14 @@
       <label id="loadTitle" x="30" y="24" width="700" height="40" text="继续旅程" font-size="28" color="#F0CA89" />
       <button id="autoSavesButton" x="730" y="22" width="190" height="38" text="自动存档" event="open-autosaves" image="ui.button" />
       <button id="loadClose" x="940" y="22" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
-      <repeat id="loadSlots" x="30" y="94" width="1000" height="410" source="slots" columns="2" item-width="480" item-height="120" gap="18">
-        <panel id="loadCard" width="480" height="120" color="#203449">
+      <repeat id="loadSlots" x="30" y="94" width="1000" height="410" source="slots" columns="2" item-width="480" item-height="146" gap="18">
+        <panel id="loadCard" width="480" height="146" color="#203449">
           <label id="loadSlotTitle" x="16" y="10" width="300" height="26" bind="item.title" color="#F0CA89" />
-          <label id="loadPreview" x="16" y="48" width="444" height="64" bind="item.preview" font-size="17" />
+          <panel id="loadPreviewBase" x="16" y="48" width="128" height="72" color="#101C2C" />
+          <image id="loadScreenshot" x="16" y="48" width="128" height="72" image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+          <label id="loadNoScreenshot" x="30" y="72" width="100" height="28" text="无截图" font-size="15" visible="not:item.hasScreenshot" color="#8195A3" />
+          <label id="loadSavedAt" x="160" y="42" width="300" height="24" bind="item.savedAt" font-size="15" color="#9FC8E8" />
+          <label id="loadPreview" x="160" y="70" width="300" height="62" bind="item.excerpt" font-size="15" />
           <button id="loadSlotButton" x="350" y="8" width="110" height="32" text="读取" event="load-slot" enabled="item.loadable" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="17" />
         </panel>
       </repeat>
@@ -106,7 +117,9 @@
       <slider id="videoVolume" x="250" y="430" width="560" height="36" value="settings.video_volume" min="0" max="1" event="video-volume" />
       <toggle id="muted" x="30" y="225" width="330" height="38" text="总静音" value="settings.muted" event="mute" />
       <toggle id="autosave" x="400" y="225" width="400" height="38" text="自动保存（轮换十槽）" value="settings.autosave" event="autosave-setting" />
-      <label id="settingsHint" x="30" y="515" width="800" height="32" text="设置独立保存。自动播放在选项停止；手动剧情输入退出自动模式。" font-size="17" />
+      <toggle id="skipAll" x="30" y="470" width="640" height="38" text="按住 Ctrl 快进全部（关闭：只快进已读）" value="settings.skip_all" event="skip-all" font-size="18" />
+      <toggle id="fullscreen" x="30" y="510" width="780" height="30" text="全屏显示（关闭后恢复窗口）" value="settings.fullscreen" event="fullscreen" font-size="18"/>
+      <label id="settingsHint" x="30" y="548" width="800" height="26" text="设置独立保存。Ctrl 快进；选项与结尾停止。全屏开关立即生效。" font-size="16" />
     </panel>
   </screen>
 
@@ -188,8 +201,9 @@
       <button id="fxDefault" x="920" y="560" width="165" height="38" text="恢复默认" event="fx-default" image="ui.button" />
     </panel>
   </screen>
-  <screen id="portrait-stage" modal="false" pause="false">
+  <screen id="portrait-stage" modal="false" pause="false" background-click="background-advance" background-right-click="toggle-hud">
     <scene id="portraitScene" width="1280" height="720" />
+    <panel id="portraitHudControls" width="1280" height="720" color="#00000000" visible="ui.hudVisible">
     <panel id="actorHeader" width="1280" height="98" color="#101C2CDD" />
     <label id="actorTitle" x="34" y="12" width="720" height="32" text="v0.5.1 立绘动作舞台" font-size="24" color="#F0CA89" />
     <label id="actorText" x="34" y="50" width="900" height="40" bind="game.text" font-size="19" />
@@ -201,15 +215,20 @@
     </repeat>
     <button id="actorReplay" x="44" y="660" width="180" height="40" text="重播当前动作" event="portrait-replay" image="ui.button" hover-image="ui.hover" />
     <button id="actorHud" x="244" y="660" width="150" height="40" text="回到主界面" event="portrait-hud" image="ui.button" hover-image="ui.hover" />
+    </panel>
   </screen>
   <screen id="autosaves">
     <panel id="autoLoadPanel" x="110" y="80" width="1060" height="560" image="ui.panel">
       <label id="autoLoadTitle" x="30" y="24" width="700" height="40" text="最近自动存档" font-size="28" color="#F0CA89" />
       <button id="autoLoadClose" x="940" y="22" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
-      <repeat id="autoLoadSlots" x="30" y="94" width="1000" height="410" source="autosaves" columns="2" item-width="480" item-height="120" gap="18">
-        <panel id="autoLoadCard" width="480" height="120" color="#203449">
+      <repeat id="autoLoadSlots" x="30" y="94" width="1000" height="410" source="autosaves" columns="2" item-width="480" item-height="146" gap="18">
+        <panel id="autoLoadCard" width="480" height="146" color="#203449">
           <label id="autoLoadSlotTitle" x="16" y="10" width="300" height="26" bind="item.title" color="#F0CA89" />
-          <label id="autoLoadPreview" x="16" y="48" width="444" height="64" bind="item.preview" font-size="17" />
+          <panel id="autoLoadPreviewBase" x="16" y="48" width="128" height="72" color="#101C2C" />
+          <image id="autoLoadScreenshot" x="16" y="48" width="128" height="72" image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+          <label id="autoLoadNoScreenshot" x="30" y="72" width="100" height="28" text="无截图" font-size="15" visible="not:item.hasScreenshot" color="#8195A3" />
+          <label id="autoLoadSavedAt" x="160" y="42" width="300" height="24" bind="item.savedAt" font-size="15" color="#9FC8E8" />
+          <label id="autoLoadPreview" x="160" y="70" width="300" height="62" bind="item.excerpt" font-size="15" />
           <button id="autoLoadSlotButton" x="350" y="8" width="110" height="32" text="读取" event="load-auto-slot" enabled="item.loadable" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="17" />
         </panel>
       </repeat>

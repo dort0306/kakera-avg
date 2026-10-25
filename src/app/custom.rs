@@ -8,7 +8,7 @@ use crate::{
     model::{Session, Story},
     presentation::{self, GatedIntent},
     save::{SaveStore, SlotInfo},
-    script::LogicEngine,
+    script::ScriptLogic,
 };
 use anyhow::{Result, ensure};
 use serde_json::Value;
@@ -20,13 +20,14 @@ pub(super) struct CustomUi {
     pub data: Data,
     pub slots: Vec<SlotInfo>,
     pub autosaves: Vec<Value>,
+    pub preview_images: Vec<(String, crate::save_preview::Screenshot)>,
 }
 impl CustomUi {
     pub fn new(
         definition: Definition,
         story: &Story,
         saves: &SaveStore,
-        logic: &LogicEngine,
+        logic: &ScriptLogic,
         warnings: &mut Vec<String>,
     ) -> Self {
         let path = saves.directory().join("profile.json");
@@ -40,7 +41,19 @@ impl CustomUi {
         };
         let state = State::new(&definition);
         let slots = saves.list_page(story, 1).expect("valid page");
-        let autosaves = saves.auto_list(story);
+        let (autosaves, mut preview_images) = saves.auto_metadata(story);
+        for info in &slots {
+            if let crate::save::SlotState::Ready {
+                screenshot: Some(image),
+                ..
+            } = &info.state
+            {
+                preview_images.push((
+                    crate::save_preview::image_id(info.slot.number(), false),
+                    image.clone(),
+                ));
+            }
+        }
         let _ = logic;
         Self {
             definition,
@@ -49,6 +62,7 @@ impl CustomUi {
             data: Data::default(),
             slots,
             autosaves,
+            preview_images,
         }
     }
 }
@@ -59,10 +73,8 @@ impl PlayerApp {
         available: &[String],
         restored: bool,
         base: Option<Plan>,
-    ) -> Result<Option<Plan>> {
-        let Some(custom) = &self.custom else {
-            return Ok(None);
-        };
+    ) -> Result<Plan> {
+        let custom = &self.custom;
         let base = base.unwrap_or(host::prepare(
             &custom.definition,
             &custom.state,
@@ -112,17 +124,13 @@ impl PlayerApp {
             .validate_commands(&self.story.frames[&session.frame_id], &plan.live2d)?;
         crate::effects::validate_portraits(&self.story.frames[&session.frame_id], &plan.portraits)
             .map_err(anyhow::Error::msg)?;
-        Ok(Some(plan))
+        Ok(plan)
     }
     pub(super) fn commit_ui(&mut self, plan: Plan, refresh_slots: bool) {
         if let Some(enabled) = plan.auto_play {
             self.auto_play.set(enabled);
         }
-        if self
-            .custom
-            .as_ref()
-            .is_some_and(|ui| ui.state.stack != plan.state.stack)
-        {
+        if self.custom.state.stack != plan.state.stack {
             self.effects.pages_changed();
         }
         for (target, animation) in plan.animations {
@@ -141,7 +149,8 @@ impl PlayerApp {
         if let Some(message) = plan.message {
             self.message = Some(message);
         }
-        if let Some(custom) = &mut self.custom {
+        {
+            let custom = &mut self.custom;
             custom.state = plan.state;
             custom.profile = plan.profile;
             if refresh_slots {
@@ -149,7 +158,21 @@ impl PlayerApp {
                     .saves
                     .list_page(&self.story, custom.state.slot_page)
                     .expect("validated page");
-                custom.autosaves = self.saves.auto_list(&self.story);
+                let (autosaves, mut images) = self.saves.auto_metadata(&self.story);
+                custom.autosaves = autosaves;
+                for info in &custom.slots {
+                    if let crate::save::SlotState::Ready {
+                        screenshot: Some(image),
+                        ..
+                    } = &info.state
+                    {
+                        images.push((
+                            crate::save_preview::image_id(info.slot.number(), false),
+                            image.clone(),
+                        ));
+                    }
+                }
+                custom.preview_images = images;
             }
             custom.data = Data::build(data::Input {
                 definition: &custom.definition,
@@ -167,12 +190,12 @@ impl PlayerApp {
                 .lists
                 .insert("autosaves".into(), custom.autosaves.clone());
         }
+        if refresh_slots {
+            self.sync_save_previews();
+        }
     }
     pub(super) fn custom_event(&mut self, event: Event) -> Result<()> {
-        let custom = self
-            .custom
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("未加载 XML UI"))?;
+        let custom = &self.custom;
         ensure!(
             event.name != "game.enter",
             "生命周期事件不能作为用户事件触发"
@@ -204,7 +227,6 @@ impl PlayerApp {
             plan.operation,
             Operation::Load(_)
                 | Operation::LoadAuto(_)
-                | Operation::ImportLegacy
                 | Operation::Restart
                 | Operation::SkipVideo
                 | Operation::Advance
@@ -223,8 +245,7 @@ impl PlayerApp {
                     *overwrite || !self.saves.slot_path(*slot).exists(),
                     "槽位已有存档，请通过确认页显式覆盖"
                 );
-                self.saves
-                    .save_with(*slot, &self.story, &self.session, &self.logic)?;
+                self.save_current(*slot)?;
             }
             Operation::Load(slot) => {
                 let session = self.saves.load_with(*slot, &self.story, &self.logic)?;
@@ -232,10 +253,6 @@ impl PlayerApp {
             }
             Operation::LoadAuto(slot) => {
                 let session = self.saves.load_auto(*slot, &self.story, &self.logic)?;
-                return self.enter_planned(session, true, true, Some(plan));
-            }
-            Operation::ImportLegacy => {
-                let session = self.saves.import_legacy_with(&self.story, &self.logic)?;
                 return self.enter_planned(session, true, true, Some(plan));
             }
             Operation::Restart => {

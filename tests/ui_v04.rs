@@ -8,7 +8,7 @@ use kakera_avg::{
     loader::load_game,
     model::{Logic, Session, Story, VariableValue as V},
     save::{SaveStore, SlotId, SlotInfo, SlotState, Snapshot},
-    script::LogicEngine,
+    script::ScriptLogic,
     settings::Settings,
 };
 use serde_json::{Value, json};
@@ -16,7 +16,11 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-const STORY: &str = include_str!("../games/demo/story.xml");
+static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let source =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    kakera_avg::story_chain::compile(&source).unwrap().xml
+});
 const UI: &str = include_str!("../games/demo/ui.xml");
 const UI_JS: &str = include_str!("../games/demo/scripts/ui.js");
 struct Memory(BTreeMap<PathBuf, Vec<u8>>);
@@ -32,7 +36,7 @@ impl ContentSource for Memory {
 fn source(ui: &str, script: &str) -> Memory {
     Memory(
         [
-            ("story.xml", STORY),
+            ("story.xml", STORY.as_str()),
             ("ui.xml", ui),
             ("scripts/ui.js", script),
             (
@@ -51,16 +55,19 @@ fn source(ui: &str, script: &str) -> Memory {
 }
 struct Fixture {
     story: Story,
-    logic: LogicEngine,
+    logic: ScriptLogic,
     definition: Definition,
     state: State,
     profile: Profile,
     settings: Settings,
     slots: Vec<SlotInfo>,
+    viewport: eframe::egui::Vec2,
+    blocked: bool,
+    focused: bool,
 }
 fn fixture() -> Fixture {
     let (loaded, logic) = load_game(&source(UI, UI_JS)).unwrap();
-    let definition = loaded.interface.unwrap();
+    let definition = loaded.interface;
     let state = State::new(&definition);
     let profile = Profile::new(&loaded.story.id, &definition);
     let slots = SlotId::all()
@@ -77,6 +84,9 @@ fn fixture() -> Fixture {
         profile,
         settings: Settings::default(),
         slots,
+        viewport: eframe::egui::vec2(1280.0, 720.0),
+        blocked: false,
+        focused: true,
     }
 }
 fn snapshot(f: &Fixture, session: &Session, complete: bool) -> Data {
@@ -130,7 +140,7 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
         .replace("event=\"open-gallery\"","event=\"credits\"");
     let js = format!("{UI_JS}\non.ui('credits',ctx=>ctx.open('credits')); ");
     let (loaded, logic) = load_game(&source(&xml, &js)).unwrap();
-    let def = loaded.interface.unwrap();
+    let def = loaded.interface;
     let cmds = logic
         .ui_event(
             &Event {
@@ -158,7 +168,7 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
 #[test]
 fn ui_xml_rejects_invalid_layout_bindings_references_and_events_with_location() {
     for (from, to) in [
-        ("schema=\"2\"", "schema=\"99\""),
+        ("schema=\"3\"", "schema=\"99\""),
         (
             "width=\"1280\" height=\"720\"",
             "width=\"1280\" height=\"800\"",
@@ -198,7 +208,7 @@ fn ui_xml_rejects_invalid_layout_bindings_references_and_events_with_location() 
     );
     assert!(load_game(&source(&xml, UI_JS)).is_err());
     let deep = format!(
-        "<ui schema=\"1\" initial=\"hud\"><screen id=\"hud\" modal=\"false\">{}{}</screen></ui>",
+        "<ui schema=\"3\" initial=\"hud\"><screen id=\"hud\" modal=\"false\">{}{}</screen></ui>",
         (0..9)
             .map(|i| format!("<panel id=\"p{i}\" width=\"1\" height=\"1\">"))
             .collect::<String>(),
@@ -579,9 +589,7 @@ fn ui_and_all_skins_are_loaded_through_the_content_source_boundary() {
             .insert(asset.path.clone(), directory.read(&asset.path).unwrap());
     }
     let assets = kakera_avg::assets::PreparedAssets::load_from(&loaded.story, &memory).unwrap();
-    assets
-        .validate_text(&loaded.interface.unwrap().text())
-        .unwrap();
+    assets.validate_text(&loaded.interface.text()).unwrap();
     assert!(!memory.0.contains_key(Path::new("flow.xml")));
     let mut missing = source(UI, UI_JS);
     missing.0.remove(Path::new("ui.xml"));
@@ -600,11 +608,9 @@ fn render_frame(
     let mut event = None;
     let _ = ctx.run(
         egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1280.0, 720.0),
-            )),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, f.viewport)),
             events,
+            focused: f.focused,
             ..Default::default()
         },
         |ctx| {
@@ -625,7 +631,7 @@ fn render_frame(
                             } else {
                                 ""
                             },
-                            blocked: false,
+                            blocked: f.blocked,
                         },
                     );
                 });
@@ -700,8 +706,197 @@ fn renderer_uses_xml_hitboxes_and_repeat_items_without_running_callbacks() {
         .unwrap()
         .session;
     let data = snapshot(&f, &question, false);
-    assert!(click(&ctx, &f, &assets, &question, &data, 1000.0, 184.0).is_none());
+    // Hidden choices leave background available for revealing the unfinished line.
+    assert_eq!(
+        click(&ctx, &f, &assets, &question, &data, 1000.0, 184.0)
+            .unwrap()
+            .name,
+        "background-advance"
+    );
     let data = snapshot(&f, &question, true);
     let event = click(&ctx, &f, &assets, &question, &data, 1000.0, 184.0).unwrap();
     assert_eq!(event.item["id"], json!("accept"));
+}
+
+#[test]
+fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
+    use eframe::egui::{self, PointerButton as B};
+    let mut f = fixture();
+    let directory =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    let ctx = egui::Context::default();
+    let assets = kakera_avg::assets::PreparedAssets::load_from(&f.story, &directory)
+        .unwrap()
+        .install(&ctx);
+    let session = f.story.start();
+    let gesture = |f: &Fixture, button, press: [f32; 2], release: [f32; 2]| {
+        let data = snapshot(f, &session, true);
+        render_frame(&ctx, f, &assets, &session, &data, vec![]);
+        render_frame(
+            &ctx,
+            f,
+            &assets,
+            &session,
+            &data,
+            vec![
+                egui::Event::PointerMoved(press.into()),
+                egui::Event::PointerButton {
+                    pos: press.into(),
+                    button,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        render_frame(
+            &ctx,
+            f,
+            &assets,
+            &session,
+            &data,
+            vec![
+                egui::Event::PointerMoved(release.into()),
+                egui::Event::PointerButton {
+                    pos: release.into(),
+                    button,
+                    pressed: false,
+                    modifiers: Default::default(),
+                },
+            ],
+        )
+    };
+    assert_eq!(
+        gesture(&f, B::Primary, [400.0, 300.0], [400.0, 300.0])
+            .unwrap()
+            .name,
+        "background-advance"
+    );
+    assert_eq!(
+        gesture(&f, B::Secondary, [400.0, 300.0], [400.0, 300.0])
+            .unwrap()
+            .name,
+        "toggle-hud"
+    );
+    assert!(gesture(&f, B::Secondary, [940.0, 39.0], [940.0, 39.0]).is_none());
+    assert_eq!(
+        gesture(&f, B::Primary, [940.0, 39.0], [940.0, 39.0])
+            .unwrap()
+            .name,
+        "open-save"
+    );
+    // A short drag off a button is still not a background click.
+    assert!(
+        gesture(&f, B::Primary, [983.0, 39.0], [987.0, 39.0]).is_none_or(|e| e.name == "open-save")
+    );
+    assert!(gesture(&f, B::Primary, [300.0, 300.0], [600.0, 300.0]).is_none());
+    let data = snapshot(&f, &session, true);
+    let button = |b, pressed, x| egui::Event::PointerButton {
+        pos: egui::pos2(x, 300.0),
+        button: b,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let both = render_frame(
+        &ctx,
+        &f,
+        &assets,
+        &session,
+        &data,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+            button(B::Primary, true, 400.0),
+            button(B::Secondary, true, 400.0),
+            button(B::Primary, false, 400.0),
+            button(B::Secondary, false, 400.0),
+        ],
+    )
+    .unwrap();
+    assert_eq!(both.name, "toggle-hud");
+    // Coalesced events must use the raw press position, not just the final pointer position.
+    let event = render_frame(
+        &ctx,
+        &f,
+        &assets,
+        &session,
+        &data,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(983.0, 39.0)),
+            egui::Event::PointerButton {
+                pos: egui::pos2(983.0, 39.0),
+                button: B::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+            egui::Event::PointerMoved(egui::pos2(987.0, 39.0)),
+            egui::Event::PointerButton {
+                pos: egui::pos2(987.0, 39.0),
+                button: B::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            },
+        ],
+    );
+    assert!(event.is_none_or(|event| event.name == "open-save"));
+    f.blocked = true;
+    assert!(gesture(&f, B::Primary, [400.0, 300.0], [400.0, 300.0]).is_none());
+    f.blocked = false;
+    f.focused = false;
+    assert!(gesture(&f, B::Secondary, [400.0, 300.0], [400.0, 300.0]).is_none());
+    f.focused = true;
+    f.viewport = egui::vec2(1600.0, 720.0);
+    assert!(gesture(&f, B::Primary, [60.0, 300.0], [60.0, 300.0]).is_none());
+    assert_eq!(
+        gesture(&f, B::Secondary, [600.0, 300.0], [600.0, 300.0])
+            .unwrap()
+            .name,
+        "toggle-hud"
+    );
+    f.viewport = egui::vec2(1280.0, 720.0);
+    f.state.stack.push("load".into());
+    assert!(gesture(&f, B::Secondary, [400.0, 300.0], [400.0, 300.0]).is_none());
+    assert!(gesture(&f, B::Primary, [545.0, 198.0], [545.0, 198.0]).is_none()); // disabled empty-slot button
+    // Even an explicitly enabled menu background must respect disabled buttons and its repeat area.
+    f.definition
+        .screens
+        .get_mut("load")
+        .unwrap()
+        .background_click = Some("background-advance".into());
+    assert!(gesture(&f, B::Primary, [545.0, 198.0], [545.0, 198.0]).is_none());
+    assert!(gesture(&f, B::Primary, [300.0, 300.0], [300.0, 300.0]).is_none());
+    assert_eq!(
+        gesture(&f, B::Primary, [60.0, 300.0], [60.0, 300.0])
+            .unwrap()
+            .name,
+        "background-advance"
+    );
+}
+
+#[test]
+fn hud_callbacks_restore_before_advancing_and_screen_handlers_are_validated() {
+    let mut f = fixture();
+    let hidden = plan(&f, commands(&f, "toggle-hud", Value::Null, Value::Null)).unwrap();
+    assert_eq!(hidden.operation, Operation::None);
+    assert_eq!(hidden.state.variables["hudVisible"], V::Bool(false));
+    f.state = hidden.state;
+    let restored = plan(
+        &f,
+        commands(&f, "background-advance", Value::Null, Value::Null),
+    )
+    .unwrap();
+    assert_eq!(restored.operation, Operation::None);
+    assert_eq!(restored.state.variables["hudVisible"], V::Bool(true));
+    f.state = restored.state;
+    let advance = plan(
+        &f,
+        commands(&f, "background-advance", Value::Null, Value::Null),
+    )
+    .unwrap();
+    assert_eq!(advance.operation, Operation::Advance);
+    for handler in ["missing-handler", "game.enter"] {
+        let xml = UI.replace(
+            "background-click=\"background-advance\"",
+            &format!("background-click=\"{handler}\""),
+        );
+        assert!(load_game(&source(&xml, UI_JS)).is_err());
+    }
 }

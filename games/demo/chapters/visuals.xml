@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story schema="8">
+  <visuals>
+    <visual id="room.empty" background="bg.room" />
+    <visual id="room.lin" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" effect="portrait.enter" />
+    </visual>
+    <visual id="actor.stage" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="none" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.left" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="enter-left" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.right" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="enter-right" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.up" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="enter-up" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.down" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="enter-down" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.exit-left" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="hidden" enter="exit-left" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.exit-right" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="hidden" enter="exit-right" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.fade" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="fade-in" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.shake" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="shake" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.bounce" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="bounce" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.turn" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="flipped" enter="turn" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.spin" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="normal" enter="spin" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.fall-left" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="fallen-left" enter="fall-left" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.fall-right" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="fallen-right" enter="fall-right" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.empty" background="bg.room">
+    </visual>
+    <visual id="actor.fade-out" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="hidden" enter="fade-out" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.exit-up" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="hidden" enter="exit-up" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="actor.exit-down" background="bg.room">
+      <portrait character="lin" image="portrait.lin" slot="center" pose="hidden" enter="exit-down" exit="fade-out" duration="1800" strength="36" />
+    </visual>
+    <visual id="live2d.stage" background="bg.room">
+      <portrait character="haru" image="portrait.lin" slot="center">
+        <live2d asset="haru" motion="Idle:0" expression="F01" />
+      </portrait>
+    </visual>
+    <visual id="live2d.expression" background="bg.room">
+      <portrait character="haru" image="portrait.lin" slot="center">
+        <live2d asset="haru" motion="Idle:0" expression="F02" />
+      </portrait>
+    </visual>
+    <visual id="live2d.angle" background="bg.room">
+      <portrait character="haru" image="portrait.lin" slot="center">
+        <live2d asset="haru" expression="F01">
+          <parameter id="ParamAngleX" value="25" />
+          <parameter id="ParamAngleY" value="-10" />
+        </live2d>
+      </portrait>
+    </visual>
+  </visuals>
+  <next src="chapters/story.xml"/>
+</story>

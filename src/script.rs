@@ -13,18 +13,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub enum LogicEngine {
-    Declarative,
-    Script(ScriptLogic),
-}
-impl LogicEngine {
+impl ScriptLogic {
     pub fn ui_handlers(&self) -> Result<BTreeSet<String>> {
-        match self {
-            Self::Declarative => Ok(BTreeSet::new()),
-            Self::Script(logic) => Ok(serde_json::from_str(
-                &logic.evaluate(json!({"mode":"ui-manifest"}))?,
-            )?),
-        }
+        Ok(serde_json::from_str(
+            &self.evaluate(json!({"mode":"ui-manifest"}))?,
+        )?)
     }
     pub fn ui_event(
         &self,
@@ -33,36 +26,13 @@ impl LogicEngine {
         ui: &Variables,
         snapshot: &Value,
     ) -> Result<Vec<crate::interface::host::Command>> {
-        let Self::Script(logic) = self else {
-            anyhow::bail!("UI 事件需要 QuickJS")
-        };
         let mut request = ScriptLogic::request("ui", &session.frame_id, None, &session.variables);
         request["uiVariables"] = ScriptLogic::request("ui", "", None, ui)["variables"].clone();
         request["event"] = json!(event.name);
         request["item"] = event.item.clone();
         request["value"] = event.value.clone();
         request["snapshot"] = snapshot.clone();
-        Ok(serde_json::from_str(&logic.evaluate(request)?)?)
-    }
-}
-impl Logic for LogicEngine {
-    fn resolve(
-        &self,
-        story: &Story,
-        frame: &str,
-        choice: Option<&str>,
-        vars: &Variables,
-    ) -> Result<Option<TransitionRule>, String> {
-        match self {
-            Self::Declarative => DeclarativeLogic.resolve(story, frame, choice, vars),
-            Self::Script(logic) => logic.resolve(story, frame, choice, vars),
-        }
-    }
-    fn options(&self, story: &Story, session: &Session) -> Result<Vec<String>, String> {
-        match self {
-            Self::Declarative => DeclarativeLogic.options(story, session),
-            Self::Script(logic) => logic.options(story, session),
-        }
+        Ok(serde_json::from_str(&self.evaluate(request)?)?)
     }
 }
 
@@ -120,15 +90,15 @@ impl ScriptLogic {
                 .get(&item.frame)
                 .with_context(|| format!("{}：未知触发器场景 {}", item.location, item.frame))?;
             let kind = match item.kind.as_str() {
-                "advance" => ScriptRoute::Advance,
-                "choice" => ScriptRoute::Choice,
-                "end" => ScriptRoute::End,
+                "advance" => Route::Advance,
+                "choice" => Route::Choice,
+                "end" => Route::End,
                 _ => anyhow::bail!("未知触发器类型"),
             };
             let expected: BTreeSet<_> = frame.options.iter().map(|item| &item.id).collect();
             let actual: BTreeSet<_> = item.options.iter().collect();
             ensure!(
-                if kind == ScriptRoute::Choice {
+                if kind == Route::Choice {
                     !expected.is_empty() && expected == actual
                 } else {
                     expected.is_empty() && actual.is_empty()
@@ -138,9 +108,7 @@ impl ScriptLogic {
                 item.frame
             );
             ensure!(
-                routes
-                    .insert(item.frame.clone(), Route::Script(kind))
-                    .is_none(),
+                routes.insert(item.frame.clone(), kind).is_none(),
                 "重复触发器：{}",
                 item.frame
             );
@@ -230,10 +198,7 @@ impl Logic for ScriptLogic {
     ) -> Result<Option<TransitionRule>, String> {
         (|| -> Result<_> {
             if choice.is_none()
-                && matches!(
-                    story.routes.get(frame),
-                    Some(Route::Script(ScriptRoute::Choice | ScriptRoute::End))
-                )
+                && matches!(story.routes.get(frame), Some(Route::Choice | Route::End))
             {
                 return Ok(None);
             }
@@ -286,7 +251,6 @@ impl Logic for ScriptLogic {
             rules::apply_effects(story, vars, &effects).map_err(anyhow::Error::msg)?;
             Ok(Some(TransitionRule {
                 to: output.to,
-                when: None,
                 effects,
             }))
         })()

@@ -1,6 +1,8 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.6.0（新的正式基线）。核对日期：2026-10-24。本文依据当前加载器、QuickJS 桥接、UI 渲染及宿主命令实现编写，面向游戏内容与界面作者。文中的 API 是游戏文件使用的接口，不要求作者编写 Rust。
+适用版本：Kakera AVG Rust v0.8.1。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-25。
+
+从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
 ## 目录
 
@@ -22,15 +24,21 @@
 16. [实现位置与扩展边界](#16-实现位置与扩展边界)
 17. [内置转场与图片效果](#17-内置转场与图片效果)
 18. [人物立绘动作](#18-人物立绘动作)
-19. [v0.6 分页、自动保存、自动播放、视频与 Live2D](#19-v06-分页自动保存自动播放视频与-live2d)
+19. [分页、自动保存、自动播放、视频与 Live2D](#19-v06-分页自动保存自动播放视频与-live2d)
+20. [工程热更新、KPAK 发布与渲染后端](#20-工程热更新kpak-发布与渲染后端)
+21. [多文件剧本与打包合并](#21-多文件剧本与打包合并)
+22. [背景输入、HUD 与截图存档](#22-v072-背景输入hud-与截图存档)
+23. [按住 Ctrl 快进与已读进度](#23-v073-按住-ctrl-快进与已读进度)
+24. [窗口比例与全屏](#24-v08-固定比例窗口与全屏)
+25. [KPAK 2 与创作边界](#25-v081-kpak-2-与创作边界)
 
 ## 1. 版本与职责
 
-当前正式契约为 **story schema 6 + UI schema 2 + 外部 JavaScript/QuickJS + 存档 schema 6**。本版建立新基线，不承诺旧内容/存档兼容，不自动迁移旧档；历史参考保存在 [v0.5.1 手册](archive/v0.5.1-xml-js-api.zh-cn.md)。
+当前唯一契约为 **story schema 8 + UI schema 3 + 外部 JavaScript/QuickJS + 存档 schema 8**。只保留这一条内容/存档执行路径，旧 schema、flow.xml 与旧档导入均拒绝。KPAK 1/2 与数据 schema 独立，v0.8.1 按用户要求保留 KPAK 1 容器兼容。
 
 | 文件/接口 | 职责 |
 | --- | --- |
-| `story.xml` | 游戏标识、素材、人物、完整场景、台词、选项、变量、视频与模型声明、脚本/UI 清单 |
+| `story.xml` / 章节 XML | story.xml 是固定入口，声明身份/UI；内容分组可分散到显式 next 链的各文件，合并后形成完整故事 |
 | `ui.xml` | 画布、页面、图片、位置、大小、颜色、控件、绑定、UI 变量和 CG 清单 |
 | `on.advance/choice/end` | 剧情继续与选择；只有这里可更新剧情变量 |
 | `on.ui` | 页面互动、设置、存读档、自动播放与模型动作；可注册 game.enter |
@@ -38,13 +46,13 @@
 
 | 版本字段 | 当前正式值 | 用途 |
 | --- | --- | --- |
-| `<story schema="6">` | 6 | 内容语法 |
-| `<ui schema="2">` | 2 | 界面语法 |
-| `<story content-version="6">` | demo 为 6，作者维护正整数 | 历史重放/存档契约；不兼容剧情变化时提升 |
-| 剧情 JSON `schema_version` | 6 | 手动/自动槽结构；旧槽不自动接受 |
+| `<story schema="8">` | 8 | 新剧本语法；每份文件必须有 next |
+| `<ui schema="3">` | 3 | 界面语法 |
+| `<story content-version="8">` | demo 为 8，作者维护正整数 | 历史重放/存档契约；不兼容剧情变化时提升 |
+| 剧情 JSON `schema_version` | 8 | 手动/自动槽结构；旧槽不自动接受 |
 | CG JSON `schema_version` | 1 | 独立 profile，按 story_id 识别 |
 
-新游戏不读取 flow.xml。个别历史解析器暂留并有回归测试，不能据此依赖旧版本兼容。
+不读取 flow.xml，不包含旧解析器；所有场景均由外部 JS 完整注册。
 
 ## 2. 文件、路径与加载
 
@@ -65,25 +73,25 @@ my-game/
     licenses/OFL.txt
 ```
 
-`story.xml` 是固定入口名；UI 文件与 JS 文件名可自定，由 story 显式引用。
+`story.xml` 是固定入口名；章节由每份剧本的 next 显式串联，最后一份必须 end="true"。UI 文件与 JS 文件名可自定，由 story 显式引用。单文件 schema 8 同样需要 `<next end="true"/>`；完整分章示例见第 21 节。
 
 - XML 与 JS 使用 UTF-8。XML 元素、属性、ID、事件名均区分大小写。
 - **所有内容路径以游戏根目录为基准**，包括位于子目录中的 XML/JS 所引用的内容。Live2D 的 model3 内部文件引用是例外：相对于 model3 所在目录，仍必须留在游戏根内。
 - 路径写成 `assets/bg/room.png` 或 `scripts/story.js`。不要使用绝对路径、盘符、反斜杠、`..` 或越出游戏目录的链接；统一使用 `/`。
 - `scripts` 中的路径必须为不重复的小写 `.js` 扩展名；不支持通配符、自动扫描或 `import` 自动加载。
-- XML/JS 在启动时读取，图片、字体、音频、视频元信息/首帧及模型资源也在启动阶段准备并缓存；视频后续图像流式解码，模型按呈现时钟更新。修改后重启生效，目前没有热重载。
-- 内容统一经 `ContentSource` 读取。当前运行入口提供目录来源；未来资源包可接同一接口，但尚无可使用的压缩包格式或 JS 资源读取 API。
+- XML/JS 在启动时读取，图片、字体、音频、视频元信息/首帧及模型资源也在启动阶段准备并缓存；视频后续图像流式解码，模型按呈现时钟更新。工程状态监控修改并构建候选资源，校验成功后更新；发布状态读取固定资源包，不监控散文件。详见第 20 节。
+- 内容统一经 `ContentSource` 读取。当前提供磁盘目录快照与 KPAK 1/2 资源包，均实现同一接口；JS 不直接读取资源或文件。
 
 启动和检查：
 
 ```powershell
-cargo run --locked -- --game games/demo --check
-cargo run --locked -- --game games/demo
-cargo run --locked -- --game games/demo --save-dir target/my-saves --no-audio
-# 发布包中可直接使用 kakera-avg.exe，参数相同
+cargo run --locked -- --project games/demo --check
+cargo run --locked -- --project games/demo
+cargo run --locked -- --project games/demo --save-dir target/my-saves --no-audio
+# 发布包内直接运行 kakera-avg.exe，默认读程序旁 game.kpak
 ```
 
-`--check` 不打开窗口、不需要音频设备；检查 XML、JS 注册/初始条件、入口生命周期计划、资源解码和可静态收集的字体字符。它不会执行每个按钮，也不会穷举所有 JS 动态分支。
+`--check` 不打开窗口、不需要音频设备；默认也不创建 GPU。检查 XML、JS 注册/初始条件、入口生命周期计划、资源解码和可静态收集的字体字符。它不会执行每个按钮，也不会穷举所有 JS 动态分支；Windows 显式加 `--renderer d3d11` 可额外检查硬件设备/HLSL。命令行路径相对当前工作目录；内容路径仍相对游戏根，两者不要混淆。
 
 ## 3. 最小完整示例
 
@@ -93,7 +101,7 @@ cargo run --locked -- --game games/demo --save-dir target/my-saves --no-audio
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<story schema="6" id="api-example" content-version="1" entry="opening">
+<story schema="8" id="api-example" content-version="1" entry="opening">
   <interface src="ui.xml" />
   <scripts>
     <script src="scripts/story.js" />
@@ -123,6 +131,7 @@ cargo run --locked -- --game games/demo --save-dir target/my-saves --no-audio
       <text>下次再见。</text>
     </frame>
   </frames>
+  <next end="true"/>
 </story>
 ```
 
@@ -144,7 +153,7 @@ on.end("ending");
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<ui schema="2" width="1280" height="720" initial="hud">
+<ui schema="3" width="1280" height="720" initial="hud">
   <screen id="hud" modal="false" pause="false">
     <scene id="scene" width="1280" height="720" />
     <button id="openSettings" x="1100" y="20" width="140" height="40"
@@ -200,7 +209,7 @@ on.ui("mute", ctx => ctx.setting("muted", ctx.value));
 ### 4.1 根元素与分组
 
 ```xml
-<story schema="6" id="my-game" content-version="1" entry="opening">
+<story schema="8" id="my-game" content-version="1" entry="opening">
   <interface src="ui.xml" />
   <scripts><script src="scripts/story.js" /></scripts>
   <assets>...</assets>
@@ -208,6 +217,7 @@ on.ui("mute", ctx => ctx.setting("muted", ctx.value));
   <characters>...</characters>
   <visuals>...</visuals>
   <frames>...</frames>
+  <next end="true"/>
 </story>
 ```
 
@@ -215,12 +225,12 @@ on.ui("mute", ctx => ctx.setting("muted", ctx.value));
 
 | 属性 | 必填 | 含义 |
 | --- | --- | --- |
-| `schema` | 是 | 当前格式写 `6` |
+| `schema` | 是 | 唯一格式写 `8`；所有章节一致 |
 | `id` | 是 | 故事 ID；ASCII 字母、数字、`.`、`-`、`_`，不能为 `.` 或 `..`；用于隔离存档 |
 | `content-version` | 是 | 1–4294967295 的整数；不兼容内容更新时显式提升 |
 | `entry` | 是 | 已存在的场景 ID |
 
-schema 6 必须恰好包含一组 `interface`、`scripts`、`assets`、`characters`、`visuals`、`frames`；`variables`、`effects` 可省略，存在时各只能一组；effects 见第 17 节。人物和视觉预设组可为空。元素分组不靠书写顺序解析；JS 文件则严格按 scripts 顺序执行。
+schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声明 schema。每个文件的同类分组至多一组；合并后必须有 `scripts`、`assets`、`characters`、`visuals`、`frames`，`variables`、`effects` 可省略。人物和视觉预设组可为空。每份文件恰好一个 next，规则见第 21 节。元素分组不靠书写顺序解析；JS 按文件链及各 scripts 内的顺序执行。
 
 `<interface>` 只接受必填 `src`，不支持内联 UI。`<scripts>` 只接受 `<script src="..." />`，共 1–32 个，不支持内联 JS。可在前面的 JS 文件声明辅助函数，在后面的文件使用。
 
@@ -400,7 +410,7 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 ## 7. ui.xml 结构与页面
 
 ```xml
-<ui schema="2" width="1280" height="720" initial="hud">
+<ui schema="3" width="1280" height="720" initial="hud">
   <variables><string id="status" initial="" /></variables>
   <gallery><cg id="cg.room" image="bg.room" title="午后房间" unlocked="true" /></gallery>
   <screen id="hud" modal="false" pause="false">
@@ -416,7 +426,7 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 
 | 属性 | 必填/默认 | 限制 |
 | --- | --- | --- |
-| `schema` | 必填 | 精确为 `2` |
+| `schema` | 必填 | 精确为 `3` |
 | `width` | 默认 1280 | 有限数值，至少 640 |
 | `height` | 默认 720 | 有限数值，至少 360 |
 | `initial` | 必填 | 已存在且 modal=false 的 screen ID |
@@ -432,6 +442,8 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 | `id` | 必填 | 页面表内唯一；给 `ctx.open()` 使用 |
 | `modal` | 默认 true | true 入栈；false 替换整个根页面栈 |
 | `pause` | 默认 true | 此页面在栈内时暂停逐字呈现 |
+| `background-click` | 可选 | 非控件区左键的 on.ui 事件名，规则见第 22 节 |
+| `background-right-click` | 可选 | 非控件区右键的 on.ui 事件名，不继承下层 |
 
 页面本身没有 x/y/width/height；位置由其子节点定义。入栈时保留下层页面绘制，但仅顶层可操作；栈深度包含根页最多八层。模态页不得重复入栈；`close()` 不可关闭唯一根页。
 
@@ -507,7 +519,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
 - `fit` 默认 stretch：直接拉伸；contain：等比居中完整显示；cover：等比居中填满并裁剪。
 - 有图片时 color 作为图片 tint，默认白色保持原图；无图片的 panel 用 color 填充。
 - `radius` 默认 0，范围 0–128，仅用于无图填色；不会给图片或子节点增加圆角遮罩。
-- `image-bind` 只允许已声明的 `ui.<string变量>` 或 gallery 模板的 `item.image`。不接受路径字符串、JS 表达式或任意 game 字段。
+- `image-bind` 只允许已声明的 `ui.<string变量>` 或 gallery/slots/autosaves 模板的 `item.image`。不接受路径字符串、JS 表达式或任意 game 字段。
 - 被 image-bind 引用的 UI 字符串初值，以及每次命令提交后的值，都必须是存在的 image ID；即使该页面当前不可见，也会校验。
 
 ### 8.5 label
@@ -602,6 +614,8 @@ repeat 自身矩形是垂直滚动视口；模板内坐标相对每项左上角�
 | `settings.se_volume` | number | 0–1 |
 | `settings.video_volume` | number | 0–1，视频独立音量 |
 | `settings.autosave` | bool | 自动保存开关 |
+| `settings.fullscreen` | bool | 当前独立全屏设置；控制原生窗口模式 |
+| `settings.skip_all` | bool | 按住 Ctrl 时是否连未读内容一起快进；false 为只快进已读 |
 | `settings.auto_delay` | number | 完成文字/转场/语音后等待的秒数，0.2–15 |
 | `game.autoPlaying` | bool | 当前是否开启自动播放（瞬时状态） |
 | `game.autoText` | string | “自动播放”或“停止自动” |
@@ -622,8 +636,8 @@ game 进度字段逐帧更新，但选项条件只在提交边界求值缓存。
 | source | 字段与类型 | 顺序 |
 | --- | --- | --- |
 | `choices` | `id: string`、`text: string` | XML option 顺序，已按剧情条件过滤 |
-| `slots` | `slot: number`、`title: string`、`preview: string`、`exists: bool`、`loadable: bool` | 当前页十槽，槽号 1–200 |
-| `autosaves` | 与 slots 相同的五个 item 字段 | 最近十个自动槽，按 generation 从新到旧，可能不足十项 |
+| `slots` | `slot: number`、`title: string`、`preview: string`、`exists: bool`、`loadable: bool`，以及下述截图字段 | 当前页十槽，槽号 1–200 |
+| `autosaves` | 与 slots 相同的 item 字段 | 最近十个自动槽，按 generation 从新到旧，可能不足十项 |
 | `history` | `id: string`、`speaker: string`、`text: string`、`choice: string` | 保留历史从旧到新，包含当前场景 |
 | `gallery` | `id: string`、`title: string`、`image: string`、`unlocked: bool` | CG ID 字典序 |
 | `variables` | `id: string`、`label: string`、`value: string` | 剧情变量 ID 字典序 |
@@ -631,7 +645,7 @@ game 进度字段逐帧更新，但选项条件只在提交边界求值缓存。
 字段细节：
 
 - choices 数据本身包含“条件允许”的选项，即使仍在逐字显示。**作者应给列表加 `visible="game.complete"`，或给按钮加 `enabled="game.complete"`。** 宿主仍会忽略未补全时的 choose，不能借自定义界面绕过门控。
-- slots.title 如“槽位 1”；preview 为空槽说明、`frameId · 台词预览` 或损坏原因。坏槽 exists=true、loadable=false；应以 loadable 决定读档按钮可用性，以 exists 决定是否覆盖确认。没有 item.savedAt 字段。
+- slots.title 如“槽位 1”；preview 为空槽说明、台词预览或损坏原因，**不包含内部 frame ID**（槽位 JSON 仍保存 frame_id 供校验与加载）。坏槽 exists=true、loadable=false；应以 loadable 决定读档按钮可用性，以 exists 决定是否覆盖确认。另有 savedAt（本地时间字符串）、hasScreenshot（bool）、image（受信任预览纹理 ID）、excerpt（台词整理成单行，最多 64 字符及省略号；空/坏槽为状态提示）。详见第 22.3 节。
 - history.id 是类似 `6 · question` 的展示字符串，不是可跳转的历史句柄。speaker 旁白为“旁白”；text 是整句；choice 为 `选择：选项文字` 或空字符串。过去选择不因当前条件隐藏而消失。
 - variables.value 已转为展示字符串，包括“是/否”和十进制数；不能当成原始变量类型。UI JS 要计算剧情值应读取 ctx.vars。
 - gallery.image 是资源 ID，不是磁盘路径。未解锁条目仍提供该 ID，隐藏缩略图和禁用查看由作者的 visible/enabled 与回调实现；这不是素材加密机制。
@@ -707,7 +721,7 @@ restart 不会自动清除 CG、设置或 UI 局部状态；若在菜单中使�
 | `ctx.slotsPage(page)` | 1–20 的整数 Number | 切换手动槽分页；刷新当前页元信息，无剧情变化 |
 | `ctx.loadAuto(slot)` | 1–10 的整数 Number | 只读加载独立自动槽，严格验证后恢复 |
 
-slot 不接受 BigInt；从 UI int 得到槽号时用 `Number(ctx.ui.pendingSlot)`，1–200 转换安全。save 不会自动弹确认框，XML/JS 作者要自行提供确认界面。坏档/空槽拒绝 load，旧会话不变。v0.6 不提供旧存档迁移承诺；历史 importLegacy 实现不属于本版创作接口。
+slot 不接受 BigInt；从 UI int 得到槽号时用 `Number(ctx.ui.pendingSlot)`，1–200 转换安全。save 不会自动弹确认框，XML/JS 作者要自行提供确认界面。坏档/空槽拒绝 load，旧会话不变。旧存档与旧导入命令均不接受，不包含迁移实现。
 
 存读档成功不自动关闭页面或显示成功消息，作者可在同一回调中 close/setUi。回调只是声明要执行的操作，不能通过 try/catch 在 JS 内同步捕获后续宿主 IO 失败；宿主会提示错误并放弃局部 UI 更新。
 
@@ -726,9 +740,11 @@ ctx.setting(name, value);
 | `se_volume` | Number，有限，0–1 | 0.7 |
 | `video_volume` | Number，有限，0–1 | 0.8 |
 | `autosave` | boolean | true |
+| `skip_all` | boolean | false（只快进已读；true 为全部快进） |
+| `fullscreen` | boolean | false（窗口化；true 为当前显示器无边框全屏） |
 | `auto_delay` | Number，有限，0.2–15 秒 | 1.5 |
 
-名称区分大小写，不接受其他设置项。数值在宿主按 f32 存储，不是精确十进制。变更原子写入独立 settings.json，成功后生效；text_speed=0 会立即补全当前句。autosave 控制后续场景进入时的自动写档；关闭后不删除已存在自动槽。
+名称区分大小写，不接受其他设置项。数值在宿主按 f32 存储，不是精确十进制。变更原子写入独立 settings.json，成功后生效；text_speed=0 会立即补全当前句。autosave 控制后续场景进入时的自动写档；关闭后不删除已存在自动槽。skip_all 只改变按住 Ctrl 时的快进范围，见第 23 节。
 
 ```javascript
 on.ui("reset-audio", ctx => {
@@ -779,6 +795,7 @@ on.ui("game.enter", ctx => {
 - item/value 为 null。game.complete 在普通进入时取决于文字速度是否为 0；读档为 true。
 - 计划和必要的 profile 写入成功后才提交 Session 与进入音频；失败保留旧状态。初次启动失败则不能建立正常游戏会话。
 - 存档历史重放不触发此回调，避免校验旧剧情时产生副作用。
+- 工程热更新也会校验当前候选场景的 game.enter 并刷新 UI 局部状态，但不提交新的持久 CG 解锁或重播瞬时动作；UI 栈重建，当前句补全。它不同于普通剧情进入，具体保留/重置范围见第 20.2 节。
 - `--check` 会用初始 Session、UI 初值、默认设置和默认 CG 进度验证入口的生命周期计划，但不执行该计划的写盘，不穷举以后场景。不要把调用次数当游戏状态。
 
 ## 12. 常用功能组合
@@ -787,7 +804,7 @@ on.ui("game.enter", ctx => {
 
 ### 12.1 自有存档与覆盖确认
 
-UI 声明 int pendingSlot（initial=1、min=1、max=6）和 string confirmText、status；定义 save 与 confirm-save 两个模态页面。save 页的 repeat source=slots，存入按钮 event=save-slot；确认按钮 event=confirm-save，取消按钮 event=close。
+UI 声明 int pendingSlot（initial=1、min=1、max=200）和 string confirmText、status；定义 save 与 confirm-save 两个模态页面。save 页的 repeat source=slots，存入按钮 event=save-slot；确认按钮 event=confirm-save，取消按钮 event=close。repeat 只展示当前十槽页，分页命令见第 19.1 节。
 
 ```javascript
 on.ui("open-save", ctx => ctx.open("save"));
@@ -861,20 +878,21 @@ on.ui("view-cg", ctx => {
 
 | 状态 | 存储 | 读剧情槽后 | 进程重启后 |
 | --- | --- | --- | --- |
-| 剧情位置、变量、历史 | slot-1.json … slot-200.json，schema 6 | 替换为槽内容 | 默认从入口启动，用户读槽后恢复 |
-| 自动保存 | auto-1.json … auto-10.json，schema 6 | 替换剧情，自动槽本身不写回 | 保留十份轮换文件 |
-| 文字速度、自动保存/播放延迟、静音、四通道音量 | settings.json | 不被槽替换 | 恢复设置 |
+| 剧情位置、变量、历史 | slot-1.json … slot-200.json，schema 8 | 替换为槽内容 | 默认从入口启动，用户读槽后恢复 |
+| 自动保存 | auto-1.json … auto-10.json，schema 8 | 替换剧情，自动槽本身不写回 | 保留十份轮换文件 |
+| 文字速度、自动保存/播放延迟、静音、四通道音量、Ctrl 快进范围 | settings.json | 不被槽替换 | 恢复设置 |
 | CG 解锁 | profile.json，schema 1 + story_id | 不被旧槽撤销 | 恢复解锁 |
+| 已读进度（Ctrl 只快进已读的依据） | read.json，schema 1 + story_id + frame ID 集合 | 不被槽替换 | 恢复已读集合 |
 | UI 变量、页面栈 | 仅内存 | 不自动重置，回调可显式改变 | 恢复 XML 初值与 initial 页 |
 | 逐字进度、音频指针、JS 闭包/堆 | 不入档 | 当前句完整、音频重建 | 不恢复 |
 
-schema 6 剧情槽包含当前位置、变量和最多 1000 条历史，以及历史起点变量检查点。裁剪历史时推进检查点；读取时重放保留历史的条件/更新/目标，并核对终点变量，全部通过才提交。
+schema 8 剧情槽包含当前位置、变量和最多 1000 条历史，以及历史起点变量检查点。裁剪历史时推进检查点；读取时重放保留历史的条件/更新/目标，并核对终点变量，全部通过才提交。
 
 更改场景 ID、路由语义、剧情变量声明或更新规则可能让旧历史不再可重放；需要显式提升 content-version，而非悄悄接受。只调整 UI 布局/皮肤通常不改变剧情兼容版本。当前 profile 校验 story_id 和 CG 清单，但不含 content-version；移除已解锁 CG ID 会使旧 profile 报错，应保留稳定 ID。
 
-v0.6 严格读写 schema 6，新增 generation（手动档为 0；自动档为轮换序号）。旧 schema、story_id 或 content_version 不匹配均拒绝，保留当前 Session 和原文件。示例见 [v0.6-save.example.json](v0.6-save.example.json)。不自动迁移历史槽。
+v0.8 严格读写 schema 8，包含 generation（手动档为 0；自动档为轮换序号）。旧 schema、story_id 或 content_version 不匹配均拒绝，保留当前 Session 和原文件。示例见 [v0.8-save.example.json](v0.8-save.example.json)。不自动迁移历史槽。
 
-设置/CG 损坏时使用默认值/初始解锁并提示，加载时不自动重写原文件。以后明确保存或新的解锁可能替换该文件。各 JSON 总量上限 1MiB，原子写入使用同目录临时文件及平台替换；失败保留旧文件，不承诺所有文件系统的掉电持久性。存档一致性校验不是防篡改签名。
+设置/CG 损坏时使用默认值/初始解锁并提示，加载时不自动重写原文件。以后明确保存或新的解锁可能替换该文件。各 JSON 总量上限 2MiB，原子写入使用同目录临时文件及平台替换；失败保留旧文件，不承诺所有文件系统的掉电持久性。存档一致性校验不是防篡改签名。
 
 ## 14. 校验、预算与排错
 
@@ -908,7 +926,7 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 | UI 节点数/嵌套深度 | 全部 screen 总计 1024 / 8 层，screen 子节点为第 1 层 |
 | CG | 256 项 |
 | 剧情/UI 变量 | 各 128 项；字符串单值 4096 UTF-8 字节 |
-| DirectorySource 单个内容文件 | 128MiB，解码器另有限制 |
+| ContentSource 内容 | read 内存入口 128MiB；open/copy_to 流式入口 64GiB，解码器另有限制 |
 
 200ms 是每次求值的中断预算，不是整次读档、所有条件求值或一帧总耗时保证；长历史重放会进行多次求值。
 
@@ -929,14 +947,14 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 | 图片绑定错误，页面不可见也报错 | image-bind 的 UI 字符串初值/最终值必须是已有 image ID，不是空字符串或路径 |
 | 文本溢出 | 检查字号、宽高；台词拆句或增大 label，不要静默依赖裁剪 |
 | 变量值/台词中出现 `${...}` 原文 | XML 不做插值；UI 动态文字先通过 JS 写入已声明 string，再 bind=ui.xxx |
-| 修改文件没变化 | 完全退出并重启；运行时读取的文件属于 --game 指定目录，发布包与源码是不同副本 |
+| 修改文件没变化 | 确认处于 --project 工程状态；展开“工程状态”查看错误，发布包需要重新打包/重启；只有验证成功的候选才会替换 |
 | `--check` 通过但某按钮报错 | --check 不遍历每个交互或动态目标；实际操作对应路径并检查宿主提示/JS 栈 |
 
 检查流程建议：先运行 --check，再实际检查中文/溢出、逐字/菜单暂停、条件组合、覆盖取消、完全退出重启后读档，以及 CG/设置独立性。仅改文档无需宣称重新完成所有 GUI/听感验收。
 
-## 15. 旧 XML 格式
+## 15. 旧格式说明
 
-旧 story/flow 和旧存档契约移至 [v0.5.1 历史手册](archive/v0.5.1-xml-js-api.zh-cn.md#15-旧-xml-格式)。本版新游戏采用 story 6 / UI 2 / save 6。原型与历史解析器测试用于保护已有实现，不构成正式兼容承诺。
+v0.8 只接受 story 8 / UI 3 / save 8。旧 story 1–7、UI 1–2、存档 1–7 均拒绝；没有 flow.xml、默认声明式执行器、兼容菜单、旧档导入或设置字段补齐。旧版本内容与接口说明仅在 doc/archive 及历史设计文档保留，当前程序不能运行它们。迁移需作者手工准备新契约并使用新的内容版本，不自动改写用户旧文件。
 
 ## 16. 实现位置与扩展边界
 
@@ -946,8 +964,8 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 
 | 内容 | 实现 |
 | --- | --- |
-| story、资源、visual、frame、脚本清单、旧 flow | [loader.rs](../src/loader.rs) |
-| 变量声明、旧条件/effects | [rule_xml.rs](../src/loader/rule_xml.rs) |
+| story、资源、visual、frame、脚本清单 | [loader.rs](../src/loader.rs) |
+| 变量声明与类型校验 | [variables.rs](../src/loader/variables.rs) |
 | on/ctx、类型传输与只读快照 | [bridge.js](../src/script/bridge.js) |
 | QuickJS 加载、注册/目标验证及预算 | [script.rs](../src/script.rs) |
 | UI 节点/绑定白名单、默认值 | [interface.rs](../src/interface.rs) |
@@ -958,13 +976,13 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 
 新增页面、皮肤、布局、UI 状态及已有宿主能力的交互只需改 XML/JS。新增原生控件或宿主能力需要扩展 Rust 的明确类型、解析与校验，不能在 XML 中任意执行 Rust，也不提供通用插件框架。
 
-目前不包含 CSS/DOM、富文本/台词插值、自定义 shader/遮罩/任意关键帧、任意立绘坐标、异步脚本、自动播放/快进/回滚、自动存档、存档缩略图、音频淡变/精确进度恢复、热重载、可发布的资源包格式或编辑器。可运行的完整创作参考始终是 [games/demo](../games/demo/story.xml)，历史目录只是相应旧契约示例。
+目前不包含 CSS/DOM、富文本/台词插值、作者自定义 shader/遮罩/任意关键帧、任意立绘坐标、异步脚本、回滚、全尺寸截图导出、音频淡变/精确进度恢复或可视化编辑器。可运行的完整创作参考始终是 [games/demo](../games/demo/story.xml)，历史目录只是相应旧契约示例。
 
-本文示例验证：2026-10-24 从第 3 节原文提取四个文件，在隔离的 target 目录准备所列素材后运行 `cargo run --locked --offline -- --game <示例目录> --check`，通过 3 场景、1 剧情变量、2 JS 文件、2 UI 页的检查。该结果是加载/初始条件检查，不代表已对本文所有片段重新进行 GUI 或音频验收；其余片段须按各节说明补齐上下文。
+本文示例已切换为 v0.8 契约；历史 v0.7.1 的示例执行记录只见归档。当前实际运行检查以 games/demo 与本版验收记录为准，片段需按各节说明补齐上下文。
 
 ## 17. 内置转场与图片效果
 
-这些效果在 v0.6 中使用 story schema 6 / UI schema 2。单纯视觉变化无需提升 content-version；当前无效果内容采用默认呈现。
+这些效果使用当前 story schema 8 / UI schema 3。单纯视觉变化无需提升 content-version；当前无效果内容采用默认呈现。
 
 ### 17.1 场景转场
 
@@ -1044,7 +1062,7 @@ background-effect 及 portrait.effect 在加载时展开为完整显示状态。
 | `strength` | 12 | 0–128 有限数值，设计坐标单位，用于震动/滑入位移 |
 | `easing` | ease-in-out | linear / ease-in / ease-out / ease-in-out |
 
-灰度和棕褐保持原 alpha；模糊使用预乘 alpha 处理，避免透明区域的隐藏颜色造成边缘色晕；像素化使用缩小/放大采样。过滤在启动时处理，绘制期间只读取纹理缓存，不执行滤镜、IO 或解码。每个声明的过滤参数组合会为共享图片表准备变体，额外缓存总量最多 256MiB；超限启动报错，应减少组合或图片尺寸。缩放/旋转/翻转不额外生成纹理。
+灰度和棕褐保持原 alpha；模糊使用预乘 alpha 处理，避免透明区域的隐藏颜色造成边缘色晕；像素化使用缩小/放大采样。过滤在资源准备阶段处理：D3D11 用 HLSL 生成 GPU 缓存，CPU fallback 使用原算法；绘制只读取缓存，不执行 IO 或解码。工程更新成功后重建相关缓存。每个声明的过滤参数组合会为共享图片表准备变体，额外缓存总量最多 256MiB；超限启动报错，应减少组合或图片尺寸。缩放/旋转/翻转不额外生成纹理。
 
 ### 17.3 图片进入动画
 
@@ -1079,7 +1097,7 @@ on.ui("shake-preview", ctx => ctx.animate("memoryPreview", "shake", 600, 20));
 
 target 不接受素材 ID、CSS 选择器、repeat 实例索引或普通 button/label；重复模板节点无法唯一定位，故拒绝。多个命令指向同一个目标时，最后一次替换其活动动画，不排队。scene 的 JS 动画作用整个场景区域；图片/面板只改变自身图片，不移动文字和点击区域。关闭后不可见的节点仍按共同呈现时钟计时，不延迟到再次可见才开始。
 
-这些方法不执行 JS 动画循环，只收集经过 Rust 校验的瞬时呈现计划。仍计入每个回调的 32 条命令预算，可与合法的切页/设置等组合；不新增剧情/IO 操作类别。非法 kind/参数/target 导致整批计划失败，不先更新 UI 或重启动画。game.enter 现在允许 unlock/setUi/message/transition/animate/portrait，仍禁止导航和重入剧情。历史重放不播放效果，成功读档也不重播这些瞬时动画。
+这些方法不执行 JS 动画循环，只收集经过 Rust 校验的瞬时呈现计划。仍计入每个回调的 32 条命令预算，可与合法的切页/设置等组合；不新增剧情/IO 操作类别。非法 kind/参数/target 导致整批计划失败，不先更新 UI 或重启动画。game.enter 允许 unlock/setUi/message/transition/animate/portrait/live2d，仍禁止导航和重入剧情。历史重放不播放效果，成功读档也不重播这些瞬时动画。
 
 可运行示例见 demo 的“效果演示”页：四种过滤预览、图片/场景动画按钮，以及全部方向转场按钮。演示转场会显式重新开始剧情，作者正式游戏可按剧情目标配置，不需要额外 Rust 代码。
 
@@ -1087,7 +1105,7 @@ target 不接受素材 ID、CSS 选择器、repeat 实例索引或普通 button/
 
 ## 18. 人物立绘动作
 
-本版使用 story schema 6、UI schema 2、存档 schema 6。动作只作用 scene 中的 left/center/right 立绘，不作用 UI image；UI 图片继续使用第 17 节的 `ctx.animate`。XML/JS 仍在启动时通过 ContentSource 读取，修改后重启生效。
+本版新内容使用 story schema 8、UI schema 3、存档 schema 8。动作只作用 scene 中的 left/center/right 立绘，不作用 UI image；UI 图片继续使用第 17 节的 `ctx.animate`。XML/JS 通过 ContentSource 快照读取；工程中监控修改并验证更新，发布中使用固定资源包。
 
 ### 18.1 XML 属性与最终姿态
 
@@ -1197,7 +1215,7 @@ on.ui("slots-page", ctx => ctx.slotsPage(Math.round(ctx.value)));
 
 ### 19.2 自动保存
 
-默认开启。首次建立剧情、Advance、Choose、自循环、重新开始等**成功进入场景后**写一次；补全文字、UI 切页、普通动画、设置变化和成功读档均不写。它记录已提交 Session，不重复重放整个历史。
+默认开启。首次建立剧情、Advance、Choose、自循环、重新开始等**成功进入场景后**写一次；补全文字、UI 切页、普通动画、设置变化和成功读档均不写。它记录已提交 Session，不重复重放整个历史。XML UI 为必需，自动档由独立设置控制；不存在其他呈现路径。
 
 - 独立 `auto-1.json` … `auto-10.json`，按 generation 单调递增并轮换。菜单按 generation 从新到旧排列；槽号不是时间顺序。系统时间变化不改变轮换顺序。
 - 自动文件使用与手动档相同的原子替换；写失败保留旧文件，保留已经成功提交的新剧情，并提示且关闭本次运行的 autosave 开关，避免反复失败。用户修复存储问题后可在设置重新开启。
@@ -1260,7 +1278,7 @@ on.ui("skip-video", ctx => ctx.skipVideo());
 
 Windows x64 使用系统 Media Foundation，运行无需 ffmpeg。已验证 H.264/AAC MP4（720p/30fps）；其他格式取决于系统解码器，不作保证。Windows N 等缺少媒体组件的环境可能无法解码，启动报出资源 ID/路径，不播放占位假视频。
 
-资源预算：最多 16 段，单文件 128MiB，最大 1920×1080、约 60fps、300 秒；视频音频转为 48kHz 双声道浮点 PCM，总缓存 256MiB。视频字节来自 ContentSource，内部临时文件在资源生命周期结束时释放。图像由单工作线程顺序解码，有界请求与结果；App 更新时上传，绘制只读。音频在启动时完整解码，因此长视频会增加启动时间；本版无网络流、外挂字幕、循环/混剪、视频 UI 控件或跨平台视频后端。
+资源预算：最多 16 段，单文件流复制最多 64GiB，最大 1920×1080、约 60fps、300 秒；视频音频转为 48kHz 双声道浮点 PCM，总缓存 256MiB。视频字节从 ContentSource 流式复制，不构造整文件 Vec；内部临时文件在资源生命周期结束时释放。图像由单工作线程顺序解码，有界请求与结果；App 更新时上传，绘制只读。音频在启动时完整解码，因此长视频会增加启动时间；本版无网络流、外挂字幕、循环/混剪、视频 UI 控件或跨平台视频后端。
 
 ### 19.5 Live2D SDK 与模型资源
 
@@ -1276,7 +1294,7 @@ cargo run --locked -- --no-live2d
 ./tools/prepare-live2d-demo.ps1 -Sdk C:/CubismSdkForNative-5-r.5 -Output target/live2d-copy
 ```
 
-DLL 搜索顺序：`--cubism-core` → `CUBISM_CORE` → exe 旁固定文件名 → 源码根固定 `runtime/live2d/windows-x64/Live2DCubismCore.dll`；不是读取 story 或 model3 指定的 DLL。有模型且未禁用时，缺 DLL/模型错误会明确失败；只有显式 --no-live2d 才使用 fallback。禁用选项仍读取模型结构/素材，无法替代 Core 的 moc3/参数有效性校验。
+工程状态 DLL 搜索顺序：`--cubism-core` → `CUBISM_CORE` → exe 旁固定文件名 → 源码根固定 `runtime/live2d/windows-x64/Live2DCubismCore.dll`；发布状态只使用显式配置/环境变量/程序旁 DLL，不回退源码 runtime；不是读取 story 或 model3 指定的 DLL。有模型且未禁用时，缺 DLL/模型错误会明确失败；只有显式 --no-live2d 才使用 fallback。禁用选项仍读取模型结构/素材，无法替代 Core 的 moc3/参数有效性校验。
 
 用户追加要求已将 Haru 和 Windows Core 集成至本地默认 demo 与新便携包。模型位于 games/demo/assets/live2d/Haru，SDK/模型原许可在 assets/licenses/LIVE2D-SDK-LICENSE.md；Core 原许可与可再分发清单在 runtime/live2d（便携包中为 licenses）。本次没有公开发布；第三方内容不是自制 CC0 素材，分发要求以所附原条款为准。引擎未复制 Cubism Framework 实现，Core 由官方 DLL 提供。
 
@@ -1286,7 +1304,7 @@ DLL 搜索顺序：`--cubism-core` → `CUBISM_CORE` → exe 旁固定文件名 
 <live2d id="haru" src="assets/live2d/Haru/Haru.model3.json" />
 ```
 
-model3 的 FileReferences.Moc/Textures/Motions/Expressions/Pose 及辅助文件均从 ContentSource 读取；内部相对路径以 model3 目录为基准，仍不允许绝对路径、反斜杠、.. 或越界链接。将整个模型目录放入游戏资源，不只复制 model3.json。未来包来源可实现同一接口，不需要把压缩包路径暴露给脚本。
+model3 的 FileReferences.Moc/Textures/Motions/Expressions/Pose 及辅助文件均从 ContentSource 读取；内部相对路径以 model3 目录为基准，仍不允许绝对路径、反斜杠、.. 或越界链接。将整个模型目录放入游戏资源，不只复制 model3.json。KPAK 来源实现同一接口，不需要把包内部路径暴露给脚本。
 
 ### 19.6 Live2D XML 与 JavaScript
 
@@ -1321,10 +1339,418 @@ JS 动作立即替换该槽当前覆盖动作，不排队，**播放一次**（�
 
 已实现：Core 参数/顶点形变、绘制顺序、贴图、普通/加法/乘法混合、正向/反向裁剪蒙版、乘色/屏幕色、透明度；motion3 线性/贝塞尔/阶梯/反阶梯、Parameter/PartOpacity 与 Model Opacity/EyeBlink/LipSync 曲线；expression3 Add/Multiply/Overwrite；基础 Pose 互斥部件/链接切换。
 
-当前采用 CPU 预乘透明离屏合成，画布最长边 **512 像素**、最高约 **30 次/秒**上传；在高分辨率窗口可能偏软，复杂模型受 CPU 限制。单帧最多 3200 万像素候选、32 组蒙版；过预算或运行时 Core 错误明确提示并冻结最后成功图像，不伪称完整模型仍正常播放。
+当前 Windows 优先原生 D3D11：网格、裁剪蒙版、颜色/透明度和混合在 GPU 完成，最长边 **1024 像素**、最高约 **60 次/秒**更新；输出直接作为 UI 原生纹理，常规播放不执行 GPU→CPU 读回。Cubism Core 参数/形变仍使用官方 CPU ABI。CPU fallback 保留最长边 **512 像素**、约 **30 次/秒**和单帧 3200 万采样预算；两种路径最多 32 组蒙版。GPU 不可用/失败会提示并切到 CPU，Core 本身错误或 CPU 预算错误仍提示冻结最后画面。
 
 限制：无 physics3 物理求解、完整 Pose 渐变、动作淡入淡出/优先级/事件、动作附带声音播放、自动呼吸/眨眼/口型音量分析、模型点击命中与鼠标跟随、Cubism 新版 offscreen/高级混合。模型包含 offscreen 或不支持的混合模式会拒绝；Physics/DisplayInfo/UserData 等辅助 JSON 只读取校验，不代表已模拟。motion3 中明确写出的 EyeBlink/LipSync 曲线可用，不等于自动驱动。
 
 模型预算：最多 8 个，moc3+解码贴图合计 256MiB；每模型贴图最多 16 张、单边 8192、合计 128MiB；moc3/模型内存各 64MiB，drawables≤2048。动作≤256，曲线总数≤16384、片段≤200000；表情≤128、参数总量≤8192；JSON 单文件 8MiB。启动 --check 验证全部 XML 模型声明及入口动作命令，后续动态回调仍在提交边界验证。
 
 本版验收使用本地 Haru 样例；不能据此承诺所有 Cubism 模型、平台与渲染特性。后续要提高画质/性能，可替换呈现层合成器，领域数据、脚本与 ContentSource 契约保持解耦。
+
+
+## 20. 工程热更新、KPAK 发布与渲染后端
+
+工程与发布共用同一套 XML/JS，没有 `on.reload`、`ctx.pack`、`ctx.readFile` 或脚本切换运行模式的 API。模式、包路径、Core 和渲染器由宿主命令行选择。完整操作流程见 [独立使用指南](project-release-pack-guide.zh-cn.md)。
+
+### 20.1 运行状态与命令行
+
+```powershell
+# 工程：直接编辑 XML/JS/图片/字体/音频/视频/模型，自动验证更新
+cargo run --locked -- --project games/demo
+# --project 与 --package 不能混用
+cargo run --locked -- --project games/demo --renderer cpu
+# 发布：只读取包，绝不监控散装目录
+cargo run --locked -- --package target/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll
+cargo run --locked -- --package target/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
+```
+
+| 播放器参数 | 行为 |
+| --- | --- |
+| `--project <目录>` | 工程入口；不能与另一个工程/包入口重复或混用 |
+| `--package <文件>` | 发布入口，只读取指定 KPAK |
+| `--renderer auto\|d3d11\|cpu` | 默认 auto；行为详见第 20.5 节 |
+| `--check` | 验证资源后退出，不进入游戏、不监控、不写存档/设置/CG |
+| `--save-dir <目录>` | 指定包外用户数据目录，不再自动附加 story_id |
+| `--cubism-core <DLL>` | 指定受信任的宿主 Core；不属于游戏资源路径 |
+| `--no-live2d` | 显式使用静态替代图，仍读取并校验模型资源结构 |
+| `--no-audio` | 禁止设备输出，仍解码/验证音频与视频音轨 |
+| `--help` / `-h` | 打印帮助后退出 |
+
+以上路径参数相对当前工作目录，也接受绝对路径；有空格时加引号。无入口参数时，先寻找 **exe 所在目录** 的 `game.kpak`，不是当前目录；存在即进入发布状态（损坏则报错，不回退工程），否则尝试编译时源码根的 `games/demo`。显式 `--project` 可覆盖默认包选择，便携分发必须携带包，不能依赖源码兜底。
+
+--check 不建立监控/窗口/音频设备，默认仅检查数据与资源；Windows 明确指定 --renderer d3d11 时还验证硬件设备及 HLSL 编译，不代表已穷举视觉画面。检查结束返回 0，启动/校验错误返回 1；`--no-audio` 不能绕过坏音频，`--no-live2d` 不能绕过缺失的模型文件。
+
+Windows GUI 子系统程序在 PowerShell 中直接调用可能异步返回；需要自动化等待检查结果时使用 `kakera-avg.exe ... --check | Out-Host` 后读取 `$LASTEXITCODE`，或 `Start-Process -NoNewWindow -Wait -PassThru` 的 ExitCode。Cargo 运行会等待子进程。具体示例见使用指南第 3.1 节。
+
+发布包的 Core DLL 与许可放在 exe 旁，不放进资源包作为可执行依赖；模型/纹理/脚本/字体等内容在 KPAK 内。存档、设置、CG 进度在包外用户数据目录，--save-dir 规则不变。没有从包内执行 DLL 或 JS 任意 IO 的接口。Windows 播放器为 GUI 子系统，发布正常启动不创建或附着控制台；发布启动失败使用原生错误对话框。工程会连接父控制台，必要时建立工程日志窗口；--check/--help 只尝试连接已有控制台并保留重定向，不额外弹窗，kakera-pack 继续是控制台工具。
+
+Core 查找顺序为显式 `--cubism-core` → `CUBISM_CORE` 环境变量 → exe 旁 `Live2DCubismCore.dll`；只有工程及打包工具额外兜底源码固定 `runtime/live2d/windows-x64`。已显式指定的坏路径不自动跳过。相同 story_id 默认共享用户数据，工程与发布不会自动隔离，调试时应分别传 `--save-dir`。
+
+### 20.2 工程监控与提交
+
+使用原生目录通知监控整棵工程树，约 200ms 去抖合并连续保存；后台使用固定快照解析 XML/JS、验证全部资源，完成后再核对工程指纹。构建期间又发生修改时，过期候选不会提交。实际更新时间为去抖加资源准备时间，较大视频/字体/模型会延长等待；不是保证每次保存后 200ms 内完成。
+
+当前有效内容持续运行。候选必须匹配 story_id/content-version，并通过当前 Session 的完整变量/历史重放、条件选项及候选进入命令/媒体校验后，才一次替换当前内容。坏 XML、JS 异常、缺图/坏媒体、变量/路由冲突都会保留旧会话和声音。修复并再次保存会重试；可展开左侧“工程状态”查看状态/错误和当前像素后端，也可手动重新验证。
+
+成功更新保留剧情位置、变量和历史；逐字直接补全当前句，停止自动播放，重建视频/Live2D/音频及纹理，UI 栈/局部变量从新声明重建。game.enter 只用于校验并刷新 UI 局部状态；不写自动档、不新增持久 CG 解锁、不重播 JS 瞬时动画。它是内容替换事件，不能依赖回调执行次数记录剧情。当前画面作为恢复后的最终态建立；下一次正常进入仍以此画面作为转场起点，不会重播本次进入效果。
+
+内容完整有效但与当前 Session 不兼容的候选保留在工程窗中，可点击“从入口重新载入（丢弃当前进度）”使用新初值；语法/资源错误须先修复或“重新验证资源”，不能强制采用坏内容。story_id 改变需重启并选择独立数据目录。不会因编辑变量声明而偷偷重置进度；从入口重载也不迁移旧档或清空独立 CG/设置。发布状态没有工程窗，也不会响应外部散文件修改或暗中更换正在运行的包；换包后重新启动。
+
+编辑器/构建/用户数据不作为游戏内容：.git/.idea/.vscode/target/saves/node_modules、临时文件、settings/profile/read/save.json 与 slot-/auto-*.json 被排除。正常工程引用这些排除路径会因资源缺失而失败；不要将剧情资源命名为保留的用户数据文件。
+
+### 20.3 工程打包工具
+
+```powershell
+cargo run --locked --bin kakera-pack -- games/demo target/game.kpak
+# 输出已存在默认拒绝，明确 --force 才原子替换
+cargo run --locked --bin kakera-pack -- games/demo target/game.kpak --force --level 22
+# 独立工具与播放器参数独立
+./target/release/kakera-pack.exe games/demo target/game.kpak --level 19
+./tools/package.ps1
+```
+
+输入必须有 story.xml。输出必须在工程目录之外，避免被自身监控/收集；默认 KPAK 2，可 --format 1 保留小包；Zstandard 级别 19，可选 1–22。先验证故事、UI、JS、字体、图像、音视频、模型与入口计划，再验证工程未变化，生成并自检 KPAK，最后以同目录临时文件+原子替换提交。输出已存在、坏资源、校验期间变化或替换失败均保留旧包；无自动删除/清理用户文件。工具支持 --cubism-core 和 --no-live2d，后者只做禁用 Core 时的资源结构校验，不能代替真实模型验证。
+
+| kakera-pack 参数 | 默认/规则 |
+| --- | --- |
+| `<工程目录> <输出.kpak>` | 两个必填位置参数，写在选项前；相对当前工作目录，父目录可自动创建 |
+| `--format <1|2>` | 默认 2；1 为保持兼容的小包格式，2 为独立分块流式包 |
+| `--force` | 允许原子覆盖已有输出；不传则拒绝 |
+| `--level <1..22>` | 默认 19；它是压缩级别，不是版本号或图像质量 |
+| `--cubism-core <DLL>` | 本次打包校验使用的宿主 Core |
+| `--no-live2d` | 仅改变本次校验方式，不删除模型或在包中记录永久禁用标志 |
+
+工具退出 0 表示成功、1 表示失败；没有 `--help` 选项，不带参数打印用法并失败退出。不支持播放器的 --renderer/--save-dir/--check/--no-audio。用 --no-live2d 生成的包正常播放时仍需要 Core，或播放器再次显式禁用。打包先将 next 链上的剧本合并为包内 story.xml，并移除链上其余源 XML；UI/JS 不合并，源工程不改写。随后收集其余未排除文件，包含 XML 未引用的大图/视频/设计源文件；不做引用裁剪，没有自定义 ignore 参数。未排除的 DLL/EXE 也会作为普通字节收集，但不会因此变成宿主依赖或被执行。
+
+同样的工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
+
+默认发布脚本输出 target/package/kakera-avg-v0.8.1，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
+
+脚本支持 `-Project <工程>`、`-Output <新目录>`、`-CompressionLevel <1..22>`、`-Format <1|2>`（默认 2），相对路径以仓库根为准；输出目录已存在就拒绝，失败目录保留供诊断。它复制仓库固定 Core，没有单独的 Core/禁用选项。新目录示例：
+
+```powershell
+./tools/package.ps1 -Project games/demo -Output target/package/demo-review -CompressionLevel 19
+```
+
+包格式和预算见下一节；完整发布目录结构、手动组装、存档隔离与排错见 [使用指南](project-release-pack-guide.zh-cn.md)。
+
+### 20.4 KPAK 1 / KPAK 2 二进制格式
+
+KPAK 2 的 80 字节头、64 位偏移、1MiB 原文块、尾部索引、按需/完整验证和预算详见 [完整规范](kpak-format.zh-cn.md)。包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB。普通打开只验证索引，访问的块先验证再交付；--check 完整扫描所有唯一块。KPAK 1 的下述字节格式保持不变，小包仍可读取：
+
+所有整数为 little-endian，头长 64 字节：
+
+| 偏移 | 长度 | 值 |
+| --- | --- | --- |
+| 0 | 8 | `4B 50 41 4B 0D 0A 1A 00`（KPAK magic） |
+| 8 | 4 | version=1 |
+| 12 | 4 | flags=0，未知位拒绝 |
+| 16 | 8 | Zstandard 压缩帧长度 |
+| 24 | 8 | 解压后 payload 长度 |
+| 32 | 32 | payload 的 SHA-256；用于损坏检测，不是签名/来源认证 |
+| 64 | 可变 | 恰好一个标准 Zstandard frame，禁止尾随数据/第二帧 |
+
+payload 顺序为：u32 文件数；每项 u16 路径 UTF-8 字节长、路径字节、u32 块索引；u32 块数；每块 u64 字节长与原始字节。文件按路径严格递增，路径唯一且大小写不碰撞；块顺序为文件遍历时首次出现次序，同内容去重。所有块必须被引用，目录必须含 story.xml；不接受指向块外部的偏移或孤立尾部数据。
+
+限制：10000 文件、路径最多 1024 字节、单文件 128MiB、压缩与展开各不超过 512MiB、逻辑文件总字节不超过 512MiB。路径必须为正常相对路径，拒绝反斜杠、盘符、绝对路径、空段、./../、尾随点/空格、控制字符及 Windows 特殊路径字符。工程遍历拒绝符号链接。解压长度有硬上限，长度/版本/摘要/索引/截断错误直接失败，不能靠伪造头无限分配。
+
+### 20.5 D3D11 与 CPU fallback
+
+Windows 主窗口现在使用原生 D3D11 swapchain 绘制 egui 生成的网格，正常运行不使用 wgpu/D3D12。转场、位移/缩放/旋转/翻转/闪白等由 CPU 计算呈现时间和网格参数，GPU 执行光栅与混合；静态图片滤镜由 HLSL 生成缓存，Live2D 的蒙版/顶点贴图采样/颜色/混合由同一设备完成。字体/静态图片只在准备或变更时上传，动态 GPU 结果直接注册原生纹理。
+
+| --renderer | 行为 |
+| --- | --- |
+| auto（默认） | 硬件 D3D11 优先；无法建立硬件设备时用 WARP 窗口 + CPU 滤镜/Live2D |
+| d3d11 | 必须成功建立硬件设备，否则明确失败；运行中像素后端错误仍保护性回退 CPU |
+| cpu | 保留旧 CPU 滤镜/模型算法；窗口仍由 D3D11 呈现，硬件不可用则 WARP |
+
+运行时像素操作失败会保留 CPU 实现作为回退并报告原因；窗口设备/Present 失败尝试一次 WARP 重建，恢复缓存纹理和当前模型显示，不修改剧情/历史/存档。WARP 再失败则明确退出，避免无限重试。未声称已在所有显卡/驱动上复现设备丢失。
+
+GPU Live2D 最长边 1024、最高约 60Hz；CPU 最长边 512、约 30Hz。普通/加法/乘法、正反蒙版、隐藏蒙版源、乘色/屏幕色均保留；CPU/GPU 会有采样、精度与模糊核差异，不保证逐像素相同。Cubism Core、图像/视频解码和必要的像素格式转换仍属于 CPU，不能将 GPU 渲染说成 GPU moc3 求解或硬件视频解码。
+
+Rust 扩展入口为 `render::PixelBackend`（filter/model/clear）、`ModelDraw`、`Image::Cpu/Gpu` 和宿主纹理生命周期；领域层无 D3D11 对象。`ModelDraw::model` 是该模型的稳定身份，新后端缓存贴图必须按 `(model, 贴图序号)` 索引，不得用贴图内存地址或裸指针作键（地址会在模型重载后被复用）。Linux/Vulkan 与 macOS/Metal 仅预留这些接口，本轮未实现相应原生像素后端或跨平台视频。开发/验收入口见 [v0.7 策略](v0.7-implementation-plan.zh-cn.md) 和 [验收记录](v0.7-validation.zh-cn.md)。
+
+## 21. 多文件剧本与打包合并
+
+当前 **story schema 8**。单文件和多文件都固定从 story.xml 开始；每份剧本必须显式声明下一份或文件链结束。文件链在加载阶段一次装配成完整故事，不在玩家跨章节时临时读取。旧 schema 不进入这一装配流程。
+
+### 21.1 入口与章节
+
+| 项目 | story.xml 入口 | 后续章节 XML |
+| --- | --- | --- |
+| 根元素 | story | story |
+| 根属性 | schema="8"、id、content-version、entry，全部必填 | 仅 schema="8"，禁止重复工程身份/入口属性 |
+| interface | 恰好一项，引用全局 UI XML | 禁止 |
+| scripts/assets/effects/variables/characters/visuals/frames | 可分散声明 | 可分散声明 |
+| next | 恰好一项 | 恰好一项 |
+
+每份文件的同类分组至多一组。全链合并后要求一组 scripts/assets/characters/visuals/frames；没有人物或视觉预设时可在入口写空 characters/visuals。variables/effects 可省略。根和分组不允许未知属性/元素、命名空间或多余普通文本，具体子节点沿用前文规则。
+
+同类 ID 在整条链内唯一，例如所有 frame ID 不得重复；资源、人物、视觉与 frame 仍分别使用各自命名空间。脚本清单路径也不能重复，合计最多 32 项。JS 按链顺序与每个 scripts 内的顺序执行，所有文件共享已登记的全局故事；没有按章节隔离的变量、场景或资源 ID。
+
+### 21.2 next 精确格式
+
+```xml
+<next src="chapters/chapter-02.xml"/>
+<!-- 最后一份必须写： -->
+<next end="true"/>
+```
+
+| 属性 | 规则 |
+| --- | --- |
+| src | 非空、游戏根相对的 .xml 路径，扩展名必须小写；最多 1024 UTF-8 字节；禁止与 end 同时出现 |
+| end | 只能为字面字符串 true；禁止 src；false/TRUE/1 均不接受 |
+
+next 不能带子元素、普通文本或未知属性。缺失、重复、src/end 同时出现和两个属性都缺失都会报错；末尾文件也不能省略 next。即使当前文件位于 chapters 子目录，继续到另一章节仍写 `chapters/chapter-02.xml`，不按当前 XML 所在目录相对定位。
+
+最多 128 份剧本，源 XML 累计及合并结果分别最多 16MiB。缺文件、非法 UTF-8/XML、链循环、大小写重复引用或混合 schema 均拒绝。只有 next 可达文件参与装配，文件夹名称和文件名排序不决定剧情或装配顺序。
+
+next 是文件装配关系，不是 frame 的默认 Advance：跨文件仍通过 on.advance/on.choice 返回 frame ID；文件链 end="true" 也不能代替 on.end。
+
+### 21.3 三文件协作示例
+
+以下示例使用第 3 节的字体/图片、ui.xml 和 scripts/ui.js。将剧情 JS 替换为本节最后的脚本；三个 XML 文件均须保存为 UTF-8。
+
+story.xml：
+
+```xml
+<story schema="8" id="chapter-example" content-version="1" entry="opening">
+  <interface src="ui.xml"/>
+  <scripts>
+    <script src="scripts/story.js"/>
+    <script src="scripts/ui.js"/>
+  </scripts>
+  <assets>
+    <font id="dialogue" src="assets/fonts/chinese.otf"/>
+    <image id="bg.room" src="assets/bg/room.png"/>
+  </assets>
+  <characters/>
+  <visuals><visual id="room" background="bg.room"/></visuals>
+  <frames>
+    <frame id="opening" visual="room"><text>入口：接下来进入第一章。</text></frame>
+  </frames>
+  <next src="chapters/first.xml"/>
+</story>
+```
+
+chapters/first.xml：
+
+```xml
+<story schema="8">
+  <frames>
+    <frame id="chapter.first" visual="room"><text>第一位作者编写的场景。</text></frame>
+  </frames>
+  <next src="chapters/ending.xml"/>
+</story>
+```
+
+chapters/ending.xml：
+
+```xml
+<story schema="8">
+  <frames>
+    <frame id="chapter.ending" visual="room"><text>第二位作者编写的结尾。</text></frame>
+  </frames>
+  <next end="true"/>
+</story>
+```
+
+scripts/story.js：
+
+```javascript
+on.advance("opening", () => "chapter.first");
+on.advance("chapter.first", () => "chapter.ending");
+on.end("chapter.ending");
+```
+
+全链先收集分组再解析引用，因此 frame 可使用后续文件的视觉/资源/人物；跨章条件和更新仍执行原有原子校验。多人协作应约定稳定 ID 命名空间（例如 chapter.first.*），不要把 XML 文件序号当场景 ID。
+
+### 21.4 工程热更新与诊断
+
+编辑任意章节或 next 都触发完整候选构建；校验失败保留旧 Session、音频和画面。语法、同类重复 ID、错误引用和属性诊断尽量给出源文件行列，例如 `chapters/first.xml:4:5`，不要求作者去查看内部合并文本。发布后的诊断针对包内 story.xml 坐标，因为包内不保留这些源章节。
+
+章节拆分、挪动且保持 ID/变量/路由语义时，无需仅因文件组织改变提升 content-version；修改不兼容剧情契约仍必须提升。demo 现在为五文件链，content-version=8；存档重放与文件名无关。
+
+### 21.5 打包结果
+
+kakera-pack 验证源链后，在只读快照中将合并文档替换为 story.xml，移除链上其余源剧本 XML，再编码/自检并独立加载包内故事。源工程磁盘文件不改写。包内合并后的根仍是 story schema 8，只有一个 `<next end="true"/>`；不依赖原章节。
+
+UI XML、JS、模型 JSON 与素材不参与此合并，保留原逻辑路径。链外普通 XML 仍按收集规则处理，不会通过“删除全部 XML”的方式误删 UI。文件链元数据不改变 KPAK 1/2 头或存档 schema；合并、校验或写入失败仍保留旧输出包。
+
+更多命令与部署方式见 [工程/发布与打包指南](project-release-pack-guide.zh-cn.md)，本版实现与验证见 [落地策略](v0.8-implementation-plan.zh-cn.md) 和 [验收记录](v0.8-validation.zh-cn.md)。
+
+
+## 22. v0.7.2 背景输入、HUD 与截图存档
+
+本节新增能力使用 story 8 / UI 3 / save 8；容器为 KPAK 1/2。save 8 必须包含 screenshot 字段，JSON null 表示无窗口工具快照；不接受缺字段旧档。
+
+### 22.1 screen 背景事件
+
+```xml
+<screen id="hud" modal="false" pause="false"
+        background-click="background-advance"
+        background-right-click="toggle-hud">
+  <scene id="scene" width="1280" height="720" />
+  <panel id="hudControls" width="1280" height="720"
+         color="#00000000" visible="ui.hudVisible">
+    <!-- 作者原有的对话、按钮、选项等放在此 panel 中 -->
+    <label id="line" x="64" y="555" width="1146" height="78"
+           bind="game.text" font-size="26" />
+  </panel>
+</screen>
+```
+
+在 ui 的 variables 内声明 `<bool id="hudVisible" initial="true" />`，在已登记的 JS 文件中注册：
+
+```javascript
+on.ui("background-advance", ctx => {
+  if (!ctx.ui.hudVisible) {
+    ctx.setUi("hudVisible", true);
+    return; // 这一下仅恢复 HUD
+  }
+  if (ctx.game.canAdvance) ctx.advance();
+});
+on.ui("toggle-hud", ctx => {
+  ctx.setUi("hudVisible", !ctx.ui.hudVisible);
+});
+```
+
+两属性可独立省略，值为已注册的 on.ui 名称；未注册名称、保留的 game.enter 均报错。事件 item/value 均为 null。不增加鼠标坐标、原始输入、路径或 IO 接口，也不在 Rust Controller 解释 HUD。
+
+只对栈顶页面自己的属性派发，菜单不会继承 hud 的背景事件。舞台按 UI 宽高等比布局，黑边不属于背景。按钮、滑条、开关、整个 repeat 滚动区（含空白）优先阻挡；禁用控件仍阻挡，隐藏控件不阻挡。scene、image、label、普通 panel 没有独立点击回调，因此这些区域可视作背景；需要阻挡某块区域时可使用按钮/明确的页面布局，不存在 CSS pointer-events 或 DOM 冒泡。
+
+按下与释放都必须在可交互背景；拖动、从控件移出释放、失焦/提示期间输入、工程浮窗上的点击不推进。一帧最多一个事件；控件事件优先，同时松开左/右键时右键背景事件优先。右键按钮没有默认事件，不会落入 HUD 的右键回调。
+
+ctx.advance 继续使用原仲裁：活动转场先跳过、逐字未完成先补全，再次才推进；game.canAdvance=false 的完成选项/结尾不会替作者选择分支。HUD 隐藏不暂停文字/动画/自动播放，scene 必须放在隐藏 panel 外。HUD bool/页面栈不入剧情档，读档不会自动重置已有 UI 变量；若要强制显示可在作者读档回调中调用 ctx.setUi。空格继续沿用宿主原规则，HUD 隐藏也不改变空格行为。
+
+### 22.2 时间与截图保存
+
+`ctx.save(slot, overwrite?)` 和原自动保存设置无需新增参数。Windows 原生窗口手动存档必须取得当前呈现版本的截图，随后将 Session、时间与截图作为一个 JSON 原子写入；捕获/编码/写入失败不会提交同批 UI 状态或覆盖旧档。无窗口 SaveStore API 为测试/工具仍可生成无截图档。
+
+自动保存先提交剧情，等当前版本的真实画面出现后再写。等待期间短暂阻挡新剧情输入，防止连续推进把旧截图配给新场景；自循环也使用新的呈现版本。自动截图或写入失败保留已提交剧情、旧文件并提示/停用 autosave，读档不会触发写回。失败后若要持久恢复自动保存设置，可在设置界面重新开启。
+
+捕获范围为客户区，包含背景、立绘、台词及 HUD，不包含桌面/系统标题栏。手动保存优先选同场景打开菜单前的最近游戏画面；若没有该缓存，则使用同版本已呈现的窗口画面。自定义根页会作为游戏画面，若作者将保存菜单设计为根页而非模态页，截图可能包含该页。截图记录当时可见状态，自动保存可能捕获转场首帧；不伪造“转场完成后的最终图”。
+
+Windows D3D11、CPU 像素模式及 WARP 窗口共享捕获入口；正常帧仅 GPU 拷贝，真正保存才回读/编码。宿主保留最近窗口与最近无菜单游戏画面，最多两份、每份 64MiB；场景版本不匹配拒绝使用旧图，设备重建清理缓存。其他宿主未提供捕获能力时，GUI 保存明确失败，自动保存提示并停用。
+
+JSON 当前字段示意（其余字段见原 save 8 示例）：
+
+```json
+{
+  "saved_at_unix_ms": 1792886400000,
+  "screenshot": {
+    "format": "png",
+    "width": 320,
+    "height": 180,
+    "png_base64": "此处为完整的标准 Base64 PNG，示意文本不可直接加载"
+  }
+}
+```
+
+saved_at_unix_ms 是宿主生成的 Unix 毫秒时间，手动档在捕获时生成，自动档在剧情提交时生成并随后等待呈现。显示按查看时的系统本地时区，格式 `YYYY-MM-DD HH:mm:ss`；不可表示的值显示“无效时间”。这不是 ctx 的时钟 API。
+
+截图等比 contain 到 320×180，黑边填充，不是全尺寸导出；PNG 最多 256KiB，Base64 使用标准字母表/填充。加载严格校验声明/实际尺寸、Base64、PNG 结构与解码预算（1MiB），仅接受宿主生成的 IHDR/IDAT/IEND 块，不接受额外元数据/尾随数据；损坏截图使槽位不可读。JSON 总大小最多 2MiB，截图无独立 sidecar，原子写入方式不变。不要手工用其他 PNG 替换字段绕过该契约。
+
+缩略图只记录展示，不参与历史重放，也不恢复逐字时钟、音视频/Live2D 动画进度。载入仍按原有规则完整恢复剧情并显示最终姿态；视频从零开始。
+
+### 22.3 slots / autosaves 的新字段与图片绑定
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `item.savedAt` | string | 有效槽的本地日期时间，空/坏/不兼容槽为空 |
+| `item.hasScreenshot` | bool | 槽有通过校验的截图；screenshot=null 时为 false |
+| `item.image` | string | 宿主缓存的预览纹理 ID，无图为空；不作磁盘路径 |
+| `item.excerpt` | string | 台词预览整理成单行，最多 64 字符后加省略号；空/坏槽为提示 |
+
+原 item.preview/title/slot/exists/loadable 保持语义，但 preview/excerpt 只含台词与状态文本，不再拼入内部 frame ID。手动 slots 只扫描当前十槽页；autosaves 按 generation 从新到旧最多十条。图像在刷新菜单资料/换页/保存时解码上传，换页释放旧预览，不在绘制或逐字 tick 读盘。外部修改用户档不会即时监控，需重新打开菜单/切页刷新。
+
+```xml
+<!-- 放在 source="slots" 或 source="autosaves" 的 repeat 模板内 -->
+<image id="slotImage" x="16" y="48" width="128" height="72"
+       image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+<label id="slotNoImage" x="20" y="70" width="120" height="24"
+       text="无截图" visible="not:item.hasScreenshot" />
+<label id="slotTime" x="160" y="42" width="300" height="24"
+       bind="item.savedAt" font-size="15" />
+<label id="slotSummary" x="160" y="70" width="300" height="62"
+       bind="item.excerpt" font-size="15" />
+```
+
+image-bind=item.image 仅允许 gallery/slots/autosaves 的图片模板；其他 repeat 不接受此字段。运行时预览 ID 使用宿主保留前缀，不在 assets 注册、不写进 KPAK、不接受脚本任意生成资源路径。模板 ID 必须与其他节点全局唯一。完整保存、读取和自动档布局见 demo ui.xml，背景/HUD 回调见 scripts/ui.js。
+
+本节 PNG Base64 片段仅为结构示意；示例旧版检查记录与设计依据见 [v0.7.2 落地策略](v0.7.2-implementation-plan.zh-cn.md) 和 [验收记录](v0.7.2-validation.zh-cn.md)。
+
+## 23. v0.7.3 按住 Ctrl 快进与已读进度
+
+维护修复（2026-10-25）：首次复验发现的 Ctrl/自动播放仲裁、pause=false 模态页穿透与已读条数上限问题已修复，并加入 App 更新层与真实文件回归，见 [维护修复记录](v0.7.3-maintenance.zh-cn.md)。GUI 与音频等验证边界分别列出。
+
+Ctrl 快进不需要专用 XML 节点或 JS API，使用设置项 `skip_all`、独立用户文件 `read.json`，以及槽位预览不再包含 frame ID（见第 9.3、22.3 节）。
+
+### 23.1 快进行为
+
+按住 `Ctrl` 即快进，宿主每约 40ms 执行一步，每步至多执行下列之一，顺序与“继续”键一致：
+
+1. 正在转场时跳过转场；
+2. 台词未显示完整时补全当前句；
+3. 文字完整且路由允许推进时提交一次 Advance，进入下一场景。
+
+停止与暂停：
+
+- 选项页、结束页不推进，也不会替玩家选择分支；全部选项隐藏时同样停住。
+- 视频播放期间不快进；跳过视频仍需按钮或继续键。若 Ctrl 仍按住，视频自然结束后继续快进。
+- 菜单（包括 modal=true、pause=false）、宿主提示、窗口失焦、自动保存等待呈现期间暂停；恢复后重新计时，不补算暂停时间。pause=false 允许底层动画继续，不允许 Ctrl 穿透页面栈。
+- Ctrl 是显式输入，优先于自动播放；松开 Ctrl 后自动播放若仍开启，会重新按 `auto_delay` 等待。
+- 与普通输入一致，每次更新最多提交一个剧情操作；不改变历史、变量与 `on.*` 回调语义。
+
+### 23.2 只快进已读与全部快进
+
+`settings.skip_all` 决定快进范围：
+
+| 值 | 行为 |
+| --- | --- |
+| `false`（默认） | 只有当前场景已读时才从它推进；进入未读场景后立即停下，让该句正常逐字显示 |
+| `true` | 不检查已读，连续快进，直到选项、结尾、视频或玩家松开 Ctrl |
+
+- 通过 `ctx.setting("skip_all", boolean)` 修改，也可用 `settings.skip_all` 绑定在 XML 上；demo XML 设置页提供该开关。当前 settings.json 必须包含全部字段；缺字段文件提示后使用完整默认值，不做补齐迁移。
+- 只读模式只影响“能否从当前句继续”：已读句仍会被补全并推进；未读句一停下就恢复正常显示与推进，不会自动跳过玩家尚未看过的内容。
+- 想快速看完新内容可临时打开全部快进；demo 设置页已有该开关，作者也可按自己的界面接线。
+
+### 23.3 已读判定与 read.json
+
+- 某场景的台词**完整显示过一次**即记为已读；读档后当前句立即完整，视为已读。逐字中、视频遮住对话框时不算。
+- 已读集合保存在用户数据目录的独立 `read.json`，不属于任何剧情槽：`{"schema_version":1,"story_id":"…","frames":["opening","question"]}`。读档、重开、改设置都不回退它；删除该文件等价于全部未读。
+- 写入采用同目录临时文件与平台原子替换，约 3 秒节流并在退出时补写；失败只记录日志并保留待写标记，不打断剧情。文件损坏或 schema/story_id 不匹配时提示一次并按未读处理；未知 frame ID 保留，不参与故事校验。
+- 预算：最多 100000 个 frame ID、单个 ID ≤ 256 字节，读取复用 JSON 2MiB 上限。达到条数上限后保留原集合（包括未知 ID），忽略新的已读标记；写入前再次验证条数/ID，JSON 超预算或原子替换失败保留旧文件和待写标记，不回写自身无法读取的文件。`read.json` 被工程监控与 kakera-pack 排除，不进入发布包。
+- 该文件只服务 Ctrl 快进；不提供 JS 查询已读集合、逐句已读回调或逐槽记录。
+
+### 23.4 槽位预览去 frame ID
+
+存档/读档页（`repeat source="slots"` / `"autosaves"`）的 `item.preview` 与 `item.excerpt` 现在只含台词与状态文本；内部 frame ID 仍保存在槽位 JSON 并参与加载校验，但不再出现在界面或数据集中。截图、时间与身份校验沿用当前 save 8；不接受旧版本槽位。
+
+## 24. v0.8 固定比例窗口与全屏
+
+Windows 窗口客户区固定为 16:9，默认 1280×720、最小 640×360（逻辑尺寸）。拖动任意边/角时，宿主扣除标题栏和边框后约束客户区；物理像素按 16×9 的整数单位调整，避免窗口缩放造成可见黑边。最大化按钮关闭，系统或程序改变窗口尺寸时也维护比例。
+
+全屏开关属于独立 Settings，不属于剧情槽。界面与交互使用 XML/JS：
+
+```xml
+<toggle id="fullscreen" width="600" height="38"
+        text="全屏显示" value="settings.fullscreen" event="fullscreen"/>
+```
+
+```javascript
+on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
+```
+
+事件名自定并须注册；完整样例在 demo 设置页。fullscreen 只接受 bool，默认 false，和同批设置一起验证、原子保存成功后由宿主在更新边界切换。坏命令或设置写入失败不切换窗口。启动读取完整设置后恢复模式。
+
+全屏为当前显示器无边框模式，退出恢复本次进入前的客户区大小和窗口位置。非 16:9 显示器全屏仍等比显示，可能有留边；本版不裁切 UI、不拉伸画面、不切换显示器分辨率。窗口位置只在本进程内恢复，不写入剧情存档；设置里的 fullscreen 会跨进程保存。
+
+新增页面/布局/现有功能组合优先只改 XML/JS。窗口比例和原生全屏是本版确需宿主扩展的能力，Rust 不接收脚本窗口句柄、任意系统命令或显示器路径。
+
+
+## 25. v0.8.1 KPAK 2 与创作边界
+
+资源引用、XML/JS API、story 8/UI 3/save 8/content-version=8 均不变。文件流/分块解压属于 XML/JS 不具备的宿主能力，本版扩展 Rust 内容边界；游戏作者无需更改剧情或 UI 脚本。
+
+默认 kakera-pack 生成 KPAK 2，--format 1 可生成兼容小包；播放器自动识别 1/2，未知版本明确失败。该兼容不恢复旧剧情/界面/存档。设计和实际结果见 [策略](v0.8.1-implementation-plan.zh-cn.md) 与 [验收](v0.8.1-validation.zh-cn.md)，二进制细节和流式/内存边界见 [KPAK 规范](kpak-format.zh-cn.md)。

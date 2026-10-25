@@ -4,7 +4,7 @@ use kakera_avg::{
     loader::load_game,
     model::{HistoryEntry, Logic, MAX_HISTORY, Session, Story, VariableValue as V},
     save::{SaveStore, SlotId, Snapshot},
-    script::LogicEngine,
+    script::ScriptLogic,
 };
 use std::{
     collections::BTreeMap,
@@ -12,9 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const STORY: &str = include_str!("../doc/v0.3.1-example/story.xml");
-const SCRIPT: &str = include_str!("../doc/v0.3.1-example/scripts/story.js");
-const ENDINGS: &str = include_str!("../doc/v0.3.1-example/scripts/endings.js");
+const STORY: &str = include_str!("fixtures/game/story.xml");
+const SCRIPT: &str = include_str!("fixtures/game/story.js");
+const ENDINGS: &str = include_str!("fixtures/game/endings.js");
 struct Memory(BTreeMap<PathBuf, Vec<u8>>);
 impl ContentSource for Memory {
     fn read(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
@@ -29,6 +29,7 @@ fn source(story: &str, script: &str) -> Memory {
     Memory(
         [
             ("story.xml", story),
+            ("ui.xml", include_str!("fixtures/game/ui.xml")),
             ("scripts/story.js", script),
             ("scripts/endings.js", ENDINGS),
         ]
@@ -37,7 +38,7 @@ fn source(story: &str, script: &str) -> Memory {
         .collect(),
     )
 }
-fn game(script: &str) -> (Story, LogicEngine) {
+fn game(script: &str) -> (Story, ScriptLogic) {
     let (loaded, logic) = load_game(&source(STORY, script)).unwrap();
     (loaded.story, logic)
 }

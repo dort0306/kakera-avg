@@ -1,176 +1,218 @@
-use anyhow::{Context, Result, bail};
-use eframe::egui;
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+mod launch_console;
+use anyhow::{Context, Result, ensure};
 use kakera_avg::{
-    app::PlayerApp, assets::PreparedAssets, audio::PreparedAudio, loader, save::SaveStore,
+    app::PlayerApp,
+    content::ContentSource,
+    development::ProjectMonitor,
+    package::{Archive, StagedProject},
+    runtime::{Bundle, LoadOptions},
+    save::SaveStore,
 };
 use std::path::PathBuf;
-
 struct Options {
-    game: PathBuf,
+    project: Option<PathBuf>,
+    package: Option<PathBuf>,
     check: bool,
     no_audio: bool,
-    save_directory: Option<PathBuf>,
-    cubism_core: Option<PathBuf>,
-    no_live2d: bool,
+    saves: Option<PathBuf>,
+    load: LoadOptions,
+    renderer: String,
 }
-
 fn options() -> Result<Option<Options>> {
-    let mut game = None;
-    let mut cubism_core = None;
-    let mut no_live2d = false;
-    let mut check = false;
-    let mut no_audio = false;
-    let mut save_directory = None;
+    let mut options = Options {
+        project: None,
+        package: None,
+        check: false,
+        no_audio: false,
+        saves: None,
+        load: LoadOptions {
+            core: None,
+            no_live2d: false,
+        },
+        renderer: "auto".into(),
+    };
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
-        if arg == "--cubism-core" {
-            cubism_core = Some(PathBuf::from(
-                args.next().context("--cubism-core 需要 DLL 路径")?,
-            ));
+        if arg == "--project" {
+            ensure!(
+                options.project.is_none() && options.package.is_none(),
+                "只能选择一个工程或资源包"
+            );
+            options.project = Some(PathBuf::from(args.next().context("缺少工程目录")?));
+        } else if arg == "--package" {
+            ensure!(
+                options.project.is_none() && options.package.is_none(),
+                "只能选择一个工程或资源包"
+            );
+            options.package = Some(PathBuf::from(args.next().context("缺少包路径")?));
+        } else if arg == "--renderer" {
+            options.renderer = args
+                .next()
+                .context("缺少渲染后端")?
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("后端名称 UTF-8"))?;
+            ensure!(
+                ["auto", "d3d11", "cpu"].contains(&options.renderer.as_str()),
+                "后端只能 auto/d3d11/cpu"
+            );
+        } else if arg == "--cubism-core" {
+            options.load.core = Some(PathBuf::from(args.next().context("缺少 DLL 路径")?));
         } else if arg == "--no-live2d" {
-            no_live2d = true;
-        } else if arg == "--game" {
-            game = Some(PathBuf::from(args.next().context("--game 需要游戏目录")?));
+            options.load.no_live2d = true;
         } else if arg == "--save-dir" {
-            save_directory = Some(PathBuf::from(args.next().context("--save-dir 需要目录")?));
-        } else if arg == "--no-audio" {
-            no_audio = true;
+            options.saves = Some(PathBuf::from(args.next().context("缺少存档目录")?));
         } else if arg == "--check" {
-            check = true;
+            options.check = true;
+        } else if arg == "--no-audio" {
+            options.no_audio = true;
         } else if arg == "--help" || arg == "-h" {
             println!(
-                "Kakera AVG v0.6.0\n\n用法：kakera-avg [--game <游戏目录>] [--check] [--no-audio] [--save-dir <目录>]\n\n--check  校验剧情/UI XML、JS 注册/初始条件、图片、字体、音频、视频和 Live2D 后退出，无需设备\n--no-audio  禁用音频输出，仍校验音频文件\n--cubism-core  指定受信任的 Windows x64 Cubism Core DLL\n--no-live2d  显式使用 XML fallback 静态立绘\n--save-dir  指定隔离的存档/设置/CG 进度目录（调试或便携使用）\n默认先查找程序旁的 games/demo，再查找源码样例目录。XML 和 JS 在启动时读取，编辑后重启生效。"
+                "Kakera AVG v{}\n用法：kakera-avg [--project <目录> | --package <game.kpak>] [--renderer auto|d3d11|cpu] [--check]\n--project 工程状态：监控文件并自动验证更新\n--package 发布状态：只读 KPAK 1/2，不监控散文件\n--check 完整校验包/内容/资源后退出；默认不打开窗口或 GPU，显式 --renderer d3d11 可同时验证设备\n--no-audio 禁用音频设备输出\n--no-live2d 显式使用静态 fallback\n--cubism-core <DLL> 指定受信任的 Cubism Core\n--save-dir <目录> 使用隔离用户数据\n默认读取 exe 旁 game.kpak；源码启动若没有包则使用 games/demo 工程。",
+                env!("CARGO_PKG_VERSION")
             );
             return Ok(None);
         } else {
-            bail!(
-                "未知参数：{}（使用 --help 查看用法）",
-                arg.to_string_lossy()
-            );
+            anyhow::bail!("未知参数：{}", arg.to_string_lossy());
         }
     }
-    let game = game.unwrap_or_else(|| {
-        let packaged = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(|p| p.join("games/demo")));
-        packaged
-            .filter(|path| path.join("story.xml").is_file())
-            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("games/demo"))
-    });
-    Ok(Some(Options {
-        game,
-        check,
-        no_audio,
-        save_directory,
-        cubism_core,
-        no_live2d,
-    }))
+    if options.project.is_none() && options.package.is_none() {
+        let packaged = std::env::current_exe()?
+            .parent()
+            .context("程序目录")?
+            .join("game.kpak");
+        if packaged.is_file() {
+            options.package = Some(packaged);
+        } else {
+            options.project = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("games/demo"));
+        }
+    }
+    if options.load.core.is_none() {
+        options.load.core = if options.package.is_some() {
+            kakera_avg::runtime::host_core()
+        } else {
+            kakera_avg::runtime::default_core()
+        };
+    }
+    Ok(Some(options))
 }
-
 fn run() -> Result<()> {
     let Some(options) = options()? else {
         return Ok(());
     };
-    let source = kakera_avg::content::DirectorySource::new(&options.game)?;
-    let (loaded, logic) = loader::load_game(&source)?;
-    let prepared = PreparedAssets::load_from(&loaded.story, &source)?;
-    if let Some(interface) = &loaded.interface {
-        prepared.validate_text(&format!("{}UI 文本溢出", interface.text()))?;
-    }
-    let mut prepared_audio = PreparedAudio::load_from(&loaded.story, &source)?;
-    let media = kakera_avg::media::PreparedMedia::load(&loaded.story, &source)?;
-    for (id, asset) in &media.videos {
-        if let Some(audio) = &asset.audio {
-            prepared_audio.insert_video(id, audio.clone());
+    let monitor = if !options.check {
+        options
+            .project
+            .as_ref()
+            .map(|p| ProjectMonitor::new(p, options.load.clone()))
+            .transpose()?
+    } else {
+        None
+    };
+    let stage = if let Some(path) = &options.project {
+        println!("运行状态：工程（实时监控） {}", path.display());
+        Some(StagedProject::capture(path)?)
+    } else {
+        None
+    };
+    let archive = if stage.is_none() {
+        let path = options.package.as_ref().context("包路径")?;
+        println!("运行状态：发布（只读资源包） {}", path.display());
+        let archive = Archive::open(path)?;
+        println!("资源包格式：KPAK {}", archive.version());
+        if options.check {
+            archive.verify_all()?;
         }
+        Some(archive)
+    } else {
+        None
+    };
+    let source: &dyn ContentSource = if let Some(stage) = &stage {
+        stage
+    } else {
+        archive.as_ref().context("包来源")?
+    };
+    let bundle = Bundle::load(source, &options.load)?;
+    if let Some(stage) = &stage {
+        stage.ensure_unchanged()?;
     }
-    let core = options
-        .cubism_core
-        .or_else(|| std::env::var_os("CUBISM_CORE").map(PathBuf::from))
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.join("Live2DCubismCore.dll")))
-                .filter(|p| p.is_file())
-        })
-        .or_else(|| {
-            // A fixed host dependency, never a library path supplied by game content.
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("runtime/live2d/windows-x64/Live2DCubismCore.dll");
-            path.is_file().then_some(path)
-        });
-    let live2d = kakera_avg::live2d::PreparedLive2D::load(
-        &loaded.story,
-        &source,
-        core.as_deref(),
-        options.no_live2d,
-    )?;
-    if let Some(plan) = loader::initial_ui_plan(&loaded, &logic)? {
-        live2d.validate_commands(&loaded.story.frames[&loaded.story.entry], &plan.live2d)?;
-    }
-    for warning in &loaded.warnings {
-        eprintln!("警告：{warning}");
-    }
+    // Prepared resources own their bytes/temp files; release the source snapshot now.
+    drop(stage);
+    drop(archive);
     if options.check {
+        let story = &bundle.loaded.story;
         println!(
-            "校验通过：{}，{} 个场景，入口 {}，{} 个音频缓存，{} 个变量，{} 个 JS 文件，{} 个 XML UI 页面",
-            loaded.story.id,
-            loaded.story.frames.len(),
-            loaded.story.entry,
-            prepared_audio.len(),
-            loaded.story.variables.len(),
-            loaded.scripts.len(),
-            loaded.interface.as_ref().map_or(0, |ui| ui.screens.len())
+            "校验通过：{}，{} 个场景，{} 个变量，{} 个 JS 文件，{} 个 XML UI 页面",
+            story.id,
+            story.frames.len(),
+            story.variables.len(),
+            bundle.loaded.scripts.len(),
+            bundle.loaded.interface.screens.len()
         );
         println!(
-            "媒体校验：{} 个视频，{} 个 Live2D 模型，Core {}",
-            media.videos.len(),
-            live2d.models.len(),
-            live2d
-                .core
-                .as_ref()
-                .map(|c| format!("{:08x}", unsafe { (c.version)() }))
-                .unwrap_or_else(|| "未启用".into())
+            "媒体校验：{} 个视频，{} 个 Live2D 模型",
+            bundle.assets.media.videos.len(),
+            bundle.assets.live2d.models.len()
         );
+        #[cfg(windows)]
+        if options.renderer == "d3d11" {
+            let _ = kakera_avg::render::d3d11::Device::new(false)?;
+        }
         return Ok(());
     }
-    let saves = match options.save_directory {
-        Some(directory) => SaveStore::at(directory),
-        None => SaveStore::for_story(&loaded.story)?,
+    let saves = match options.saves {
+        Some(path) => SaveStore::at(path),
+        None => SaveStore::for_story(&bundle.loaded.story)?,
     };
     println!("存档目录：{}", saves.directory().display());
-    let native = eframe::NativeOptions {
-        renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 720.0])
-            .with_min_inner_size([640.0, 360.0]),
-        ..Default::default()
+    let build = move |ctx: &eframe::egui::Context,
+                      renderer: kakera_avg::render::Shared|
+          -> Result<PlayerApp> {
+        let mut app = PlayerApp::new_context(
+            ctx,
+            bundle.loaded,
+            bundle.assets,
+            saves,
+            options.no_audio,
+            bundle.logic,
+            renderer,
+        )?;
+        if let Some(monitor) = monitor {
+            app.monitor_project(monitor);
+        }
+        Ok(app)
     };
-    eframe::run_native(
-        "Kakera AVG",
-        native,
-        Box::new(move |cc| {
-            Ok(Box::new(PlayerApp::new(
-                cc,
-                loaded,
-                kakera_avg::app::RuntimeAssets {
-                    images: prepared,
-                    audio: prepared_audio,
-                    media,
-                    live2d,
-                },
-                saves,
-                options.no_audio,
-                logic,
-            )?))
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("启动窗口失败：{e}"))
+    #[cfg(windows)]
+    {
+        kakera_avg::render::window::run(&options.renderer, build)
+    }
+    #[cfg(not(windows))]
+    {
+        ensure!(
+            options.renderer != "d3d11",
+            "此平台尚未实现 D3D11；使用 CPU 呈现或后续 Vulkan/Metal 后端"
+        );
+        eframe::run_native(
+            "Kakera AVG",
+            eframe::NativeOptions::default(),
+            Box::new(move |cc| {
+                Ok(Box::new(build(
+                    &cc.egui_ctx,
+                    kakera_avg::render::Renderer::cpu(),
+                )?))
+            }),
+        )
+        .map_err(|e| anyhow::anyhow!("窗口失败：{e}"))
+    }
 }
-
 fn main() {
+    let dialog = launch_console::initialize();
     if let Err(error) = run() {
         eprintln!("Kakera 启动失败：{error:#}");
+        if dialog {
+            launch_console::error_dialog(&format!("{error:#}"));
+        }
         std::process::exit(1);
     }
 }

@@ -1,8 +1,5 @@
 //! Pure, deterministic domain rules. No UI, IO, script runtime or application dependencies.
-use super::{
-    CompareOp, Condition, Effect, MAX_STRING_BYTES, Route, Story, TransitionRule, VariableDecl,
-    VariableValue, Variables,
-};
+use super::{Effect, MAX_STRING_BYTES, Story, VariableDecl, VariableValue, Variables};
 
 pub fn validate_value(decl: &VariableDecl, value: &VariableValue) -> Result<(), String> {
     match (&decl.initial, value) {
@@ -29,60 +26,6 @@ pub fn validate_variables(story: &Story, variables: &Variables) -> Result<(), St
         validate_value(decl, value).map_err(|error| format!("变量 {id}：{error}"))?;
     }
     Ok(())
-}
-
-pub fn evaluate(condition: &Condition, variables: &Variables) -> Result<bool, String> {
-    match condition {
-        Condition::Compare {
-            variable,
-            op,
-            value,
-        } => {
-            let actual = variables
-                .get(variable)
-                .ok_or_else(|| format!("未知变量：{variable}"))?;
-            match (actual, value) {
-                (VariableValue::Int(a), VariableValue::Int(b)) => Ok(match op {
-                    CompareOp::Eq => a == b,
-                    CompareOp::Ne => a != b,
-                    CompareOp::Lt => a < b,
-                    CompareOp::Le => a <= b,
-                    CompareOp::Gt => a > b,
-                    CompareOp::Ge => a >= b,
-                }),
-                (VariableValue::Bool(_), VariableValue::Bool(_))
-                | (VariableValue::String(_), VariableValue::String(_)) => match op {
-                    CompareOp::Eq => Ok(actual == value),
-                    CompareOp::Ne => Ok(actual != value),
-                    _ => Err(format!("变量 {variable} 不支持排序比较")),
-                },
-                _ => Err(format!("变量 {variable} 的比较类型不匹配")),
-            }
-        }
-        Condition::All(conditions) => {
-            for condition in conditions {
-                if !evaluate(condition, variables)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-        Condition::Any(conditions) => {
-            for condition in conditions {
-                if evaluate(condition, variables)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        Condition::Not(condition) => Ok(!evaluate(condition, variables)?),
-    }
-}
-
-pub fn matches(condition: Option<&Condition>, variables: &Variables) -> Result<bool, String> {
-    condition
-        .map(|condition| evaluate(condition, variables))
-        .unwrap_or(Ok(true))
 }
 
 pub fn apply_effects(
@@ -113,37 +56,4 @@ pub fn apply_effects(
         updated.insert(id.clone(), value);
     }
     Ok(updated)
-}
-
-pub fn resolve<'a>(
-    story: &'a Story,
-    frame_id: &str,
-    choice: Option<&str>,
-    variables: &Variables,
-) -> Result<Option<&'a TransitionRule>, String> {
-    let route = story
-        .routes
-        .get(frame_id)
-        .ok_or_else(|| format!("场景缺少流转：{frame_id}"))?;
-    match (route, choice) {
-        (Route::Script(_), _) => Err("脚本路由需要注入逻辑执行器".into()),
-        (Route::Next(rule), None) => Ok(Some(rule)),
-        (Route::Branch { cases, otherwise }, None) => {
-            for rule in cases {
-                if matches(rule.when.as_ref(), variables)? {
-                    return Ok(Some(rule));
-                }
-            }
-            Ok(Some(otherwise))
-        }
-        (Route::Choice(options), Some(id)) => {
-            let rule = options.get(id).ok_or_else(|| format!("无效选项：{id}"))?;
-            if !matches(rule.when.as_ref(), variables)? {
-                return Err(format!("选项条件不满足：{id}"));
-            }
-            Ok(Some(rule))
-        }
-        (Route::Choice(_), None) | (Route::End, None) => Ok(None),
-        _ => Err("当前场景不能选择选项".into()),
-    }
 }

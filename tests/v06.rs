@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 fn game() -> (
     kakera_avg::loader::LoadedStory,
-    kakera_avg::script::LogicEngine,
+    kakera_avg::script::ScriptLogic,
 ) {
     load_game(
         &DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap(),
@@ -43,7 +43,7 @@ fn pages_cover_exactly_two_hundred_slots_and_page_commands_are_atomic() {
     assert!(saves.list_page(story, 21).is_err());
     assert!(SlotId::new(0).is_err());
     assert!(SlotId::new(201).is_err());
-    let def = loaded.interface.unwrap();
+    let def = loaded.interface;
     let state = State::new(&def);
     let profile = Profile::new(&story.id, &def);
     let result = host::prepare(
@@ -115,10 +115,10 @@ fn autosaves_rotate_independently_and_corruption_or_failed_writes_preserve_old_d
     );
 }
 #[test]
-fn v06_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_slot_200() {
+fn current_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_slot_200() {
     let (documented, documented_logic) = game();
     let snapshot: Snapshot =
-        serde_json::from_str(include_str!("../doc/v0.6-save.example.json")).unwrap();
+        serde_json::from_str(include_str!("../doc/v0.8-save.example.json")).unwrap();
     assert_eq!(
         snapshot
             .restore_with(&documented.story, &documented_logic)
@@ -140,7 +140,7 @@ fn v06_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_slot_2
     saves.save_with(slot, story, &w, &logic).unwrap();
     assert_eq!(saves.load_with(slot, story, &logic).unwrap(), w);
     let mut snapshot = Snapshot::capture_with(story, &w, &logic).unwrap();
-    assert_eq!(snapshot.schema_version, 6);
+    assert_eq!(snapshot.schema_version, 8);
     snapshot.schema_version = 3;
     assert!(snapshot.restore_with(story, &logic).is_err());
 }
@@ -164,7 +164,7 @@ fn autoplay_waits_for_readiness_and_delay_pauses_without_accumulating_and_never_
 #[test]
 fn new_js_commands_are_bounded_and_game_enter_cannot_navigate_or_start_autoplay() {
     let (loaded, logic) = game();
-    let def = loaded.interface.unwrap();
+    let def = loaded.interface;
     let session = loaded.story.start();
     let state = State::new(&def);
     let settings = Settings::default();
@@ -229,14 +229,26 @@ fn motion_linear_bezier_and_steps_have_correct_endpoints_and_reject_invalid_data
 
 #[test]
 fn media_xml_rejects_unknown_attributes_wrong_types_and_unavailable_routes_with_positions() {
-    let story = include_str!("../games/demo/story.xml");
+    let source =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    let story = kakera_avg::story_chain::compile(&source).unwrap().xml;
     for (from, to) in [
         ("asset=\"video.intro\"", "asset=\"bg.room\""),
         ("skippable=\"true\"", "skippable=\"yes\""),
         ("advance=\"true\"", "advance=\"true\" loop=\"true\""),
         ("asset=\"video.intro\"", "asset=\"missing\""),
     ] {
-        let error = kakera_avg::loader::parse_story(&story.replace(from, to), "", Path::new(""))
+        struct Xml(String);
+        impl kakera_avg::content::ContentSource for Xml {
+            fn read(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
+                if path == Path::new("story.xml") {
+                    Ok(self.0.as_bytes().to_vec())
+                } else {
+                    anyhow::bail!("unexpected resource request")
+                }
+            }
+        }
+        let error = kakera_avg::loader::load_game(&Xml(story.replace(from, to)))
             .err()
             .unwrap();
         assert!(format!("{error:#}").contains("story.xml:"));
@@ -318,7 +330,7 @@ fn bundled_live2d_routes_and_tap_callback_preserve_variables_and_replayable_hist
             );
         }
     }
-    let definition = loaded.interface.as_ref().unwrap();
+    let definition = &loaded.interface;
     let state = State::new(definition);
     let commands = logic
         .ui_event(

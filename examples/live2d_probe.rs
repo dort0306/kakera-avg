@@ -20,7 +20,11 @@ fn main() -> Result<()> {
         .context("没有 Live2D 场景")?;
     let start = std::time::Instant::now();
     let player = Live2DPlayer::prepare(frame, &prepared)?;
-    let image = player.images.values().next().context("没有模型图像")?;
+    let kakera_avg::render::Image::Cpu(image) =
+        player.images.values().next().context("没有模型图像")?
+    else {
+        anyhow::bail!("expected CPU image");
+    };
     let bytes: Vec<u8> = image
         .pixels
         .iter()

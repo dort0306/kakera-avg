@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story schema="8">
+  <frames>
+    <frame id="opening" visual="room.empty">
+      <transition kind="fade-black" duration="800" />
+      <text>午后的房间里，传来了轻轻的敲门声。</text>
+      <audio bgm="bgm.room" se="se.knock" />
+    </frame>
+    <frame id="question" visual="room.lin" speaker="lin">
+      <transition kind="dissolve" duration="700" />
+      <text>先散步增进了解，还是结束今天的相处？熟悉后可以邀请凛一同出发。</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+      <options>
+        <option id="accept">一起散步（信任加一）</option>
+        <option id="refuse">结束今天的相处</option>
+        <option id="invite">邀请凛一同出发</option>
+        <option id="live2d-demo">Live2D 测试</option>
+        <option id="portrait-demo">立绘动作演示</option>
+        <option id="video-demo">片头动画演示</option>
+        <option id="credits-demo">片尾动画演示</option>
+      </options>
+    </frame>
+    <frame id="walk" visual="room.lin" speaker="lin">
+      <transition kind="wipe-left" duration="700" />
+      <text>一起慢慢走着，好像又熟悉了一些。回到门口，再做决定吧。</text>
+      <audio bgm="bgm.room" />
+    </frame>
+    <frame id="decision" visual="room.lin" speaker="lin">
+      <transition kind="fade-black" duration="800" />
+      <text>今天的相处会带来怎样的结果呢？</text>
+      <audio bgm="bgm.room" />
+    </frame>
+    <frame id="accept" visual="room.lin" speaker="lin">
+      <transition kind="fade-white" duration="1000" />
+      <text>我们已经很熟悉了。那就一起出发吧！</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+    </frame>
+    <frame id="friendly" visual="room.lin" speaker="lin">
+      <text>今天的散步很开心。下次再一起走走吧。</text>
+      <audio bgm="bgm.room" voice="voice.lin" />
+    </frame>
+    <frame id="refuse" visual="room.empty">
+      <text>门轻轻合上，房间又安静了下来。</text>
+    </frame>
+  </frames>
+  <next src="chapters/actors.xml"/>
+</story>

@@ -1,13 +1,15 @@
 use crate::model::effects::Filter;
-use crate::model::{AssetKind, Effect, Story, VariableValue};
+use crate::model::{AssetKind, Story, VariableValue};
 use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, ColorImage, FontData, FontDefinitions, FontFamily, TextureHandle};
 use std::collections::BTreeMap;
 
-pub const UI_TEXT: &str = "跳过转场保存读档重新开始继续已结束请选择存档成功读档成功提示关闭台词超出对话框请拆句选项文字过长请缩短图片字体加载失败历史记录旁白设置补全取消确认覆盖空槽损坏导入旧档不含仅恢复当前位置文字速度整句每秒字素簇静音背景音乐语音音效设备不可用禁用输出正常正在播放暂停刚刚分钟前小时前天前尚未保存槽位音频返回";
+pub const UI_TEXT: &str = "跳过转场保存读档重新开始继续已结束请选择存档成功读档成功提示关闭台词超出对话框请拆句选项文字过长请缩短图片字体加载失败历史记录旁白设置补全取消确认覆盖空槽损坏文字速度整句每秒字素簇静音背景音乐语音音效设备不可用禁用输出正常正在播放暂停刚刚分钟前小时前天前尚未保存槽位音频返回";
 
+#[derive(Clone)]
 pub struct PreparedAssets {
-    images: BTreeMap<String, ColorImage>,
+    images: BTreeMap<String, image::RgbaImage>,
+    deferred: std::collections::BTreeSet<Filter>,
     filtered: BTreeMap<(String, Filter), ColorImage>,
     fonts: BTreeMap<String, Vec<u8>>,
 }
@@ -31,15 +33,19 @@ impl PreparedAssets {
         Ok(())
     }
     /// Decode once at startup. This also powers the headless `--check` command.
-    pub fn load(story: &Story) -> Result<Self> {
-        Self::load_bytes(story, &|path| Ok(std::fs::read(path)?))
-    }
     pub fn load_from(story: &Story, source: &dyn crate::content::ContentSource) -> Result<Self> {
-        Self::load_bytes(story, &|path| source.read(path))
+        Self::load_bytes(story, &|path| source.read(path), false)
+    }
+    pub fn load_deferred(
+        story: &Story,
+        source: &dyn crate::content::ContentSource,
+    ) -> Result<Self> {
+        Self::load_bytes(story, &|path| source.read(path), true)
     }
     fn load_bytes(
         story: &Story,
         read: &dyn Fn(&std::path::Path) -> Result<Vec<u8>>,
+        deferred: bool,
     ) -> Result<Self> {
         let mut images = BTreeMap::new();
         let mut filtered = BTreeMap::new();
@@ -74,16 +80,16 @@ impl PreparedAssets {
                             filtered_bytes <= 256 * 1024 * 1024,
                             "滤镜图片缓存超过 256MiB，请减少图片/滤镜组合"
                         );
+                        if deferred {
+                            continue;
+                        }
                         let variant = filter_image(&image, *filter);
                         filtered.insert(
                             (id.clone(), *filter),
                             ColorImage::from_rgba_unmultiplied(size, variant.as_raw()),
                         );
                     }
-                    images.insert(
-                        id.clone(),
-                        ColorImage::from_rgba_unmultiplied(size, image.as_raw()),
-                    );
+                    images.insert(id.clone(), image);
                 }
                 AssetKind::Font => {
                     let data = read(&asset.path).with_context(context)?;
@@ -102,19 +108,6 @@ impl PreparedAssets {
             text.push_str(&decl.label);
             if let VariableValue::String(value) = &decl.initial {
                 text.push_str(value);
-            }
-        }
-        for route in story.routes.values() {
-            for rule in route.rules() {
-                for effect in &rule.effects {
-                    if let Effect::Set {
-                        value: VariableValue::String(value),
-                        ..
-                    } = effect
-                    {
-                        text.push_str(value);
-                    }
-                }
             }
         }
         for frame in story.frames.values() {
@@ -137,12 +130,32 @@ impl PreparedAssets {
         }
         Ok(Self {
             images,
+            deferred: if deferred {
+                filters
+            } else {
+                Default::default()
+            },
             filtered,
             fonts,
         })
     }
 
     pub fn install(self, ctx: &egui::Context) -> AssetCache {
+        self.install_render(ctx, &crate::render::Renderer::cpu())
+    }
+    pub fn install_render(
+        mut self,
+        ctx: &egui::Context,
+        renderer: &crate::render::Shared,
+    ) -> AssetCache {
+        let mut native_filtered = BTreeMap::new();
+        for (id, image) in &self.images {
+            for filter in &self.deferred {
+                let result = renderer.borrow_mut().filter(image, *filter);
+                native_filtered.insert((id.clone(), *filter), Texture::from_image(ctx, result, id));
+            }
+        }
+        self.deferred.clear();
         let mut definitions = FontDefinitions::default();
         for (id, data) in self.fonts {
             definitions
@@ -159,11 +172,16 @@ impl PreparedAssets {
             .images
             .into_iter()
             .map(|(id, image)| {
-                let handle = ctx.load_texture(&id, image, egui::TextureOptions::LINEAR);
+                let image = ColorImage::from_rgba_unmultiplied(
+                    [image.width() as usize, image.height() as usize],
+                    image.as_raw(),
+                );
+                let handle =
+                    Texture::Managed(ctx.load_texture(&id, image, egui::TextureOptions::LINEAR));
                 (id, handle)
             })
             .collect();
-        let filtered = self
+        let mut filtered: BTreeMap<_, _> = self
             .filtered
             .into_iter()
             .map(|(key, image)| {
@@ -172,40 +190,63 @@ impl PreparedAssets {
                     image,
                     egui::TextureOptions::LINEAR,
                 );
-                (key, handle)
+                (key, Texture::Managed(handle))
             })
             .collect();
+        filtered.extend(native_filtered);
         AssetCache { textures, filtered }
     }
 }
 
+#[derive(Clone)]
 pub struct AssetCache {
-    textures: BTreeMap<String, TextureHandle>,
-    filtered: BTreeMap<(String, Filter), TextureHandle>,
+    textures: BTreeMap<String, Texture>,
+    filtered: BTreeMap<(String, Filter), Texture>,
 }
 
 impl AssetCache {
+    pub fn clear_save_previews(&mut self) {
+        self.textures.retain(|id, _| !id.starts_with("$save:"));
+    }
+    pub(crate) fn restore_streams_from(&mut self, previous: &Self) {
+        for (id, texture) in &previous.textures {
+            if (id == "$video" || id.starts_with("$save:"))
+                && matches!(texture, Texture::Managed(_))
+            {
+                self.textures.insert(id.clone(), texture.clone());
+            }
+        }
+    }
+
     pub fn has_stream(&self, id: &str) -> bool {
         self.textures.contains_key(id)
     }
+    pub fn update_render(&mut self, ctx: &egui::Context, id: &str, image: crate::render::Image) {
+        match image {
+            crate::render::Image::Cpu(image) => self.update_stream(ctx, id, image),
+            crate::render::Image::Gpu(image) => {
+                self.textures.insert(id.into(), Texture::Native(image));
+            }
+        }
+    }
     pub fn update_stream(&mut self, ctx: &egui::Context, id: &str, image: ColorImage) {
-        if let Some(texture) = self.textures.get_mut(id) {
+        if let Some(Texture::Managed(texture)) = self.textures.get_mut(id) {
             texture.set(image, egui::TextureOptions::LINEAR);
         } else {
             self.textures.insert(
                 id.into(),
-                ctx.load_texture(id, image, egui::TextureOptions::LINEAR),
+                Texture::Managed(ctx.load_texture(id, image, egui::TextureOptions::LINEAR)),
             );
         }
     }
-    pub fn effected(&self, id: &str, filter: Filter) -> Option<&TextureHandle> {
+    pub fn effected(&self, id: &str, filter: Filter) -> Option<&Texture> {
         if filter == Filter::None {
             self.image(id)
         } else {
             self.filtered.get(&(id.to_owned(), filter))
         }
     }
-    pub fn image(&self, id: &str) -> Option<&TextureHandle> {
+    pub fn image(&self, id: &str) -> Option<&Texture> {
         self.textures.get(id)
     }
 }
@@ -272,4 +313,36 @@ pub fn filter_image(source: &image::RgbaImage, filter: Filter) -> image::RgbaIma
         }
     }
     result
+}
+
+#[derive(Clone)]
+pub enum Texture {
+    Managed(TextureHandle),
+    Native(crate::render::GpuImage),
+}
+impl Texture {
+    fn from_image(ctx: &egui::Context, image: crate::render::Image, name: &str) -> Self {
+        match image {
+            crate::render::Image::Cpu(image) => {
+                Self::Managed(ctx.load_texture(name, image, egui::TextureOptions::LINEAR))
+            }
+            crate::render::Image::Gpu(image) => Self::Native(image),
+        }
+    }
+    pub fn id(&self) -> egui::TextureId {
+        match self {
+            Self::Managed(t) => t.id(),
+            Self::Native(t) => t.id,
+        }
+    }
+    pub fn size(&self) -> [usize; 2] {
+        match self {
+            Self::Managed(t) => t.size(),
+            Self::Native(t) => t.size,
+        }
+    }
+    pub fn size_vec2(&self) -> egui::Vec2 {
+        let [x, y] = self.size();
+        egui::vec2(x as f32, y as f32)
+    }
 }

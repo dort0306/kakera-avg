@@ -110,7 +110,6 @@
       },
       save(slot, overwrite = false) { emit({ type: "save", slot, overwrite }); },
       load(slot) { emit({ type: "load", slot }); },
-      importLegacy() { emit({ type: "import_legacy" }); },
       restart() { emit({ type: "restart" }); },
       advance() { emit({ type: "advance" }); },
       choose(option) { emit({ type: "choose", option }); },
