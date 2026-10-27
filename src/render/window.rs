@@ -230,6 +230,7 @@ impl Painter {
 }
 type Builder = Box<dyn FnOnce(&egui::Context, Shared) -> Result<crate::app::PlayerApp>>;
 struct Host {
+    title: String,
     fullscreen: bool,
     windowed: Option<(
         winit::dpi::PhysicalSize<u32>,
@@ -248,12 +249,17 @@ struct Host {
     error: Option<anyhow::Error>,
 }
 impl Host {
-    fn sync_window_mode(&mut self) -> Result<()> {
-        let enabled = self.app.as_ref().context("app")?.fullscreen();
+    fn sync_window(&mut self) -> Result<()> {
+        let app = self.app.as_ref().context("app")?;
+        let window = self.window.as_ref().context("window")?;
+        if self.title != app.window_title() {
+            window.set_title(app.window_title());
+            self.title = app.window_title().to_owned();
+        }
+        let enabled = app.fullscreen();
         if self.fullscreen == enabled {
             return Ok(());
         }
-        let window = self.window.as_ref().context("window")?;
         let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
             anyhow::bail!("需要 Win32 窗口");
         };
@@ -289,6 +295,9 @@ impl Host {
     fn redraw(&mut self) -> Result<()> {
         let window = self.window.as_ref().context("window")?;
         if window.inner_size().width == 0 || window.inner_size().height == 0 {
+            if let Some(app) = &mut self.app {
+                app.poll_debug();
+            }
             return Ok(());
         }
         let input = self.input.as_mut().context("input")?;
@@ -300,7 +309,7 @@ impl Host {
             .as_mut()
             .context("painter")?
             .draw(&self.ctx, output, app.painted_capture())?;
-        self.sync_window_mode()
+        self.sync_window()
     }
     fn fallback(&mut self, reason: String) -> Result<()> {
         ensure!(!self.device.software, "WARP 呈现失败，无法继续：{reason}");
@@ -341,7 +350,7 @@ impl ApplicationHandler for Host {
         let result = (|| -> Result<()> {
             let window = event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("Kakera AVG · D3D11")
+                    .with_title(&self.title)
                     .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
                     .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
                     .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 360.0)),
@@ -366,7 +375,7 @@ impl ApplicationHandler for Host {
             self.input = Some(input);
             self.painter = Some(painter);
             self.app = Some(app);
-            self.sync_window_mode()?;
+            self.sync_window()?;
             Ok(())
         })();
         if let Err(e) = result {
@@ -401,6 +410,14 @@ impl ApplicationHandler for Host {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         if now >= self.next {
+            if self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.inner_size().width == 0 || w.inner_size().height == 0)
+                && let Some(app) = &mut self.app
+            {
+                app.poll_debug();
+            }
             if let Some(w) = &self.window {
                 w.request_redraw();
             }
@@ -416,6 +433,7 @@ impl ApplicationHandler for Host {
 }
 pub fn run(
     mode: &str,
+    title: String,
     build: impl FnOnce(&egui::Context, Shared) -> Result<crate::app::PlayerApp> + 'static,
 ) -> Result<()> {
     let device = match Device::new(false) {
@@ -432,6 +450,7 @@ pub fn run(
         Renderer::with_gpu(Box::new(Pixels::new(device.clone())))
     };
     let mut host = Host {
+        title,
         fullscreen: false,
         windowed: None,
         captures: Default::default(),

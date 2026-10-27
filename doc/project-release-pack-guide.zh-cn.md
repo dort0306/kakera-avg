@@ -1,13 +1,13 @@
-# v0.8.2 工程、发布与窗口模式指南
+# v0.8.3 工程、发布与窗口模式指南
 
-适用版本 0.8.2；唯一数据契约 story 8 / UI 3 / save 8；资源包新增 KPAK 2，保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。
+适用版本 0.8.3；唯一数据契约 story 8 / UI 3 / save 8；资源包新增 KPAK 2，保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。
 
 ## 工程运行
 
 ```powershell
 cargo build --locked --release --bins
 ./target/release/kakera-avg.exe --project games/demo --check | Out-Host
-./target/release/kakera-avg.exe --project games/demo --save-dir target/v082-development
+./target/release/kakera-avg.exe --project games/demo --save-dir target/v083-development
 ```
 
 --project 指定工程目录，默认源码启动为 games/demo。固定 story.xml，通过每份 XML 的 next.src 串联，末份 next end="true"；interface、scripts、assets 等路径以游戏根为准，不随章节目录变化。必须提供 UI 和全部 JS 注册；不读取 flow.xml，不运行旧 schema。
@@ -25,20 +25,20 @@ demo 设置页“全屏显示”由 XML/JS 调用 ctx.setting("fullscreen", bool
 ## 资源包与便携目录
 
 ```powershell
-cargo run --locked --bin kakera-pack -- games/demo target/v082-publication/game.kpak
-cargo run --locked --bin kakera-pack -- games/demo target/v082-publication/game.kpak --force --level 19
-cargo run --locked -- --package target/v082-publication/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
+cargo run --locked --bin kakera-pack -- games/demo target/v083-publication/game.kpak
+cargo run --locked --bin kakera-pack -- games/demo target/v083-publication/game.kpak --force --level 19
+cargo run --locked -- --package target/v083-publication/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
 ./tools/package.ps1
 ```
 
 kakera-pack 两个位置参数先于选项。支持 --format 1|2（默认 2）、--force、--level 1..22（默认 19）、--cubism-core DLL、--no-live2d。没有播放器的 --check/--renderer/--save-dir 参数；不带参数打印用法并失败退出。禁用 Core 校验不表示包中模型永久禁用，播放器仍须配置 Core 或显式 --no-live2d。
 
-打包先验证完整源快照，合并 next 链到包内 story.xml，只移除链上的源章节；UI/JS 和其他文件不合并、不改磁盘源工程。确认指纹一致后编码、自检/独立加载，再原子写出；输出须在工程根外，已有输出没有 --force 就拒绝。KPAK 按逻辑路径排序、同字节去重、Zstandard 压缩与 SHA-256 损坏检测，未加密。2 使用独立 1MiB 原文块，1 保持整包 solid。素材不有损转码，不做引用裁剪；未被排除的普通文件也会收集。
+打包先记录引擎实际读取的依赖，建立只含发布文件的固定快照；合并 next 链到包内 story.xml，移除链上的源章节，保留所选 UI/JS/资源的逻辑路径，不改源工程。完整候选校验、包自检/独立加载和所选源文件指纹复查通过后原子写出；输出须在工程根外，已有输出没有 --force 就拒绝。KPAK 按逻辑路径排序、同字节去重、Zstandard 压缩与 SHA-256 损坏检测，未加密。2 使用独立 1MiB 原文块，1 保持整包 solid。素材不有损转码。默认只含引擎依赖、assets/licenses 与 licenses 目录的普通文件。其他文件须在根 kakera.package.json 以 schema 1/include 列表明确声明；不支持目录/通配，清单自身不入包。未引用的设计稿、模型权重和编辑器索引不会自动收集。
 
-发布脚本默认 target/package/kakera-avg-v0.8.2，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
+发布脚本默认 target/package/kakera-avg-v0.8.3，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
 
 ```text
-kakera-avg-v0.8.2/
+kakera-avg-v0.8.3/
   kakera-avg.exe
   game.kpak
   Live2DCubismCore.dll
@@ -70,7 +70,7 @@ Windows 播放器为 GUI 子系统：发布无控制台，启动失败显示原�
 
 2 打开时只读取头和索引，访问时验证并解压对应块，每个流只缓存当前 1MiB 原文块；`--check` 完整扫描唯一块。没有访问的坏块不保证在普通启动时发现。格式与损坏检测约定见 [KPAK 1/2 格式](kpak-format.zh-cn.md)。
 
-工程候选和 KPAK 2 打包使用私有临时磁盘快照，不全量放入 RAM；仍需复制源字节并有足够磁盘空间，提交前全量重算源指纹。KPAK 1 打包保留 512MiB 内存快照限制。视频流式复制到后端临时 MP4，不先构造整文件 Vec；已声明图像/音频/模型仍按既有预算预先解码，视频仍有尺寸/时长/音频缓存上限。不是所有解码资源的场景级惰性加载，也没有包内直接视频 seek 或网络流。
+工程候选和 KPAK 2 打包使用私有临时磁盘快照，不全量放入 RAM；需要足够磁盘空间。热更复查整个工程快照；打包只复制/复查所选发布源文件，同时验证依赖集合、清单和许可证列表未变化。KPAK 1 打包保留 512MiB 内存快照限制。视频流式复制到后端临时 MP4，不先构造整文件 Vec；已声明图像/音频/模型仍按既有预算预先解码，视频仍有尺寸/时长/音频缓存上限。不是所有解码资源的场景级惰性加载，也没有包内直接视频 seek 或网络流。
 
 ## 点九、图集与缺省场景 ID
 
@@ -78,10 +78,31 @@ Windows 播放器为 GUI 子系统：发布无控制台，启动失败显示原�
 
 frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用该名字作临时内部 ID，两种格式打包时在候选插入随机 UUID v4 并保留 name，不改源 XML/JS。显式 ID 不变，无缺省 ID 的内容仍确定性打包。独立构建的 UUID 会变化，需提升 content-version；需要跨构建稳定存档应固定显式 id。工程的临时名字档与发布 UUID 档不自动迁移。详见 API 第 27 节。
 
+## 窗口标题
+
+在 ui.xml 根使用 title="游戏名"，或 title-bind="ui.windowTitle" 绑定 UI string；JS 用 ctx.setUi 修改。UI 文件随两种 KPAK 正常打包，不需要额外打包参数；标题不从宿主设置或剧情槽读取。细节见 API 第 28 节。
+
+## 编辑器调试与发布附加文件
+
+调试启动、认证帧和断点事务见 [调试 API v1](editor/10-player-debug-api.zh-cn.md)。必须显式 --project、--save-dir、--debug-listen 和 --debug-token-file；仅 loopback，发布/--check 拒绝。暂停冻结呈现，断点保留旧会话和完整候选，继续才提交。协议无远程 JS eval、行级断点或任意跳转。
+
+需要额外随包发送作者文本时，在工程根写：
+
+```json
+{"schema":1,"include":["extras/credits.txt"]}
+```
+
+路径须指向现存普通文件，禁止越界、链接、大小写冲突；附加文件不是宿主可执行依赖。默认依赖包含所有已声明并被加载器读取的资源，不分析 JS 字符串来猜路径，也不以当前场景可达性删去其他场景资源。低层容器 API 仍可打包任意合法文件，默认收敛策略由 kakera-pack CLI 实施。更多限制见 API 第 29 节。
+
+编辑器 AI/插件的接口和开发路线是规划，未作为本版可运行编辑器交付，见 [编辑器方案](editor/README.zh-cn.md)。
+
 ## 用户数据和限制
 
 --save-dir 直接使用指定目录，不额外附 story_id。工程与发布默认同 story_id 会共享数据，验收建议隔离。当前手动 slot-1..200.json、自动 auto-1..10.json 为 save 8，加载完整重放历史与变量；旧格式或内容版本不匹配明确拒绝。设置、CG、已读分别在 settings.json/profile.json/read.json，不被槽覆盖；settings 必须完整包含当前字段，无缺字段迁移。screenshot 字段必需，可 null（工具快照）。
 
 用户 JSON、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
 
-数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.8.2 验收](v0.8.2-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
+数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.8.3 验收](v0.8.3-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
+
+
+v0.8.3 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。

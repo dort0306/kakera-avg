@@ -2,7 +2,7 @@
 
 ## 目标与依据
 
-先阅读当前 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
+先阅读当前 `doc/v0.8.3-implementation-plan.zh-cn.md`、`doc/v0.8.3-validation.zh-cn.md`，再阅读 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
 
 从 v0.8 起，每个新需求必须优先评估能否通过已有 XML 与 JavaScript 能力组合实现；能实现就只改 XML/JS。只有现有宿主能力确实无法满足需求时，才扩展 Rust 的明确命令、校验或平台能力，并在策略中说明原因。
 
@@ -129,3 +129,13 @@ portrait.pose 为最终显示契约；enter/exit 与 ctx.portrait 仅驱动呈�
 - 用户确认稳定 frame.name 别名：id 缺省时 name 必填，工程暂以 name 为内部 ID；KPAK 1/2 在候选中生成 UUID v4、保留 name，源 XML/JS 不改写。ID/name 不与其他场景冲突，所有 JS 注册/动态目标仍严格验证，不引入顺序默认分支。
 - 槽位/历史/已读使用实际 ID，JS ctx.frameId/game.frameId 对具名场景提供 name。重新构建随机 UUID 会改变档案契约，需提升 content-version；跨构建稳定档案应固定显式 id，不按别名迁移。无缺省 ID 的工程继续确定性打包。
 - story 8/UI 3/save 8/KPAK 1/2 不变。新增宿主图片几何和打包 ID 能力确需 Rust；动画/页面/图片区域切换仍优先 XML/JS。覆盖点九多段/padding/DPI、图集 UV/共享纹理/绑定回滚、UUID 名字路由/自循环/条件/存档/两种包和源不改写，实查 GPU/CPU 窗口并同步 API/README/指南/发布/验收。
+- UI 根 title/title-bind 配置原生窗口标题，动态标题复用 UI string 与 ctx.setUi；标题非空、最多 256 个 Unicode 标量值、禁止控制字符，整批校验后才同步宿主。窗口标题不进入 Model/存档/settings；读档和重开按现有 UI 变量与 game.enter 规则，坏候选保留旧标题。依据 doc/window-title-implementation-plan.zh-cn.md 与 doc/window-title-validation.zh-cn.md。
+
+
+## v0.8.3 编辑器宿主接口与发布选择
+
+- 编辑器 AI 采用可配置的通用 Chat Completions 兼容 API，支持自部署/远程服务，模型不固定；相关方案在 doc/editor。首选 VS Code 插件配 Custom Editor/Webview/DAP 适配，不分叉 Code-OSS；独立编辑器为后续评估项。编辑器与 AI 客户端仍属规划，不得当本版已实现能力。
+- 调试仅显式 --project/--save-dir/--debug-listen/--debug-token-file 成组启用，loopback、逐请求认证、有界 JSONL v1/队列/超时/响应缓存，发布和 --check 拒绝。控制检查 state_revision；不得开放 eval、路径、任意变量修改/跳转或把调试对象写入 Model/存档。
+- 场景断点在完整候选校验后、事务提交前命中；旧会话/UI/音频保留，继续只提交缓存候选一次。暂停冻结时钟、阻挡普通剧情输入，热更替换延后；渲染重建丢弃 GPU 候选并报告。无 JS 行级调试器或 DAP 服务。
+- kakera-pack 的两种格式默认只捕获实际 ContentSource 依赖、assets/licenses 与 licenses 普通文件、严格 kakera.package.json schema 1/include 的显式附加文件。未引用普通文件不自动入包，清单自身不入包。只复制/复查所选源字节，并复查依赖集合、清单和许可列表；完整包重载/块自检后原子提交。低层容器 API 和工程完整热更快照不改成发布裁剪器。
+- 验证实际认证通信、候选暂停/单次提交/变量回滚/隐藏选项/自循环、计时暂停/恢复、两种格式依赖/附加/许可/坏清单/源变化/旧包保留及未引用大文件不入包。文档同步当前 API、指南、KPAK 规范、README、编辑器接口/路线/比较和发布脚本；不将协议测试宣称为整套 GUI/设备听感验收。

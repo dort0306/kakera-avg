@@ -1,6 +1,6 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.8.2。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-25。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射。
+适用版本：Kakera AVG Rust v0.8.3。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-27。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -33,6 +33,8 @@
 25. [KPAK 2 与创作边界](#25-v081-kpak-2-与创作边界)
 26. [点九图与图集区域](#26-v082-点九图与图集区域)
 27. [缺省场景 ID 与作者别名](#27-v082-缺省场景-id-与作者别名)
+28. [可配置窗口标题](#28-可配置窗口标题)
+29. [编辑器调试与发布清单](#29-v083-编辑器调试与发布清单)
 
 ## 1. 版本与职责
 
@@ -434,6 +436,8 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 | `width` | 默认 1280 | 有限数值，至少 640 |
 | `height` | 默认 720 | 有限数值，至少 360 |
 | `initial` | 必填 | 已存在且 modal=false 的 screen ID |
+| `title` | 可选，默认 Kakera AVG | 静态窗口标题；与 title-bind 互斥 |
+| `title-bind` | 可选 | 绑定已声明的 UI string，例如 ui.windowTitle；见第 28 节 |
 
 宽高必须构成 16:9；任一数值不能超过 8192。画布在窗口可用区域内居中、等比缩放并留黑边，坐标不是物理屏幕像素。一般保留 1280×720。
 
@@ -1425,11 +1429,11 @@ cargo run --locked --bin kakera-pack -- games/demo target/game.kpak --force --le
 | `--cubism-core <DLL>` | 本次打包校验使用的宿主 Core |
 | `--no-live2d` | 仅改变本次校验方式，不删除模型或在包中记录永久禁用标志 |
 
-工具退出 0 表示成功、1 表示失败；没有 `--help` 选项，不带参数打印用法并失败退出。不支持播放器的 --renderer/--save-dir/--check/--no-audio。用 --no-live2d 生成的包正常播放时仍需要 Core，或播放器再次显式禁用。打包先将 next 链上的剧本合并为包内 story.xml，并移除链上其余源 XML；UI/JS 不合并，源工程不改写。随后收集其余未排除文件，包含 XML 未引用的大图/视频/设计源文件；不做引用裁剪，没有自定义 ignore 参数。未排除的 DLL/EXE 也会作为普通字节收集，但不会因此变成宿主依赖或被执行。
+工具退出 0 表示成功、1 表示失败；没有 `--help` 选项，不带参数打印用法并失败退出。不支持播放器的 --renderer/--save-dir/--check/--no-audio。用 --no-live2d 生成的包正常播放时仍需要 Core，或播放器再次显式禁用。打包先将 next 链上的剧本合并为包内 story.xml，并移除链上其余源 XML；UI/JS 不合并，源工程不改写。v0.8.3 先记录引擎真实读取的依赖，并附带约定许可证与显式 include 文件；不再扫描收集其余普通文件。未引用的设计稿/AI 权重/编辑器元数据默认不入包。严格清单与候选一致性规则见第 29 节。
 
-同样的工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
+在所有 frame.id 均显式固定时，同样的所选工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
 
-默认发布脚本输出 target/package/kakera-avg-v0.8.2，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
+默认发布脚本输出 target/package/kakera-avg-v0.8.3，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
 
 脚本支持 `-Project <工程>`、`-Output <新目录>`、`-CompressionLevel <1..22>`、`-Format <1|2>`（默认 2），相对路径以仓库根为准；输出目录已存在就拒绝，失败目录保留供诊断。它复制仓库固定 Core，没有单独的 Core/禁用选项。新目录示例：
 
@@ -1580,9 +1584,9 @@ on.end("chapter.ending");
 
 kakera-pack 验证源链后，在只读快照中将合并文档替换为 story.xml，移除链上其余源剧本 XML，再编码/自检并独立加载包内故事。源工程磁盘文件不改写。包内合并后的根仍是 story schema 8，只有一个 `<next end="true"/>`；不依赖原章节。
 
-UI XML、JS、模型 JSON 与素材不参与此合并，保留原逻辑路径。链外普通 XML 仍按收集规则处理，不会通过“删除全部 XML”的方式误删 UI。文件链元数据不改变 KPAK 1/2 头或存档 schema；合并、校验或写入失败仍保留旧输出包。
+UI XML、JS、模型 JSON 与素材不参与此合并，保留原逻辑路径。链外普通 XML 只有作为依赖或显式 include 才收集，不会通过“删除全部 XML”的方式误删 UI。文件链元数据不改变 KPAK 1/2 头或存档 schema；合并、校验或写入失败仍保留旧输出包。
 
-更多命令与部署方式见 [工程/发布与打包指南](project-release-pack-guide.zh-cn.md)，本版实现与验证见 [落地策略](v0.8-implementation-plan.zh-cn.md) 和 [验收记录](v0.8-validation.zh-cn.md)。
+更多命令与部署方式见 [工程/发布与打包指南](project-release-pack-guide.zh-cn.md)，当前实现与验证见 [落地策略](v0.8.3-implementation-plan.zh-cn.md) 和 [验收记录](v0.8.3-validation.zh-cn.md)。
 
 
 ## 22. v0.7.2 背景输入、HUD 与截图存档
@@ -1853,3 +1857,81 @@ id 缺省时 name 必填；两者都缺少会给出源文件位置错误。显�
 在已打包内容中，Model/Session/save.frame_id/历史/read.json 保存实际 UUID 或显式 ID，控制器及历史重放按它校验。剧情 ctx.frameId 与 UI game.frameId 有 name 时暴露名字，否则暴露实际 ID；history.id 的可读标签也优先名字。真实存档不按名字猜测或迁移。
 
 同一个包重复启动、读档、重放的 UUID 固定；再次从无 id 的源 XML 打包会产生新 UUID，因此这类包不保证逐字节确定性或跨构建槽位兼容。工程临时 name 档与发布 UUID 档也不同。内容作者必须在重新生成随机 ID 导致契约变化时提升 content-version；需要跨构建稳定存档/已读记录时，显式固定 id。没有缺省 id 的工程继续按原确定性打包规则工作。
+
+## 28. 可配置窗口标题
+
+2026-10-26 追加，应用版本仍为 v0.8.2，数据 schema 不变。窗口标题属于 XML UI 的宿主属性，既有 ctx.setUi 即可修改，不增加窗口句柄或 IO 权限。
+
+静态标题直接写在 ui.xml 根节点：
+
+```xml
+<ui schema="3" initial="hud" title="我的游戏">
+  <screen id="hud" modal="false" pause="false"/>
+</ui>
+```
+
+需要 JS 修改时，绑定 UI string 变量：
+
+```xml
+<ui schema="3" initial="hud" title-bind="ui.windowTitle">
+  <variables>
+    <string id="windowTitle" initial="我的游戏"/>
+  </variables>
+  <screen id="hud" modal="false" pause="false">
+    <button id="renameTitle" width="240" height="40"
+            text="修改标题" event="rename-title"/>
+  </screen>
+</ui>
+```
+
+```javascript
+on.ui("rename-title", ctx => ctx.setUi("windowTitle", "我的游戏 · 特别篇"));
+// 也可在已有 game.enter 回调内按进入的场景设置；请合并进原回调，勿重复注册。
+on.ui("game.enter", ctx => ctx.setUi("windowTitle", `我的游戏 · ${ctx.game.frameId}`));
+```
+
+- title/title-bind 互斥；二者都不写时默认 Kakera AVG，不再附加渲染后端后缀。title-bind 只接受已声明的 UI string，不接受 game/settings/item 绑定或 JS 表达式。
+- 初值和提交后的最终标题必须为 1–256 个 Unicode 字符，不能全为空白或包含控制字符（换行、制表符、NUL 等）。XML 中 &、引号等使用正常实体转义；JS 使用普通字符串。长度按 Unicode 标量值计算，不按 UTF-8 字节计算。
+- 与同批 UI 命令一起验证。非法类型、过长/空标题、其他命令失败、剧情/媒体验证失败或 IO 失败均不提交新标题；整批中间值被有效最终值替换时，以最终值为准。宿主只读取已提交的缓存值，在更新边界更改原生标题，Windows 仅值改变时调用窗口 API。
+- 标题不写入剧情槽或 settings。退出后重启使用 XML 初值，再执行 game.enter；热更按既有 UI 重建规则处理。读档/重开沿用当前 UI 变量，随后执行 game.enter；若需要随场景恢复标题，在该回调里赋值。历史验证重放不修改窗口。
+- 全屏时系统标题栏可能隐藏，标题仍更新；退出全屏后显示当前值。工程与 KPAK 1/2 发布使用同一配置；坏热更保留旧标题。
+
+demo 启动/进入场景后显示“午后物语 · 场景名”；效果演示 → 点九 / 图集 → 切换窗口标题，可在两个中文标题间切换。实现及本轮验证见 [策略](window-title-implementation-plan.zh-cn.md) 与 [验收](window-title-validation.zh-cn.md)。
+
+
+## 29. v0.8.3 编辑器调试与发布清单
+
+story 8/UI 3/save 8、KPAK 1/2 均不变。本节是宿主/工具能力：现有 XML/JS 无法安全提供进程通信和发布资源选择，因此扩展 Rust；游戏 JS 仍无网络/路径/随机/时钟或任意原生能力。
+
+### 29.1 调试启动与运行状态
+
+```powershell
+([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')) |
+  Set-Content -Encoding ascii target/debug-token.txt
+./target/debug/kakera-avg.exe --project games/demo --save-dir target/debug-saves `
+  --debug-listen 127.0.0.1:19200 --debug-token-file target/debug-token.txt --no-audio
+```
+
+四个参数须显式成组提供，只允许 loopback；--package/--check 拒绝调试。令牌 32–128 ASCII 字母/数字/-/_，独立文件末尾可换行。初始暂停并关闭本次自动保存，隔离目录用于避免影响玩家数据。远程 IDE 通过安全隧道连接本机端口，播放器没有公网监听/TLS。
+
+协议为认证 TCP JSON Lines v1，支持 status、pause/resume、breakpoints、advance/choose、reveal/skip_transition。控制命令必须带最近 state_revision；ID 全局递增，最近 8 个完全相同字节的请求可复用响应，超时先查询状态。请求/响应与队列有界，未知字段拒绝。状态含当前/候选 frame、变量、可用选项、UI 栈/标题、视频/效果与暂停原因。
+
+场景断点接受 ID/name，全部条件、更新、生命周期和媒体候选验证成功后才在提交前暂停；旧状态保留，advance/resume 只提交候选一次。暂停阻挡剧情输入并冻结呈现/媒体时间，热更替换延后。没有 JS 行级步进、条件断点、eval、改变量、任意跳转或事件订阅。完整协议、限制与重试语义见 [播放器调试 API v1](editor/10-player-debug-api.zh-cn.md)。这不是 DAP，编辑器适配器尚待实现。
+
+### 29.2 发布依赖与附加文件
+
+kakera-pack 两种格式均以真实 Bundle 加载所读文件构建依赖闭包，包含剧本链、UI、JS 和所有已声明资源及模型辅助文件，不以当前幕/JS 路由可达性裁剪。默认附带 assets/licenses/、licenses/ 中的普通文件；作者不应将私人内容放在这两个约定目录。
+
+工程根可选 kakera.package.json：
+
+```json
+{"schema":1,"include":["extras/credits.txt"]}
+```
+
+仅允许 schema/include，schema 固定 1；最大 1MiB/100000 条，路径最大 1024 UTF-8 字节。include 只能是游戏内现存普通文件，不支持目录/通配；重复/大小写冲突、缺失、越界或符号链接拒绝。清单自身不入包，也不能 include 自身。保留既有路径/用户数据规则与容器预算。没有自定义 ignore 参数。
+
+候选只复制所选发布源文件；固定候选重载必须得出相同依赖集合，合并/UUID 不改源工程。输出完整块自检、独立加载、所选字节及清单/许可证列表复查通过后才原子写入。未引用普通文件不自动收集，显式 include 并不意味着宿主会执行附加 DLL/EXE。工程热更完整快照与底层一般容器 API 不受该 CLI 收敛策略替代。
+
+### 29.3 编辑器与 AI 边界
+
+编辑器采用用户配置的 Chat Completions 兼容 AI API，允许自部署/远程服务，模型 ID 不固定。凭据使用秘密存储，远程发送范围需向作者展示；AI 只输出候选 XML/JS 和资源关联，由确定性校验与 diff 接受流程落盘。本版仅交付播放器/打包器宿主支撑，未实现编辑器、AI 客户端或 VS Code DAP 适配器。方案、接口和平台结论见 [编辑器文档](editor/README.zh-cn.md)。

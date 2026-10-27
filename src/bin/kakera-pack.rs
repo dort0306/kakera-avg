@@ -53,26 +53,30 @@ fn run() -> Result<()> {
         force || !output.exists(),
         "输出已存在，使用 --force 才能原子覆盖"
     );
+    let selection = package::selection::Selection::discover(&root, &options)?;
+    let paths = selection.paths.iter().cloned().collect::<Vec<_>>();
     let (chapters, count, expanded, packed) = if format == 2 {
-        let mut stage = StagedProject::capture(&root)?;
-        Bundle::load(&stage, &options)?;
+        let mut stage = StagedProject::capture_selected(&root, paths.clone())?;
+        selection.validate_candidate(&stage, &options)?;
         let chapters = stage.for_publication()?;
         let packed = package::write_streaming(&stage, &output, level, force, |archive| {
             Bundle::load(archive, &options)?;
+            selection.ensure_unchanged()?;
             Ok(())
         })?;
         (chapters, stage.count(), stage.expanded_bytes(), packed)
     } else {
-        let snapshot = Snapshot::directory(&root)?;
-        Bundle::load(&snapshot, &options)?;
+        let snapshot = Snapshot::directory_selected(&root, &paths)?;
+        selection.validate_candidate(&snapshot, &options)?;
         let (published, chapters) = snapshot.for_publication()?;
         let bytes = published.encode(level)?;
         let verified = Snapshot::decode(&bytes)?;
         Bundle::load(&verified, &options)?;
         ensure!(
-            snapshot.fingerprint() == Snapshot::directory(&root)?.fingerprint(),
+            snapshot.fingerprint() == Snapshot::directory_selected(&root, &paths)?.fingerprint(),
             "校验期间工程改变，请重新打包"
         );
+        selection.ensure_unchanged()?;
         package::write(&output, &bytes, force)?;
         (
             chapters,

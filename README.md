@@ -1,4 +1,4 @@
-# Kakera AVG Rust · v0.8.2
+# Kakera AVG Rust · v0.8.3
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
 
@@ -9,6 +9,12 @@ v0.8.1 新增面向大体积游戏的 **KPAK 2 流式资源包**，默认打包�
 v0.8.2 新增源 `.9.png` 点九背景、共享图集区域和打包 UUID。资源/UI 使用专用 `<nine-patch>`；普通图片通过 `region="x,y,w,h"` 或 `region-bind="ui.xxx"` 选取图集，JS 复用 `ctx.setUi` 切换，不重新上传图片。demo：效果演示 → 点九 / 图集。
 
 frame.id 可省略，省略时写稳定 `name` 供 entry/JS 引用；打包候选生成 UUID v4 并保留名字映射，源 XML 不改写。随机 ID 会随独立构建改变；要保持跨构建档案契约请显式固定 id，否则提升 content-version。细节见 API 第 26–27 节。
+
+窗口标题在 ui.xml 根配置 `title="我的游戏"`，或用 `title-bind="ui.windowTitle"` 绑定 UI string，再通过 `ctx.setUi("windowTitle", "新的标题")` 修改。默认 Kakera AVG；标题最多 256 个 Unicode 字符，非空且无控制字符，整批验证后提交，不进入剧情档/设置。demo 在“效果演示 → 点九 / 图集”提供切换按钮。详见 API 第 28 节及 [标题功能验收](doc/window-title-validation.zh-cn.md)。
+
+v0.8.3 新增工程调试 API：外部工具可查询运行状态、设置场景断点、暂停/继续和受约束步进。打包改为收集引擎实际依赖、约定许可证和显式附加文件，未引用的设计稿、AI 权重或编辑器元数据不自动入包。两项能力不增加游戏脚本的网络或文件权限。
+
+编辑器仍处于规划阶段，AI 改为用户可配置的通用 Chat Completions 兼容 API，可连接自部署或远程服务，不固定模型。比较后建议优先实现 VS Code 插件，提供“一幕一个 frame”的可视编辑、资源管理和 DAP 适配；详细方案见 [编辑器文档](doc/editor/README.zh-cn.md) 与 [平台比较](doc/editor/09-editor-platform-comparison.zh-cn.md)。
 
 ## 当前数据契约
 
@@ -27,7 +33,7 @@ frame.id 可省略，省略时写稳定 `name` 供 entry/JS 引用；打包候�
 
 ```powershell
 cargo run --locked
-cargo run --locked -- --project games/demo --save-dir target/v082-dev-saves
+cargo run --locked -- --project games/demo --save-dir target/v083-dev-saves
 cargo run --locked -- --project games/demo --renderer cpu --no-audio
 cargo run --locked -- --check
 cargo run --locked -- --check --renderer d3d11
@@ -38,16 +44,35 @@ cargo run --locked -- --check --renderer d3d11
 ## 本地打包
 
 ```powershell
-cargo run --locked --bin kakera-pack -- games/demo target/v082-game.kpak --format 2
+cargo run --locked --bin kakera-pack -- games/demo target/v083-game.kpak --format 2
 # 小包仍可显式生成 KPAK 1
-cargo run --locked --bin kakera-pack -- games/demo target/v082-small.kpak --format 1
-cargo run --locked -- --package target/v082-game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
+cargo run --locked --bin kakera-pack -- games/demo target/v083-small.kpak --format 1
+cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.8.2，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.8.3，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
+
+可选工程根清单 `kakera.package.json`：
+
+```json
+{"schema":1,"include":["extras/credits.txt"]}
+```
+
+默认只收集 XML/JS 及已声明资源的实际依赖（包括模型辅助文件），另含 `assets/licenses/`、`licenses/` 的普通文件。清单只接受游戏内明确文件，不支持目录或通配；清单自身不入包。附加文件由作者负责选择，不应填写密钥或权重。完整规则见 API 第 29 节。
+
+## 工程调试
+
+```powershell
+([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')) |
+  Set-Content -Encoding ascii target/debug-token.txt
+./target/debug/kakera-avg.exe --project games/demo --save-dir target/debug-saves `
+  --debug-listen 127.0.0.1:19200 --debug-token-file target/debug-token.txt --no-audio
+```
+
+必须显式指定工程、隔离数据目录和令牌文件，仅允许 loopback；不能与 --package/--check 混用。启动即暂停并关闭本次自动保存。协议为经过认证的 TCP JSON Lines v1；场景断点在候选全部验证成功、提交之前命中，继续只提交一次。不提供 JS 行级调试或任意变量修改。请求格式、修订与重试规则见 [播放器调试 API](doc/editor/10-player-debug-api.zh-cn.md)。
 
 ## 大体积资源与内存边界
 
@@ -60,9 +85,9 @@ KPAK 2 打开时只读取 80 字节头和尾部索引，按资源/块读取并�
 
 KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见 [格式规范](doc/kpak-format.zh-cn.md)。这些是容器硬上限，不代表已经以 1TiB 实机验收。
 
-工程和 KPAK 2 打包使用私有磁盘暂存与流式指纹，提交前复查源工程完整指纹；需要足够临时磁盘空间。`ContentSource.read` 仍限制 128MiB，流式 `open/copy_to` 最大 64GiB。视频流式复制到 Media Foundation 的临时文件，不再构造整视频 Vec；仍有 16 段、1920×1080、60fps、300 秒和 PCM 缓存预算。没有直接从包 seek 播放或网络流。
+工程热更继续校验完整快照；打包使用私有暂存和流式指纹，只复制并复查发布依赖、附加文件及清单。两者都需要足够临时磁盘空间。`ContentSource.read` 仍限制 128MiB，流式 `open/copy_to` 最大 64GiB。视频流式复制到 Media Foundation 的临时文件，不再构造整视频 Vec；仍有 16 段、1920×1080、60fps、300 秒和 PCM 缓存预算。没有直接从包 seek 播放或网络流。
 
-当前播放器仍在准备阶段解码所有已声明的图像/字体/音频/模型并准备视频，原解码缓存预算保持；本版消除了整包/整视频字节缓冲，并未实现所有资源随场景进入才解码。大游戏启动仍有资源校验与视频临时文件复制时间。
+当前播放器仍在准备阶段解码所有已声明的图像/字体/音频/模型并准备视频，原解码缓存预算保持；v0.8.1 消除了整包/整视频字节缓冲，并未实现所有资源随场景进入才解码。大游戏启动仍有资源校验与视频临时文件复制时间。
 
 ## 剧情、媒体与持久化
 
@@ -83,6 +108,8 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前策略见 [v0.8.2 落地文档](doc/v0.8.2-implementation-plan.zh-cn.md)，实际结果见 [v0.8.2 验收](doc/v0.8.2-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前策略见 [v0.8.3 落地文档](doc/v0.8.3-implementation-plan.zh-cn.md)，实际结果见 [v0.8.3 验收](doc/v0.8.3-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
+
+发布目录中的源码引用链接供仓库开发环境查阅；本地发行目录不携带 Rust 源码或游戏散文件。

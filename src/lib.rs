@@ -4,6 +4,7 @@ pub mod audio;
 pub mod capture;
 pub mod content;
 pub mod controller;
+pub mod debug;
 pub mod development;
 pub mod effects;
 pub mod image_layout;

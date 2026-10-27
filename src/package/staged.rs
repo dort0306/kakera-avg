@@ -23,6 +23,7 @@ pub struct StagedProject {
     _directory: tempfile::TempDir,
     original: PathBuf,
     fingerprint: [u8; 32],
+    selected: Option<Vec<PathBuf>>,
     pub(super) files: BTreeMap<String, Entry>,
 }
 
@@ -64,12 +65,24 @@ fn fingerprint(files: &BTreeMap<String, Entry>) -> [u8; 32] {
 
 impl StagedProject {
     pub fn capture(root: &Path) -> Result<Self> {
+        Self::capture_inner(root, None)
+    }
+    pub fn capture_selected(root: &Path, paths: Vec<PathBuf>) -> Result<Self> {
+        Self::capture_inner(root, Some(paths))
+    }
+    fn capture_inner(root: &Path, selected: Option<Vec<PathBuf>>) -> Result<Self> {
         let original = root.canonicalize()?;
         let source = DirectorySource::new(&original)?;
         let directory = tempfile::tempdir()?;
         let mut files = BTreeMap::new();
         let mut total = 0u64;
-        for path in files_with_limit(&original, MAX_FILES)? {
+        let paths = selected
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| files_with_limit(&original, MAX_FILES))?;
+        ensure!(paths.len() <= MAX_FILES, "工程文件超过预算");
+        super::selection::validate_selected(&original, &paths)?;
+        for path in paths {
             let name = path.to_str().context("路径必须 UTF-8")?.to_owned();
             ensure!(name.len() <= 1024, "路径超过 1024 字节");
             let target = directory.path().join(&path);
@@ -87,6 +100,7 @@ impl StagedProject {
             _directory: directory,
             original,
             fingerprint: fingerprint(&files),
+            selected,
             files,
         })
     }
@@ -95,7 +109,13 @@ impl StagedProject {
         let source = DirectorySource::new(&self.original)?;
         let mut files = BTreeMap::new();
         let mut total = 0u64;
-        for path in files_with_limit(&self.original, MAX_FILES)? {
+        let paths = self
+            .selected
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| files_with_limit(&self.original, MAX_FILES))?;
+        super::selection::validate_selected(&self.original, &paths)?;
+        for path in paths {
             let name = path.to_str().context("路径必须 UTF-8")?.to_owned();
             ensure!(name.len() <= 1024, "路径超过 1024 字节");
             let entry = scan(source.open(&path)?, None)?;
@@ -113,6 +133,7 @@ impl StagedProject {
     pub fn for_publication(&mut self) -> Result<usize> {
         let compiled = crate::story_chain::compile(self)?;
         let xml = compiled.publication_xml()?;
+        self.files.remove(super::selection::MANIFEST);
         for path in &compiled.files {
             if path != "story.xml" {
                 self.files.remove(path);

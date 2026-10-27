@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- All normal controls, layouts and menus are authored here; coordinates use a 1280×720 canvas. -->
-<ui schema="3" width="1280" height="720" initial="hud">
+<ui schema="3" width="1280" height="720" initial="hud" title-bind="ui.windowTitle">
   <variables>
+    <string id="windowTitle" initial="午后物语" />
     <bool id="hudVisible" initial="true" />
     <bool id="portraitMode" initial="false" />
     <string id="fxTransition" initial="" />
@@ -250,7 +251,8 @@
       <button id="spriteGreenButton" x="720" y="310" width="220" height="40" text="切换绿色区域" event="sprite-green" image="ui.button"/>
       <button id="spriteRedButton" x="530" y="370" width="170" height="40" text="切换红色区域" event="sprite-red" image="ui.button"/>
       <label id="spriteRegionText" x="530" y="434" width="410" height="32" bind="ui.spriteRegion" font-size="18"/>
-      <label id="spriteNote" x="30" y="484" width="900" height="32" text="JS 只修改 UI 区域字符串；共用纹理，无新增图片上传。" font-size="19"/>
+      <label id="spriteNote" x="30" y="484" width="660" height="32" text="JS 修改 UI 变量；共用纹理，无新增图片上传。" font-size="19"/>
+      <button id="windowTitleButton" x="720" y="484" width="220" height="32" text="切换窗口标题" event="window-title" image="ui.button" font-size="18"/>
     </nine-patch>
   </screen>
 </ui>

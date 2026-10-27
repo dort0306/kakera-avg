@@ -13,10 +13,12 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 mod capture;
 mod custom;
+mod debug;
 mod development;
 mod media;
 mod skip;
 use custom::CustomUi;
+use debug::{DebugSession, PreparedEntry};
 
 enum UiIntent {
     Custom(crate::interface::Event),
@@ -30,6 +32,7 @@ pub struct RuntimeAssets {
     pub live2d: crate::live2d::PreparedLive2D,
 }
 pub struct PlayerApp {
+    debug: Option<DebugSession>,
     capture: Option<crate::capture::Shared>,
     revision: u64,
     painted: (u64, bool),
@@ -67,6 +70,9 @@ pub struct PlayerApp {
 }
 
 impl PlayerApp {
+    pub fn window_title(&self) -> &str {
+        &self.custom.state.window_title
+    }
     pub fn fullscreen(&self) -> bool {
         self.settings.fullscreen
     }
@@ -117,6 +123,7 @@ impl PlayerApp {
             Some(warnings.join("\n"))
         };
         let mut app = Self {
+            debug: None,
             capture: None,
             revision: 0,
             painted: (0, false),
@@ -152,11 +159,15 @@ impl PlayerApp {
         };
         app.enter(app.session.clone(), false, true)?;
         app.sync_save_previews();
+        #[cfg(not(windows))]
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(app.window_title().to_owned()));
         Ok(app)
     }
 
     fn blocked(&self) -> bool {
-        self.message.is_some() || self.custom.state.paused(&self.custom.definition)
+        self.debug_paused()
+            || self.message.is_some()
+            || self.custom.state.paused(&self.custom.definition)
     }
 
     fn autosave_enabled(&self) -> bool {
@@ -187,6 +198,30 @@ impl PlayerApp {
             &self.prepared_live2d,
             self.renderer.clone(),
         )?;
+        let entry = PreparedEntry {
+            session,
+            restored,
+            force_audio,
+            available,
+            plan,
+            video,
+            live2d,
+        };
+        if let Some(entry) = self.debug_break(entry) {
+            self.commit_entry(entry)?;
+        }
+        Ok(())
+    }
+    fn commit_entry(&mut self, entry: PreparedEntry) -> anyhow::Result<()> {
+        let PreparedEntry {
+            session,
+            restored,
+            force_audio,
+            available,
+            plan,
+            video,
+            live2d,
+        } = entry;
         if matches!(plan.operation, crate::interface::host::Operation::Profile) {
             plan.profile
                 .save(&self.saves.directory().join("profile.json"))?;
@@ -244,6 +279,7 @@ impl PlayerApp {
     }
 
     fn handle(&mut self, intent: UiIntent) -> anyhow::Result<()> {
+        self.debug_changed();
         match intent {
             UiIntent::Custom(event) => self.custom_event(event)?,
             UiIntent::Play(intent) => {
@@ -301,8 +337,11 @@ impl PlayerApp {
 impl PlayerApp {
     pub fn update_ui(&mut self, ctx: &egui::Context) {
         self.finish_autosave();
+        let debug_input = self.poll_debug();
+        let debug_paused = self.debug_paused();
         let capture_busy = self.pending_auto.is_some();
-        let reloaded = !capture_busy && self.poll_project(ctx);
+        let reloaded =
+            !capture_busy && !debug_input && !self.debug_paused() && self.poll_project(ctx);
         let focused = ctx.input(|input| input.focused);
         if let Some(error) = self.audio.poll_error() {
             self.message = Some(error);
@@ -397,13 +436,18 @@ impl PlayerApp {
                             frame,
                             assets: &self.assets,
                             visible_text: self.typewriter.visible_text(),
-                            blocked: self.message.is_some() || capture_busy,
+                            blocked: self.message.is_some()
+                                || capture_busy
+                                || debug_paused
+                                || debug_input,
                         },
                     )
                     .map(UiIntent::Custom);
                     if intent.is_none()
                         && !capture_busy
                         && self.message.is_none()
+                        && !debug_paused
+                        && !debug_input
                         && custom.state.keyboard(&custom.definition)
                         && ctx.input(|i| i.key_pressed(egui::Key::Space))
                     {
@@ -425,7 +469,7 @@ impl PlayerApp {
             advance_route,
             self.settings.auto_delay,
         );
-        let result = if reloaded {
+        let result = if reloaded || debug_input || self.debug_paused() {
             Ok(())
         } else if let Some(intent) = intent {
             if matches!(intent, UiIntent::Play(_)) {
@@ -448,7 +492,9 @@ impl PlayerApp {
         let blocked = self.blocked();
         // A newly opened overlay also pauses the interval before the next repaint.
         self.clock.set_paused(blocked || !focused);
-        self.audio.configure(&self.settings, blocked, focused);
+        self.audio
+            .configure(&self.settings, blocked, focused && !self.debug_paused());
+        self.debug_overlay(ctx);
         if !blocked
             && focused
             && (!self.typewriter.complete()
@@ -476,7 +522,11 @@ impl PlayerApp {
 
 impl eframe::App for PlayerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let previous_title = self.window_title().to_owned();
         self.update_ui(ctx);
+        if previous_title != self.window_title() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title().to_owned()));
+        }
     }
     fn on_exit(&mut self) {
         self.shutdown();

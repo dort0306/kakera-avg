@@ -14,6 +14,7 @@ pub mod render;
 
 #[derive(Clone, Debug)]
 pub struct Definition {
+    pub window_title: WindowTitle,
     pub size: [f32; 2],
     pub initial: String,
     pub variables: BTreeMap<String, VariableDecl>,
@@ -23,6 +24,32 @@ pub struct Definition {
     pub nine_patches: BTreeSet<String>,
     pub image_sizes: BTreeMap<String, [u32; 2]>,
     pub enter: bool,
+}
+#[derive(Clone, Debug)]
+pub struct WindowTitle {
+    value: String,
+    bound: bool,
+    location: String,
+}
+impl WindowTitle {
+    pub(crate) fn resolve<'a>(&'a self, variables: &'a Variables) -> Result<&'a str> {
+        let title = if self.bound {
+            match variables.get(&self.value) {
+                Some(VariableValue::String(title)) => title.as_str(),
+                _ => anyhow::bail!("{}：title-bind 需要已声明的 UI string 变量", self.location),
+            }
+        } else {
+            &self.value
+        };
+        ensure!(
+            !title.trim().is_empty()
+                && title.chars().count() <= 256
+                && !title.chars().any(char::is_control),
+            "{}：窗口标题须为 1–256 个字符，不能全为空白或包含控制字符",
+            self.location
+        );
+        Ok(title)
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Cg {
@@ -632,7 +659,14 @@ pub fn parse(
         file,
         root,
         "ui",
-        &["schema", "width", "height", "initial"],
+        &[
+            "schema",
+            "width",
+            "height",
+            "initial",
+            "title",
+            "title-bind",
+        ],
         &["variables", "gallery", "screen"],
         false,
     )?;
@@ -647,6 +681,26 @@ pub fn parse(
         return Err(error(file, root, "UI 画布需要至少 640×360 的 16:9 尺寸"));
     }
     let variables = crate::loader::variables::variables_in(root, file)?;
+    if root.has_attribute("title") && root.has_attribute("title-bind") {
+        return Err(error(file, root, "title 与 title-bind 不能同时设置"));
+    }
+    let (value, bound) = if let Some(path) = root.attribute("title-bind") {
+        let name = path
+            .strip_prefix("ui.")
+            .ok_or_else(|| error(file, root, "title-bind 仅接受 ui 字符串变量"))?;
+        (name.to_owned(), true)
+    } else {
+        (
+            root.attribute("title").unwrap_or("Kakera AVG").to_owned(),
+            false,
+        )
+    };
+    let position = doc.text_pos_at(root.range().start);
+    let window_title = WindowTitle {
+        value,
+        bound,
+        location: format!("{file}:{}:{}", position.row, position.col),
+    };
     let mut gallery = BTreeMap::new();
     if elements(root).any(|n| n.has_tag_name("gallery")) {
         let group = single(file, root, "gallery")?;
@@ -758,6 +812,7 @@ pub fn parse(
         .map(|(id, _)| id.clone())
         .collect();
     let definition = Definition {
+        window_title,
         size,
         initial,
         variables,
@@ -779,6 +834,9 @@ pub fn parse(
             "{file}：UI 事件未注册 on.ui：{event}"
         );
     }
+    definition
+        .window_title
+        .resolve(&definition.initial_variables())?;
     host::validate_images(&definition, &host::State::new(&definition))?;
     Ok(definition)
 }

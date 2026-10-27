@@ -127,6 +127,7 @@ impl PlayerApp {
         Ok(plan)
     }
     pub(super) fn commit_ui(&mut self, plan: Plan, refresh_slots: bool) {
+        self.debug_changed();
         if let Some(enabled) = plan.auto_play {
             self.auto_play.set(enabled);
         }

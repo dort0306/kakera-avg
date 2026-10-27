@@ -1,4 +1,5 @@
 //! KPAK 1 solid archives and KPAK 2 independently streamed chunks.
+pub mod selection;
 mod staged;
 mod streaming;
 use crate::content::{ContentSource, DirectorySource, validate_path};
@@ -102,11 +103,16 @@ fn files_with_limit(root: &Path, limit: usize) -> Result<Vec<PathBuf>> {
 }
 impl Snapshot {
     pub fn directory(root: &Path) -> Result<Self> {
+        Self::directory_selected(root, &files(root)?)
+    }
+    pub fn directory_selected(root: &Path, paths: &[PathBuf]) -> Result<Self> {
+        ensure!(paths.len() <= MAX_FILES, "工程文件超过 {MAX_FILES}");
+        selection::validate_selected(root, paths)?;
         let source = DirectorySource::new(root)?;
         let mut data = Vec::new();
         let mut table = BTreeMap::new();
-        for path in files(root)? {
-            let bytes = source.read(&path)?;
+        for path in paths {
+            let bytes = source.read(path)?;
             ensure!(data.len() + bytes.len() <= MAX_TOTAL, "工程展开超过 512MiB");
             table.insert(
                 path.to_str().context("UTF-8")?.to_owned(),
@@ -138,7 +144,9 @@ impl Snapshot {
         let mut files = BTreeMap::new();
         let chapters: BTreeSet<_> = compiled.files.iter().map(String::as_str).collect();
         for (path, (offset, len)) in &self.files {
-            if path != "story.xml" && chapters.contains(path.as_str()) {
+            if path == selection::MANIFEST
+                || (path != "story.xml" && chapters.contains(path.as_str()))
+            {
                 continue;
             }
             let bytes = if path == "story.xml" {

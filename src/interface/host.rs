@@ -15,6 +15,7 @@ use std::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
+    pub window_title: String,
     pub regions: BTreeMap<String, crate::image_layout::Region>,
     pub slot_page: u16,
     pub stack: Vec<String>,
@@ -22,11 +23,17 @@ pub struct State {
 }
 impl State {
     pub fn new(def: &Definition) -> Self {
+        let variables = def.initial_variables();
         let mut state = Self {
+            window_title: def
+                .window_title
+                .resolve(&variables)
+                .expect("validated initial window title")
+                .to_owned(),
             regions: BTreeMap::new(),
             slot_page: 1,
             stack: vec![def.initial.clone()],
-            variables: def.initial_variables(),
+            variables,
         };
         state.regions = resolved_regions(def, &state).unwrap_or_default();
         state
@@ -392,6 +399,7 @@ pub fn prepare(
     }
     validate_images(def, &plan.state)?;
     plan.state.regions = resolved_regions(def, &plan.state)?;
+    plan.state.window_title = def.window_title.resolve(&plan.state.variables)?.to_owned();
     Ok(plan)
 }
 pub fn validate_images(def: &Definition, state: &State) -> Result<()> {

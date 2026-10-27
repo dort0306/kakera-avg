@@ -5,6 +5,7 @@ impl PlayerApp {
         self.project = Some(monitor);
     }
     pub fn rebuild_cpu_presentation(&mut self) -> Result<()> {
+        self.debug_discard_candidate();
         let rebuilt = self
             .cpu_assets
             .clone()
@@ -53,6 +54,7 @@ impl PlayerApp {
         );
         let cpu_assets = runtime.images.clone();
         let mut candidate = Self {
+            debug: None,
             capture: self.capture.clone(),
             revision: self.revision.wrapping_add(1),
             painted: (self.revision, false),
@@ -123,6 +125,8 @@ impl PlayerApp {
             eprintln!("工程更新：{}", warnings.join("\n"));
         }
         candidate.project = self.project.take();
+        candidate.debug = self.debug.take();
+        candidate.debug_changed();
         *self = candidate;
         println!(
             "工程热更新成功：场景 {}，历史 {} 条，后端 {}",

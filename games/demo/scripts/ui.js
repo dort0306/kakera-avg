@@ -54,6 +54,7 @@ on.ui("view-cg", ctx => {
   ctx.open("cg-view");
 });
 on.ui("game.enter", ctx => {
+  ctx.setUi("windowTitle", `午后物语 · ${ctx.game.frameId}`);
   if (ctx.ui.fxTransition) ctx.transition(ctx.ui.fxTransition, Number(ctx.ui.fxDuration));
   ctx.setUi("portraitMode", ctx.game.frameId.startsWith("actor."));
   if (ctx.game.frameId === "accept") ctx.unlock("cg.lin");
@@ -105,6 +106,8 @@ on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
 
 
 on.ui("open-skins", ctx => ctx.open("skins"));
+on.ui("window-title", ctx => ctx.setUi("windowTitle",
+  ctx.ui.windowTitle === "自定义标题 · 中文 & JS" ? `午后物语 · ${ctx.game.frameId}` : "自定义标题 · 中文 & JS"));
 for (const [event, region] of [["sprite-blue","0,0,64,64"],["sprite-green","64,0,64,64"],["sprite-red","128,0,64,64"]]) {
   on.ui(event, ctx => ctx.setUi("spriteRegion", region));
 }

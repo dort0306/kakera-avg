@@ -19,6 +19,8 @@ struct Options {
     saves: Option<PathBuf>,
     load: LoadOptions,
     renderer: String,
+    debug_listen: Option<std::net::SocketAddr>,
+    debug_token: Option<PathBuf>,
 }
 fn options() -> Result<Option<Options>> {
     let mut options = Options {
@@ -32,6 +34,8 @@ fn options() -> Result<Option<Options>> {
             no_live2d: false,
         },
         renderer: "auto".into(),
+        debug_listen: None,
+        debug_token: None,
     };
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
@@ -63,19 +67,45 @@ fn options() -> Result<Option<Options>> {
             options.load.no_live2d = true;
         } else if arg == "--save-dir" {
             options.saves = Some(PathBuf::from(args.next().context("缺少存档目录")?));
+        } else if arg == "--debug-listen" {
+            ensure!(options.debug_listen.is_none(), "重复 debug-listen");
+            options.debug_listen = Some(
+                args.next()
+                    .context("缺少调试监听地址")?
+                    .to_string_lossy()
+                    .parse()?,
+            );
+        } else if arg == "--debug-token-file" {
+            ensure!(options.debug_token.is_none(), "重复 debug-token-file");
+            options.debug_token = Some(PathBuf::from(args.next().context("缺少令牌文件")?));
         } else if arg == "--check" {
             options.check = true;
         } else if arg == "--no-audio" {
             options.no_audio = true;
         } else if arg == "--help" || arg == "-h" {
             println!(
-                "Kakera AVG v{}\n用法：kakera-avg [--project <目录> | --package <game.kpak>] [--renderer auto|d3d11|cpu] [--check]\n--project 工程状态：监控文件并自动验证更新\n--package 发布状态：只读 KPAK 1/2，不监控散文件\n--check 完整校验包/内容/资源后退出；默认不打开窗口或 GPU，显式 --renderer d3d11 可同时验证设备\n--no-audio 禁用音频设备输出\n--no-live2d 显式使用静态 fallback\n--cubism-core <DLL> 指定受信任的 Cubism Core\n--save-dir <目录> 使用隔离用户数据\n默认读取 exe 旁 game.kpak；源码启动若没有包则使用 games/demo 工程。",
+                "Kakera AVG v{}\n用法：kakera-avg [--project <目录> | --package <game.kpak>] [--renderer auto|d3d11|cpu] [--check]\n--project 工程状态：监控文件并自动验证更新\n--package 发布状态：只读 KPAK 1/2，不监控散文件\n--check 完整校验包/内容/资源后退出；默认不打开窗口或 GPU，显式 --renderer d3d11 可同时验证设备\n--no-audio 禁用音频设备输出\n--no-live2d 显式使用静态 fallback\n--cubism-core <DLL> 指定受信任的 Cubism Core\n--save-dir <目录> 使用隔离用户数据\n--debug-listen <loopback:port> 工程调试 API，初始暂停，须配 --debug-token-file 与 --save-dir\n--debug-token-file <文件> 32–128 字符调试令牌；仅显式 --project 可用\n默认读取 exe 旁 game.kpak；源码启动若没有包则使用 games/demo 工程。",
                 env!("CARGO_PKG_VERSION")
             );
             return Ok(None);
         } else {
             anyhow::bail!("未知参数：{}", arg.to_string_lossy());
         }
+    }
+    if options.debug_listen.is_some() || options.debug_token.is_some() {
+        ensure!(
+            options.project.is_some()
+                && options.package.is_none()
+                && !options.check
+                && options.saves.is_some()
+                && options.debug_listen.is_some()
+                && options.debug_token.is_some(),
+            "调试要求显式 --project、--save-dir、--debug-listen、--debug-token-file，禁止发布/--check"
+        );
+        ensure!(
+            options.debug_listen.unwrap().ip().is_loopback(),
+            "调试仅支持 loopback 地址"
+        );
     }
     if options.project.is_none() && options.package.is_none() {
         let packaged = std::env::current_exe()?
@@ -166,6 +196,19 @@ fn run() -> Result<()> {
         None => SaveStore::for_story(&bundle.loaded.story)?,
     };
     println!("存档目录：{}", saves.directory().display());
+    let window_title =
+        kakera_avg::interface::host::State::new(&bundle.loaded.interface).window_title;
+    let debug = options
+        .debug_listen
+        .map(|address| -> Result<_> {
+            let token = kakera_avg::debug::token_file(
+                options.debug_token.as_deref().context("调试令牌文件")?,
+            )?;
+            let server = kakera_avg::debug::Server::bind(address, token)?;
+            println!("调试 API：{}（JSON Lines v1，初始暂停）", server.address);
+            Ok(server)
+        })
+        .transpose()?;
     let build = move |ctx: &eframe::egui::Context,
                       renderer: kakera_avg::render::Shared|
           -> Result<PlayerApp> {
@@ -181,11 +224,14 @@ fn run() -> Result<()> {
         if let Some(monitor) = monitor {
             app.monitor_project(monitor);
         }
+        if let Some(debug) = debug {
+            app.attach_debug(debug);
+        }
         Ok(app)
     };
     #[cfg(windows)]
     {
-        kakera_avg::render::window::run(&options.renderer, build)
+        kakera_avg::render::window::run(&options.renderer, window_title, build)
     }
     #[cfg(not(windows))]
     {
@@ -194,7 +240,7 @@ fn run() -> Result<()> {
             "此平台尚未实现 D3D11；使用 CPU 呈现或后续 Vulkan/Metal 后端"
         );
         eframe::run_native(
-            "Kakera AVG",
+            &window_title,
             eframe::NativeOptions::default(),
             Box::new(move |cc| {
                 Ok(Box::new(build(
