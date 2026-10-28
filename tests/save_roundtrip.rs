@@ -115,23 +115,23 @@ fn malformed_identity_or_history_is_rejected_without_affecting_other_slots() {
         ("history", serde_json::json!([])),
         (
             "history",
-            serde_json::json!([{"frame_id":"opening","choice_id":null}]),
+            serde_json::json!([{"frame_id":"opening","choice_id":null,"resume_to":null}]),
         ),
         (
             "history",
-            serde_json::json!([{"frame_id":"missing","choice_id":null},{"frame_id":"question","choice_id":null}]),
+            serde_json::json!([{"frame_id":"missing","choice_id":null,"resume_to":null},{"frame_id":"question","choice_id":null,"resume_to":null}]),
         ),
         (
             "history",
-            serde_json::json!([{"frame_id":"accept","choice_id":null},{"frame_id":"question","choice_id":null}]),
+            serde_json::json!([{"frame_id":"accept","choice_id":null,"resume_to":null},{"frame_id":"question","choice_id":null,"resume_to":null}]),
         ),
         (
             "history",
-            serde_json::json!([{"frame_id":"question","choice_id":"accept"}]),
+            serde_json::json!([{"frame_id":"question","choice_id":"accept","resume_to":null}]),
         ),
         (
             "history",
-            serde_json::json!([{"frame_id":"opening","choice_id":"invented"},{"frame_id":"question","choice_id":null}]),
+            serde_json::json!([{"frame_id":"opening","choice_id":"invented","resume_to":null},{"frame_id":"question","choice_id":null,"resume_to":null}]),
         ),
         ("unknown", serde_json::json!(true)),
     ] {
@@ -188,6 +188,7 @@ fn invalid_session_cannot_overwrite_old_save() {
             frame_id: "opening".into(),
             history: vec![
                 HistoryEntry {
+                    resume_to: None,
                     frame_id: "opening".into(),
                     choice_id: None
                 };

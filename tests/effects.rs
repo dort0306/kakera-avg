@@ -233,6 +233,7 @@ fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only(
         let commands = logic
             .ui_event(
                 &Event {
+                    sound: None,
                     route: None,
                     name: name.into(),
                     item: Value::Null,

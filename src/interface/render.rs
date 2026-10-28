@@ -79,320 +79,337 @@ impl Renderer<'_> {
         instance: &str,
     ) {
         for node in nodes {
-            if !self.input.data.flag(&node.visible, item) {
-                continue;
-            }
-            let bounds = Rect::from_min_size(
-                origin + Vec2::new(node.rect[0], node.rect[1]) * self.scale,
-                Vec2::new(node.rect[2], node.rect[3]) * self.scale,
-            );
-            if !bounds.intersects(ui.clip_rect()) {
-                continue;
-            }
-            let enabled = active && self.input.data.flag(&node.enabled, item);
-            if active
-                && matches!(
-                    node.kind,
-                    Kind::Button | Kind::Slider { .. } | Kind::Toggle | Kind::Repeat { .. }
-                )
-            {
-                self.controls.push(bounds.intersect(ui.clip_rect()));
-            }
-            let painter = ui
-                .painter()
-                .with_clip_rect(ui.clip_rect().intersect(bounds));
-            let id = format!("xml:{instance}:{}", node.id);
-            let label = node
-                .bind
-                .as_ref()
-                .filter(|_| !matches!(node.kind, Kind::Slider { .. } | Kind::Toggle))
-                .and_then(|path| self.input.data.get(path, item))
-                .map(text)
-                .unwrap_or_else(|| node.text.clone());
-            let image_id = node.image.as_deref().or_else(|| {
-                node.image_bind
-                    .as_ref()
-                    .and_then(|path| self.input.data.get(path, item))
-                    .and_then(Value::as_str)
+            ui.scope(|ui| {
+                self.node(ui, node, origin, item, active, instance);
             });
-            match &node.kind {
-                Kind::NinePatch => {
-                    if let Some((patch, texture)) = image_id.and_then(|id| {
-                        self.input
-                            .assets
-                            .nine_patch(id)
-                            .zip(self.input.assets.image(id))
-                    }) {
-                        let (patches, content) = patch
-                            .layout([bounds.width(), bounds.height()], self.scale / node.density);
-                        let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
-                        for patch_rect in patches {
-                            let [l, t, r, b] = patch_rect.source;
-                            let [x, y, u, v] = patch_rect.target;
-                            // Piece edges share source coordinates; clipping hides the removed marker border.
-                            mesh.add_rect_with_uv(
-                                Rect::from_min_max(
-                                    bounds.min + Vec2::new(x, y),
-                                    bounds.min + Vec2::new(u, v),
-                                ),
-                                Rect::from_min_max(
-                                    Pos2::new(l / patch.size[0] as f32, t / patch.size[1] as f32),
-                                    Pos2::new(r / patch.size[0] as f32, b / patch.size[1] as f32),
-                                ),
-                                color(node.color),
-                            );
-                        }
-                        painter.add(egui::Shape::mesh(mesh));
-                        let area = Rect::from_min_max(
-                            bounds.min + Vec2::new(content[0], content[1]),
-                            bounds.min + Vec2::new(content[2], content[3]),
+        }
+    }
+    fn node(
+        &mut self,
+        ui: &mut egui::Ui,
+        node: &Node,
+        origin: Pos2,
+        item: &Value,
+        active: bool,
+        instance: &str,
+    ) {
+        let alpha = self
+            .input
+            .effects
+            .ui_alpha
+            .get(&node.id)
+            .copied()
+            .unwrap_or(1.);
+        ui.multiply_opacity(alpha);
+        let active = active && ui.opacity() > 0.;
+        if !self.input.data.flag(&node.visible, item) {
+            return;
+        }
+        let bounds = Rect::from_min_size(
+            origin + Vec2::new(node.rect[0], node.rect[1]) * self.scale,
+            Vec2::new(node.rect[2], node.rect[3]) * self.scale,
+        );
+        if !bounds.intersects(ui.clip_rect()) {
+            return;
+        }
+        let enabled = active && self.input.data.flag(&node.enabled, item);
+        if active
+            && matches!(
+                node.kind,
+                Kind::Button | Kind::Slider { .. } | Kind::Toggle | Kind::Repeat { .. }
+            )
+        {
+            self.controls.push(bounds.intersect(ui.clip_rect()));
+        }
+        let painter = ui
+            .painter()
+            .with_clip_rect(ui.clip_rect().intersect(bounds));
+        let id = format!("xml:{instance}:{}", node.id);
+        let label = node
+            .bind
+            .as_ref()
+            .filter(|_| !matches!(node.kind, Kind::Slider { .. } | Kind::Toggle))
+            .and_then(|path| self.input.data.get(path, item))
+            .map(text)
+            .unwrap_or_else(|| node.text.clone());
+        let image_id = node.image.as_deref().or_else(|| {
+            node.image_bind
+                .as_ref()
+                .and_then(|path| self.input.data.get(path, item))
+                .and_then(Value::as_str)
+        });
+        match &node.kind {
+            Kind::NinePatch => {
+                if let Some((patch, texture)) = image_id.and_then(|id| {
+                    self.input
+                        .assets
+                        .nine_patch(id)
+                        .zip(self.input.assets.image(id))
+                }) {
+                    let (patches, content) =
+                        patch.layout([bounds.width(), bounds.height()], self.scale / node.density);
+                    let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
+                    for patch_rect in patches {
+                        let [l, t, r, b] = patch_rect.source;
+                        let [x, y, u, v] = patch_rect.target;
+                        // Piece edges share source coordinates; clipping hides the removed marker border.
+                        mesh.add_rect_with_uv(
+                            Rect::from_min_max(
+                                bounds.min + Vec2::new(x, y),
+                                bounds.min + Vec2::new(u, v),
+                            ),
+                            Rect::from_min_max(
+                                Pos2::new(l / patch.size[0] as f32, t / patch.size[1] as f32),
+                                Pos2::new(r / patch.size[0] as f32, b / patch.size[1] as f32),
+                            ),
+                            color(node.color),
                         );
-                        ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
-                            ui.set_clip_rect(ui.clip_rect().intersect(area));
-                            self.nodes(ui, &node.children, area.min, item, enabled, &id);
-                        });
                     }
+                    painter.add(egui::Shape::mesh(mesh));
+                    let area = Rect::from_min_max(
+                        bounds.min + Vec2::new(content[0], content[1]),
+                        bounds.min + Vec2::new(content[2], content[3]),
+                    );
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+                        ui.set_clip_rect(ui.clip_rect().intersect(area));
+                        self.nodes(ui, &node.children, area.min, item, enabled, &id);
+                    });
                 }
-                Kind::Scene => {
+            }
+            Kind::Scene => {
+                let mut motion = self
+                    .input
+                    .effects
+                    .target_motion(&node.id, Default::default());
+                motion.offset[0] *= self.scale;
+                motion.offset[1] *= self.scale;
+                crate::effects::render::scene(
+                    &painter,
+                    bounds,
+                    self.input.frame,
+                    self.input.assets,
+                    self.input.effects,
+                    motion,
+                )
+            }
+            Kind::Panel | Kind::Image => {
+                if let Some(image_id) = image_id {
                     let mut motion = self
                         .input
                         .effects
-                        .target_motion(&node.id, Default::default());
+                        .target_motion(&node.id, node.effect.animation);
                     motion.offset[0] *= self.scale;
                     motion.offset[1] *= self.scale;
-                    crate::effects::render::scene(
+                    crate::effects::render::image(
                         &painter,
-                        bounds,
-                        self.input.frame,
                         self.input.assets,
-                        self.input.effects,
-                        motion,
-                    )
-                }
-                Kind::Panel | Kind::Image => {
-                    if let Some(image_id) = image_id {
-                        let mut motion = self
-                            .input
-                            .effects
-                            .target_motion(&node.id, node.effect.animation);
-                        motion.offset[0] *= self.scale;
-                        motion.offset[1] *= self.scale;
-                        crate::effects::render::image(
-                            &painter,
-                            self.input.assets,
-                            crate::effects::render::Image {
-                                region: self.input.state.regions.get(&node.id).copied(),
-                                id: image_id,
-                                bounds,
-                                fit: &node.fit,
-                                tint: color(node.color),
-                                effect: &node.effect,
-                                motion,
-                                opacity: 1.0,
-                            },
-                        );
-                    } else {
-                        painter.rect_filled(bounds, node.radius * self.scale, color(node.color));
-                    }
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
-                        ui.set_clip_rect(ui.clip_rect().intersect(bounds));
-                        self.nodes(ui, &node.children, bounds.min, item, enabled, &id);
-                    });
-                }
-                Kind::Label => {
-                    let font = FontId::proportional(node.font * self.scale);
-                    let mut job = if node.bind.as_deref() == Some("game.text") {
-                        crate::view::dialogue_job(
-                            &label,
-                            self.input.visible_text,
-                            font,
-                            bounds.width(),
-                        )
-                    } else {
-                        egui::text::LayoutJob::simple(
-                            label.clone(),
-                            font,
-                            color(node.color),
-                            bounds.width(),
-                        )
-                    };
-                    // Preserve invisible suffix while honoring the XML text color.
-                    if node.bind.as_deref() == Some("game.text") {
-                        for section in &mut job.sections {
-                            if section.format.color != Color32::TRANSPARENT {
-                                section.format.color = color(node.color);
-                            }
-                        }
-                    }
-                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                    if galley.size().y > bounds.height() + 1.0 {
-                        painter.text(
-                            bounds.min,
-                            egui::Align2::LEFT_TOP,
-                            format!("UI 文本溢出：{}", node.id),
-                            FontId::proportional(12.0 * self.scale),
-                            Color32::LIGHT_RED,
-                        );
-                    } else {
-                        painter.galley(bounds.min, galley, Color32::WHITE);
-                    }
-                }
-                Kind::Button => {
-                    let response = ui.interact(
-                        bounds,
-                        ui.id().with(&id),
-                        if enabled {
-                            Sense::click()
-                        } else {
-                            Sense::hover()
+                        crate::effects::render::Image {
+                            region: self.input.state.regions.get(&node.id).copied(),
+                            id: image_id,
+                            bounds,
+                            fit: &node.fit,
+                            tint: color(node.color),
+                            effect: &node.effect,
+                            motion,
+                            opacity: 1.0,
                         },
                     );
-                    let skin = if !enabled {
-                        node.disabled_image.as_deref().or(image_id)
-                    } else if response.hovered() {
-                        node.hover_image.as_deref().or(image_id)
-                    } else {
-                        image_id
-                    };
-                    let tint = if enabled {
-                        color(node.color)
-                    } else {
-                        color(node.color).gamma_multiply(0.45)
-                    };
-                    if let Some(skin) = skin {
-                        image(
-                            &painter,
-                            self.input.assets,
-                            skin,
-                            bounds,
-                            "stretch",
-                            tint,
-                            self.input.state.regions.get(&node.id).copied(),
-                        );
-                    } else {
-                        painter.rect_filled(
-                            bounds,
-                            node.radius * self.scale,
-                            if response.hovered() && enabled {
-                                tint.gamma_multiply(1.25)
-                            } else {
-                                tint
-                            },
-                        );
+                } else {
+                    painter.rect_filled(bounds, node.radius * self.scale, color(node.color));
+                }
+                ui.scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
+                    ui.set_clip_rect(ui.clip_rect().intersect(bounds));
+                    self.nodes(ui, &node.children, bounds.min, item, enabled, &id);
+                });
+            }
+            Kind::Label => {
+                let font = FontId::proportional(node.font * self.scale);
+                let mut job = if node.bind.as_deref() == Some("game.text") {
+                    crate::view::dialogue_job(&label, self.input.visible_text, font, bounds.width())
+                } else {
+                    egui::text::LayoutJob::simple(
+                        label.clone(),
+                        font,
+                        color(node.color),
+                        bounds.width(),
+                    )
+                };
+                // Preserve invisible suffix while honoring the XML text color.
+                if node.bind.as_deref() == Some("game.text") {
+                    for section in &mut job.sections {
+                        if section.format.color != Color32::TRANSPARENT {
+                            section.format.color = color(node.color);
+                        }
                     }
-                    let galley = ui.fonts_mut(|fonts| {
-                        fonts.layout(
-                            label,
-                            FontId::proportional(node.font * self.scale),
-                            Color32::WHITE,
-                            bounds.width() - 8.0 * self.scale,
-                        )
-                    });
-                    painter.galley(
-                        bounds.center() - galley.size() / 2.0,
-                        galley,
-                        Color32::WHITE,
+                }
+                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                if galley.size().y > bounds.height() + 1.0 {
+                    painter.text(
+                        bounds.min,
+                        egui::Align2::LEFT_TOP,
+                        format!("UI 文本溢出：{}", node.id),
+                        FontId::proportional(12.0 * self.scale),
+                        Color32::LIGHT_RED,
                     );
-                    if enabled && response.clicked() {
-                        self.emit(node, item, Value::Null);
-                    }
+                } else {
+                    painter.galley(bounds.min, galley, Color32::WHITE);
                 }
-                Kind::Slider { min, max } => {
-                    let mut value = node
-                        .bind
-                        .as_ref()
-                        .and_then(|path| self.input.data.get(path, item))
-                        .and_then(Value::as_f64)
-                        .unwrap_or(0.0) as f32;
-                    let response = ui
-                        .scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
-                            ui.add_enabled_ui(enabled, |ui| {
-                                ui.spacing_mut().slider_width =
-                                    (bounds.width() - 70.0 * self.scale).max(20.0);
-                                ui.add_sized(
-                                    bounds.size(),
-                                    egui::Slider::new(&mut value, *min..=*max),
-                                )
-                            })
-                            .inner
+            }
+            Kind::Button => {
+                let response = ui.interact(
+                    bounds,
+                    ui.id().with(&id),
+                    if enabled {
+                        Sense::click()
+                    } else {
+                        Sense::hover()
+                    },
+                );
+                let skin = if !enabled {
+                    node.disabled_image.as_deref().or(image_id)
+                } else if response.hovered() {
+                    node.hover_image.as_deref().or(image_id)
+                } else {
+                    image_id
+                };
+                let tint = if enabled {
+                    color(node.color)
+                } else {
+                    color(node.color).gamma_multiply(0.45)
+                };
+                if let Some(skin) = skin {
+                    image(
+                        &painter,
+                        self.input.assets,
+                        skin,
+                        bounds,
+                        "stretch",
+                        tint,
+                        self.input.state.regions.get(&node.id).copied(),
+                    );
+                } else {
+                    painter.rect_filled(
+                        bounds,
+                        node.radius * self.scale,
+                        if response.hovered() && enabled {
+                            tint.gamma_multiply(1.25)
+                        } else {
+                            tint
+                        },
+                    );
+                }
+                let galley = ui.fonts_mut(|fonts| {
+                    fonts.layout(
+                        label,
+                        FontId::proportional(node.font * self.scale),
+                        Color32::WHITE,
+                        bounds.width() - 8.0 * self.scale,
+                    )
+                });
+                painter.galley(
+                    bounds.center() - galley.size() / 2.0,
+                    galley,
+                    Color32::WHITE,
+                );
+                if enabled && response.clicked() {
+                    self.emit(node, item, Value::Null);
+                }
+            }
+            Kind::Slider { min, max } => {
+                let mut value = node
+                    .bind
+                    .as_ref()
+                    .and_then(|path| self.input.data.get(path, item))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32;
+                let response = ui
+                    .scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
+                        ui.add_enabled_ui(enabled, |ui| {
+                            ui.spacing_mut().slider_width =
+                                (bounds.width() - 70.0 * self.scale).max(20.0);
+                            ui.add_sized(bounds.size(), egui::Slider::new(&mut value, *min..=*max))
                         })
-                        .inner;
-                    if response.changed() && enabled {
-                        self.emit(node, item, json!(value));
-                    }
+                        .inner
+                    })
+                    .inner;
+                if response.changed() && enabled {
+                    self.emit(node, item, json!(value));
                 }
-                Kind::Toggle => {
-                    let mut value = node
-                        .bind
-                        .as_ref()
-                        .and_then(|path| self.input.data.get(path, item))
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    let response = ui
-                        .scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
-                            ui.add_enabled_ui(enabled, |ui| {
-                                ui.add_sized(
-                                    bounds.size(),
-                                    egui::Checkbox::new(
-                                        &mut value,
-                                        egui::RichText::new(label)
-                                            .size(node.font * self.scale)
-                                            .color(color(node.color)),
-                                    ),
-                                )
-                            })
-                            .inner
+            }
+            Kind::Toggle => {
+                let mut value = node
+                    .bind
+                    .as_ref()
+                    .and_then(|path| self.input.data.get(path, item))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let response = ui
+                    .scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
+                        ui.add_enabled_ui(enabled, |ui| {
+                            ui.add_sized(
+                                bounds.size(),
+                                egui::Checkbox::new(
+                                    &mut value,
+                                    egui::RichText::new(label)
+                                        .size(node.font * self.scale)
+                                        .color(color(node.color)),
+                                ),
+                            )
                         })
-                        .inner;
-                    if response.changed() && enabled {
-                        self.emit(node, item, json!(value));
-                    }
+                        .inner
+                    })
+                    .inner;
+                if response.changed() && enabled {
+                    self.emit(node, item, json!(value));
                 }
-                Kind::Repeat {
-                    source,
-                    columns,
-                    cell,
-                    gap,
-                } => {
-                    let Some(items) = self.input.data.lists.get(source) else {
-                        continue;
-                    };
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
-                        ui.set_clip_rect(ui.clip_rect().intersect(bounds));
-                        egui::ScrollArea::vertical()
-                            .id_salt(&id)
-                            .max_height(bounds.height())
-                            .show(ui, |ui| {
-                                let rows = items.len().div_ceil(*columns);
-                                let size = Vec2::new(
-                                    (*columns as f32 * (cell[0] + gap) - gap).max(0.0),
-                                    (rows as f32 * (cell[1] + gap) - gap).max(0.0),
-                                ) * self.scale;
-                                let (content, _) = ui.allocate_exact_size(size, Sense::hover());
-                                for (index, item) in items.iter().enumerate() {
-                                    let origin = content.min
-                                        + Vec2::new(
-                                            (index % columns) as f32 * (cell[0] + gap),
-                                            (index / columns) as f32 * (cell[1] + gap),
-                                        ) * self.scale;
-                                    self.nodes(
-                                        ui,
-                                        &node.children,
-                                        origin,
-                                        item,
-                                        enabled,
-                                        &format!("{id}:{index}"),
-                                    );
-                                }
-                            });
-                    });
-                }
+            }
+            Kind::Repeat {
+                source,
+                columns,
+                cell,
+                gap,
+            } => {
+                let Some(items) = self.input.data.lists.get(source) else {
+                    return;
+                };
+                ui.scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
+                    ui.set_clip_rect(ui.clip_rect().intersect(bounds));
+                    egui::ScrollArea::vertical()
+                        .id_salt(&id)
+                        .max_height(bounds.height())
+                        .show(ui, |ui| {
+                            let rows = items.len().div_ceil(*columns);
+                            let size = Vec2::new(
+                                (*columns as f32 * (cell[0] + gap) - gap).max(0.0),
+                                (rows as f32 * (cell[1] + gap) - gap).max(0.0),
+                            ) * self.scale;
+                            let (content, _) = ui.allocate_exact_size(size, Sense::hover());
+                            for (index, item) in items.iter().enumerate() {
+                                let origin = content.min
+                                    + Vec2::new(
+                                        (index % columns) as f32 * (cell[0] + gap),
+                                        (index / columns) as f32 * (cell[1] + gap),
+                                    ) * self.scale;
+                                self.nodes(
+                                    ui,
+                                    &node.children,
+                                    origin,
+                                    item,
+                                    enabled,
+                                    &format!("{id}:{index}"),
+                                );
+                            }
+                        });
+                });
             }
         }
     }
     fn emit(&mut self, node: &Node, item: &Value, value: Value) {
-        if self.event.is_none() && (node.event.is_some() || node.route.is_some()) {
+        if self.event.is_none()
+            && (node.event.is_some() || node.route.is_some() || node.sound.is_some())
+        {
             self.event = Some(Event {
+                sound: node.sound.clone(),
                 route: node.route.clone(),
                 name: node.event.clone().unwrap_or_default(),
                 item: item.clone(),
@@ -484,6 +501,7 @@ pub fn draw(ui: &mut egui::Ui, input: Input<'_>) -> Option<Event> {
                 && let Some(event) = event
             {
                 renderer.event = Some(Event {
+                    sound: None,
                     route: None,
                     name: event.clone(),
                     item: Value::Null,

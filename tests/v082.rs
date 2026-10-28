@@ -206,6 +206,7 @@ fn js_bound_regions_are_cached_and_entire_ui_plans_roll_back() -> Result<()> {
     assert_eq!(state.regions["sprite"], Region([0, 0, 32, 32]));
     let commands = bundle.logic.ui_event(
         &interface::Event {
+            sound: None,
             route: None,
             name: "swap".into(),
             item: serde_json::Value::Null,

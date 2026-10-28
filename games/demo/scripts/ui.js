@@ -83,7 +83,6 @@ on.ui("portrait-replay", ctx => {
 });
 
 on.ui("toggle-auto", ctx => ctx.autoPlay(!ctx.game.autoPlaying));
-on.ui("skip-video", ctx => ctx.skipVideo());
 on.ui("slots-prev", ctx => ctx.slotsPage(ctx.saves.page - 1));
 on.ui("slots-next", ctx => ctx.slotsPage(ctx.saves.page + 1));
 on.ui("slots-last", ctx => ctx.slotsPage(20));
@@ -111,3 +110,19 @@ on.ui("window-title", ctx => ctx.setUi("windowTitle",
 for (const [event, region] of [["sprite-blue","0,0,64,64"],["sprite-green","64,0,64,64"],["sprite-red","128,0,64,64"]]) {
   on.ui(event, ctx => ctx.setUi("spriteRegion", region));
 }
+
+// Presentation is transient; preferences are independent of story slots.
+on.ui("ui-fade", ctx => ctx.sequence("ui.fade"));
+on.ui("ui-intro", ctx => ctx.sequence("ui.intro"));
+on.ui("ui-credits", ctx => ctx.sequence("ui.credits"));
+on.ui("ui-sound-enabled", ctx => ctx.soundEnabled(ctx.value));
+on.ui("ui-sound-lin", ctx => ctx.soundActor("lin", ctx.value));
+on.ui("ui-sound-exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
+
+// Frame video tags were removed in v0.9.0: lifecycle callbacks hand off to UI.
+on.frameExit("intro", ctx => ctx.open("story-intro"));
+on.screenOpen("story-intro", ctx => ctx.sequence("story.intro"));
+on.screenClose("story-intro", ctx => ctx.resume());
+on.frameEnter("credits", ctx => ctx.open("story-credits"));
+on.screenOpen("story-credits", ctx => ctx.sequence("story.credits"));
+on.screenClose("story-credits", ctx => ctx.resume("opening"));

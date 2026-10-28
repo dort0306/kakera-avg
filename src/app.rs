@@ -15,8 +15,9 @@ mod capture;
 mod custom;
 mod debug;
 mod development;
-mod media;
+mod lifecycle;
 mod skip;
+mod ui_media;
 use custom::CustomUi;
 use debug::{DebugSession, PreparedEntry};
 
@@ -32,6 +33,7 @@ pub struct RuntimeAssets {
     pub live2d: crate::live2d::PreparedLive2D,
 }
 pub struct PlayerApp {
+    ui_media: ui_media::UiMedia,
     debug: Option<DebugSession>,
     capture: Option<crate::capture::Shared>,
     revision: u64,
@@ -44,7 +46,8 @@ pub struct PlayerApp {
     no_audio: bool,
     prepared_media: crate::media::PreparedMedia,
     prepared_live2d: crate::live2d::PreparedLive2D,
-    video: crate::media::VideoPlayer,
+    handoff: Option<lifecycle::Checkpoint>,
+    lifecycle_ready: bool,
     live2d: crate::live2d::Live2DPlayer,
 
     auto_play: presentation::AutoPlay,
@@ -117,12 +120,23 @@ impl PlayerApp {
             &mut warnings,
         );
         let read = Self::load_read_history(&saves, &loaded.story.id, &mut warnings);
+        let prefs_path = saves.directory().join("ui-audio.json");
+        let prefs = if prefs_path.exists() {
+            crate::interface::presentation::Preferences::load(&prefs_path, &loaded.story.id)
+                .unwrap_or_else(|e| {
+                    warnings.push(format!("UI 音效偏好损坏，使用默认值：{e:#}"));
+                    crate::interface::presentation::Preferences::new(&loaded.story.id)
+                })
+        } else {
+            crate::interface::presentation::Preferences::new(&loaded.story.id)
+        };
         let message = if warnings.is_empty() {
             None
         } else {
             Some(warnings.join("\n"))
         };
         let mut app = Self {
+            ui_media: ui_media::UiMedia::new(prefs),
             debug: None,
             capture: None,
             revision: 0,
@@ -135,7 +149,8 @@ impl PlayerApp {
             no_audio,
             prepared_media: runtime.media,
             prepared_live2d: runtime.live2d,
-            video: Default::default(),
+            handoff: None,
+            lifecycle_ready: false,
             live2d: Default::default(),
             auto_play: Default::default(),
             skip: Default::default(),
@@ -157,7 +172,9 @@ impl PlayerApp {
             message,
             custom,
         };
-        app.enter(app.session.clone(), false, true)?;
+        if !app.restore_handoff()? {
+            app.enter(app.session.clone(), app.lifecycle_ready, true)?;
+        }
         app.sync_save_previews();
         #[cfg(not(windows))]
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(app.window_title().to_owned()));
@@ -165,7 +182,9 @@ impl PlayerApp {
     }
 
     fn blocked(&self) -> bool {
-        self.debug_paused()
+        self.handoff.is_some()
+            || self.ui_media.active()
+            || self.debug_paused()
             || self.message.is_some()
             || self.custom.state.paused(&self.custom.definition)
     }
@@ -189,22 +208,69 @@ impl PlayerApp {
             .logic
             .options(&self.story, &session)
             .map_err(anyhow::Error::msg)?;
-        let plan = self.prepare_ui_entry(&session, &available, restored, base)?;
+        let mut base = base.unwrap_or(self.empty_ui_plan()?);
+        if matches!(
+            base.operation,
+            crate::interface::host::Operation::Advance
+                | crate::interface::host::Operation::Choose(_)
+                | crate::interface::host::Operation::Load(_)
+                | crate::interface::host::Operation::LoadAuto(_)
+                | crate::interface::host::Operation::Restart
+        ) {
+            base.operation = crate::interface::host::Operation::None;
+        }
+        if !restored && self.effects.has_entered {
+            base =
+                self.lifecycle_hook(base, &self.session, "frame.exit", &self.session.frame_id)?;
+            anyhow::ensure!(
+                self.custom.state.stack != base.state.stack
+                    || !base
+                        .ui_actions
+                        .iter()
+                        .any(|a| matches!(a, crate::interface::presentation::Action::Sequence(_))),
+                "离幕序列需要同时打开 UI 页面，推荐在 screenOpen 中播放"
+            );
+            if self.custom.state.stack != base.state.stack
+                || matches!(base.operation, crate::interface::host::Operation::Present)
+            {
+                return self
+                    .begin_handoff(&session, self.page_lifecycle(base, &self.session, None)?);
+            }
+        }
+        let mut plan = self.prepare_ui_entry(&session, &available, restored, Some(base))?;
+        if !restored {
+            plan = self.lifecycle_hook(plan, &session, "frame.enter", &session.frame_id)?;
+            if plan
+                .ui_actions
+                .iter()
+                .any(|a| matches!(a, crate::interface::presentation::Action::Sequence(_)))
+                || self.custom.state.stack != plan.state.stack
+                || matches!(plan.operation, crate::interface::host::Operation::Present)
+            {
+                plan = self.page_lifecycle(
+                    plan,
+                    &session,
+                    (!self.effects.has_entered && !self.lifecycle_ready).then(Vec::new),
+                )?;
+                return self.begin_enter_handoff(session, available, plan);
+            }
+        }
+        plan = self.page_lifecycle(plan, &session, None)?;
         let candidate = &self.story.frames[&session.frame_id];
-        let video =
-            crate::media::VideoPlayer::prepare(candidate.video.as_ref(), &self.prepared_media)?;
         let live2d = crate::live2d::Live2DPlayer::prepare_with(
             candidate,
             &self.prepared_live2d,
             self.renderer.clone(),
         )?;
+        let prepared_ui = self.prepare_ui_media(&plan)?;
         let entry = PreparedEntry {
+            ui_media: prepared_ui,
+            handoff_commit: None,
             session,
             restored,
             force_audio,
             available,
             plan,
-            video,
             live2d,
         };
         if let Some(entry) = self.debug_break(entry) {
@@ -214,18 +280,27 @@ impl PlayerApp {
     }
     fn commit_entry(&mut self, entry: PreparedEntry) -> anyhow::Result<()> {
         let PreparedEntry {
+            ui_media: prepared_ui,
+            handoff_commit,
             session,
             restored,
             force_audio,
             available,
             plan,
-            video,
             live2d,
         } = entry;
         if matches!(plan.operation, crate::interface::host::Operation::Profile) {
             plan.profile
                 .save(&self.saves.directory().join("profile.json"))?;
         }
+        if let Some(checkpoint) = handoff_commit {
+            self.commit_handoff_file(checkpoint)?;
+        }
+        if self.ui_media.video() {
+            self.audio.video(None);
+        }
+        self.ui_media.cancel();
+        self.effects.ui_alpha.clear();
         let previous = if self.effects.has_entered {
             self.story.frame(&self.session).cloned()
         } else {
@@ -247,7 +322,6 @@ impl PlayerApp {
                 image.clone(),
             );
         }
-        self.video = video;
         self.live2d = live2d;
         self.available = available;
         if restored || force_audio {
@@ -260,9 +334,8 @@ impl PlayerApp {
         self.typewriter = Typewriter::new(&frame.text, restored || self.settings.text_speed == 0.0);
         self.clock = PresentationClock::new(Instant::now());
         self.audio.enter(&frame.audio, force_audio);
-        self.audio
-            .video(frame.video.as_ref().map(|v| v.asset.as_str()));
         self.commit_ui(plan, false);
+        self.apply_ui_media(prepared_ui);
         if restored {
             self.effects.age = 6.0;
             self.effects.ui_age = 6.0;
@@ -272,7 +345,7 @@ impl PlayerApp {
         }
         self.revision = self.revision.wrapping_add(1);
         self.pending_auto = None;
-        if !restored && self.autosave_enabled() {
+        if !restored && self.handoff.is_none() && self.autosave_enabled() {
             self.queue_autosave();
         }
         Ok(())
@@ -283,12 +356,6 @@ impl PlayerApp {
         match intent {
             UiIntent::Custom(event) => self.custom_event(event)?,
             UiIntent::Play(intent) => {
-                if self.video.playing() {
-                    if matches!(intent, controller::Intent::Advance) {
-                        self.skip_video(None)?;
-                    }
-                    return Ok(());
-                }
                 if self.effects.active() {
                     if matches!(intent, controller::Intent::Advance) {
                         self.effects.finish();
@@ -340,13 +407,39 @@ impl PlayerApp {
         let debug_input = self.poll_debug();
         let debug_paused = self.debug_paused();
         let capture_busy = self.pending_auto.is_some();
-        let reloaded =
-            !capture_busy && !debug_input && !self.debug_paused() && self.poll_project(ctx);
+        let reloaded = !capture_busy
+            && !debug_input
+            && !self.debug_paused()
+            && !self.ui_media.active()
+            && self.handoff.is_none()
+            && self.poll_project(ctx);
+        if !self.lifecycle_ready && self.pending_auto.is_none() && !self.debug_paused() {
+            self.lifecycle_ready = true;
+            let result = self
+                .empty_ui_plan()
+                .and_then(|p| self.page_lifecycle(p, &self.session, Some(vec![])))
+                .and_then(|p| self.commit_page_plan(p));
+            if let Err(e) = result {
+                self.message = Some(format!("初始页面生命周期：{e:#}"));
+            }
+        }
         let focused = ctx.input(|input| input.focused);
         if let Some(error) = self.audio.poll_error() {
             self.message = Some(error);
         }
-        let paused = self.blocked() || !focused;
+        let ui_input = match self.tick_ui_media(ctx, focused) {
+            Ok(value) => value,
+            Err(error) => {
+                if self.ui_media.video() {
+                    self.audio.video(None);
+                }
+                self.ui_media.cancel();
+                self.effects.ui_alpha.clear();
+                self.message = Some(format!("UI 演出失败，已取消并保留剧情：{error:#}"));
+                true
+            }
+        };
+        let paused = self.blocked() || ui_input || !focused;
         let now = Instant::now();
         let elapsed = self.clock.elapsed(now, paused);
         // Holding Ctrl fast-forwards; pause, host prompts and videos suspend the hold.
@@ -354,20 +447,10 @@ impl PlayerApp {
         let ctrl_released = std::mem::replace(&mut self.ctrl_held, ctrl) && !ctrl;
         let story_input =
             !paused && !capture_busy && self.custom.state.keyboard(&self.custom.definition);
-        let skip_held = ctrl && story_input && !self.video.playing();
+        let skip_held = ctrl && story_input;
         let skip = self.skip.tick(elapsed.as_secs_f32(), skip_held) && self.may_fast_forward();
         let transitioning = self.effects.active();
         self.effects.tick(elapsed.as_secs_f32());
-        let video_event = match self
-            .video
-            .tick(elapsed.as_secs_f32(), ctx, &mut self.assets)
-        {
-            Ok(ended) => ended,
-            Err(error) => {
-                self.message = Some(format!("视频播放失败：{error:#}"));
-                false
-            }
-        };
         if let Err(error) = self
             .live2d
             .tick(elapsed.as_secs_f32(), ctx, &mut self.assets)
@@ -377,13 +460,12 @@ impl PlayerApp {
                 "Live2D 更新失败，已冻结当前画面；可读档或重新开始：{error:#}"
             ));
         }
-        if self.video.ended {
-            self.audio.video(None);
-        }
-        if !transitioning && !self.video.playing() {
+        if !transitioning {
             self.typewriter.tick(elapsed, self.settings.text_speed);
         }
-        self.mark_current_read();
+        if !self.ui_media.active() {
+            self.mark_current_read();
+        }
         let mut intent = None;
         self.painted = (
             self.revision,
@@ -395,10 +477,17 @@ impl PlayerApp {
                 let frame = self.story.frame(&self.session).expect("validated session");
                 {
                     let custom = &mut self.custom;
+                    custom.data.values["audio"] = serde_json::json!({
+                        "enabled": self.ui_media.prefs.enabled,
+                        "actor": custom.definition.media.actors.iter()
+                            .map(|a| (a.clone(), !self.ui_media.prefs.disabled_actors.contains(a)))
+                            .collect::<std::collections::BTreeMap<_, _>>(),
+                        "excluded": custom.definition.media.audio.iter()
+                            .map(|a| (a.clone(), self.ui_media.prefs.excluded.contains(a)))
+                            .collect::<std::collections::BTreeMap<_, _>>()
+                    });
                     custom.data.progress(
-                        self.typewriter.complete()
-                            && !self.effects.active()
-                            && !self.video.playing(),
+                        self.typewriter.complete() && !self.effects.active(),
                         &self.story.routes[&frame.id],
                         self.available.is_empty(),
                     );
@@ -414,15 +503,6 @@ impl PlayerApp {
                         });
                     custom.data.values["game"]["live2dEnabled"] =
                         serde_json::json!(self.live2d.active());
-                    custom.data.values["game"]["videoPlaying"] =
-                        serde_json::json!(self.video.playing());
-                    custom.data.values["game"]["videoSkippable"] = serde_json::json!(
-                        self.video.playing()
-                            && self.video.cue.as_ref().is_some_and(|v| v.skippable)
-                    );
-                    if self.video.playing() {
-                        custom.data.values["game"]["canAdvance"] = serde_json::json!(false);
-                    }
                     if self.effects.active() {
                         custom.data.values["game"]["continueText"] = serde_json::json!("跳过转场");
                     }
@@ -439,7 +519,9 @@ impl PlayerApp {
                             blocked: self.message.is_some()
                                 || capture_busy
                                 || debug_paused
-                                || debug_input,
+                                || debug_input
+                                || ui_input
+                                || self.ui_media.active(),
                         },
                     )
                     .map(UiIntent::Custom);
@@ -448,12 +530,15 @@ impl PlayerApp {
                         && self.message.is_none()
                         && !debug_paused
                         && !debug_input
+                        && !ui_input
+                        && !self.ui_media.active()
                         && custom.state.keyboard(&custom.definition)
                         && ctx.input(|i| i.key_pressed(egui::Key::Space))
                     {
                         intent = Some(UiIntent::Play(controller::Intent::Advance));
                     }
                 }
+                self.draw_ui_video(ui);
             });
         let route = &self.story.routes[&self.session.frame_id];
         let advance_route = matches!(route, crate::model::Route::Advance);
@@ -464,12 +549,11 @@ impl PlayerApp {
                 && !ctrl_released
                 && self.typewriter.complete()
                 && !self.effects.active()
-                && !self.video.playing()
                 && self.audio.voice_finished(),
             advance_route,
             self.settings.auto_delay,
         );
-        let result = if reloaded || debug_input || self.debug_paused() {
+        let result = if reloaded || debug_input || ui_input || self.debug_paused() {
             Ok(())
         } else if let Some(intent) = intent {
             if matches!(intent, UiIntent::Play(_)) {
@@ -477,9 +561,6 @@ impl PlayerApp {
             }
             ctx.request_repaint();
             self.handle(intent)
-        } else if video_event && !paused && !capture_busy {
-            self.video.pending_advance = false;
-            self.advance_video()
         } else if skip || (auto_advance && !paused && !capture_busy) {
             // Ctrl fast-forward and auto-play share the single sanctioned advance per update.
             self.handle(UiIntent::Play(controller::Intent::Advance))
@@ -494,6 +575,22 @@ impl PlayerApp {
         self.clock.set_paused(blocked || !focused);
         self.audio
             .configure(&self.settings, blocked, focused && !self.debug_paused());
+        if self.ui_media.video() {
+            self.audio.configure_ui_video(
+                &self.settings,
+                !focused || self.message.is_some() || self.debug_paused(),
+            );
+        }
+        self.audio.configure_ui(
+            &self.settings,
+            focused && self.message.is_none() && !self.debug_paused(),
+            |asset| {
+                self.custom
+                    .definition
+                    .media
+                    .allowed(asset, &self.ui_media.prefs)
+            },
+        );
         self.debug_overlay(ctx);
         if !blocked
             && focused
@@ -501,9 +598,11 @@ impl PlayerApp {
                 || self.effects.repaint()
                 || self.auto_play.enabled
                 || skip_held
-                || self.video.playing()
                 || self.live2d.active())
         {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+        if self.ui_media.active() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         self.maybe_flush_read(now);

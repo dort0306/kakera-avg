@@ -36,6 +36,7 @@ fn fullscreen_is_an_xml_bool_binding_with_js_and_atomic_setting_validation() -> 
     assert_eq!(data.values["settings"]["fullscreen"], false);
     let commands = logic.ui_event(
         &Event {
+            sound: None,
             route: None,
             name: "fullscreen".into(),
             item: Value::Null,

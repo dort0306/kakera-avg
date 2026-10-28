@@ -13,7 +13,8 @@ pub(super) struct PreparedEntry {
     pub force_audio: bool,
     pub available: Vec<String>,
     pub plan: Plan,
-    pub video: crate::media::VideoPlayer,
+    pub ui_media: super::ui_media::Prepared,
+    pub handoff_commit: Option<super::lifecycle::Checkpoint>,
     pub live2d: crate::live2d::Live2DPlayer,
 }
 pub(super) struct DebugSession {
@@ -90,7 +91,7 @@ impl PlayerApp {
         }
         Some(entry)
     }
-    fn debug_snapshot(&self) -> Value {
+    pub(super) fn debug_snapshot(&self) -> Value {
         let debug = self.debug.as_ref().expect("attached debug");
         json!({"protocol":"KakeraEditorDebug","version":1,"process_id":std::process::id(),
             "engine_version":env!("CARGO_PKG_VERSION"),"state_revision":debug.epoch,
@@ -103,14 +104,14 @@ impl PlayerApp {
             "history_length":self.session.history.len(),"available_options":self.available,
             "ui_stack":self.custom.state.stack,"window_title":self.window_title(),
             "text_complete":self.typewriter.complete(),"transitioning":self.effects.active(),
-            "video_playing":self.video.playing(),"live2d_active":self.live2d.active(),
-            "video_position":self.video.position,"transition_age":self.effects.age,
+            "video_playing":self.ui_media.video(),"live2d_active":self.live2d.active(),
+            "video_position":self.ui_video_position(),"transition_age":self.effects.age,
             "host_prompt":self.message.is_some(),"menu_paused":!self.custom.state.keyboard(&self.custom.definition),
             "auto_playing":self.auto_play.enabled,
             "autosave_pending":self.pending_auto.is_some(),"breakpoints":debug.breakpoints,
             "capabilities":["status","pause","resume","breakpoints","advance","choose","reveal","skip_transition"]})
     }
-    fn debug_command(&mut self, command: Command, expected: Option<u64>) -> Result<()> {
+    pub(super) fn debug_command(&mut self, command: Command, expected: Option<u64>) -> Result<()> {
         let stepping = matches!(
             command,
             Command::Advance | Command::Choose { .. } | Command::Reveal | Command::SkipTransition
@@ -155,6 +156,8 @@ impl PlayerApp {
                 ensure!(debug.paused, "step requires paused state");
                 ensure!(
                     self.message.is_none()
+                        && !self.ui_media.active()
+                        && self.handoff.is_none()
                         && self.custom.state.keyboard(&self.custom.definition)
                         && self.pending_auto.is_none(),
                     "菜单/提示/自动存档等待阻挡调试步进"
@@ -175,14 +178,14 @@ impl PlayerApp {
                             ensure!(
                                 self.typewriter.complete()
                                     && !self.effects.active()
-                                    && !self.video.playing(),
+                                    && !self.ui_media.video(),
                                 "当前场景尚未可选择"
                             );
                             ensure!(self.available.contains(&option), "选项不存在或已隐藏");
                             self.handle(UiIntent::Play(controller::Intent::Choose(option)))?;
                         }
                         Command::Reveal => {
-                            ensure!(!self.video.playing(), "视频播放中不可补全");
+                            ensure!(!self.ui_media.video(), "视频播放中不可补全");
                             self.typewriter.finish();
                         }
                         Command::SkipTransition => self.effects.finish(),

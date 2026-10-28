@@ -135,6 +135,7 @@ impl AudioPlan {
 }
 
 struct Device {
+    ui: Vec<(String, Sink)>,
     video: Option<Sink>,
     // Keep sinks alive, and drop them before the output stream.
     bgm: Option<Sink>,
@@ -153,6 +154,45 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
+    pub fn play_ui(&mut self, id: &str) {
+        if let Some(device) = &mut self.device
+            && let Some(clip) = self.prepared.clip(id)
+        {
+            if device.ui.len() >= 4 {
+                let (_, old) = device.ui.remove(0);
+                old.stop();
+            }
+            let sink = Sink::connect_new(device.stream.mixer());
+            sink.pause();
+            sink.append(clip.clone());
+            device.ui.push((id.into(), sink));
+        }
+    }
+    pub fn configure_ui(
+        &mut self,
+        settings: &Settings,
+        focused: bool,
+        allowed: impl Fn(&str) -> bool,
+    ) {
+        if let Some(device) = &mut self.device {
+            device.ui.retain(|(id, sink)| {
+                if !allowed(id) {
+                    sink.stop();
+                    return false;
+                }
+                !sink.empty()
+            });
+            for (_, sink) in &device.ui {
+                sink.set_volume(if settings.muted {
+                    0.
+                } else {
+                    settings.se_volume
+                });
+                if focused { sink.play() } else { sink.pause() }
+            }
+        }
+    }
+
     pub fn video(&mut self, id: Option<&str>) {
         self.video_active = id.is_some();
         if let Some(device) = &mut self.device {
@@ -200,6 +240,7 @@ impl AudioEngine {
                     eprintln!("音频设备输出流已建立：{:?}", stream.config());
                     (
                         Some(Device {
+                            ui: Vec::new(),
                             video: None,
                             bgm: None,
                             voice: None,
@@ -261,6 +302,21 @@ impl AudioEngine {
                         *target = Some(sink);
                     }
                 }
+            }
+        }
+    }
+
+    pub fn configure_ui_video(&self, settings: &Settings, paused: bool) {
+        if let Some(sink) = self.device.as_ref().and_then(|d| d.video.as_ref()) {
+            sink.set_volume(if settings.muted {
+                0.0
+            } else {
+                settings.video_volume
+            });
+            if paused {
+                sink.pause();
+            } else {
+                sink.play();
             }
         }
     }

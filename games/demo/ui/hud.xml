@@ -6,7 +6,6 @@
     <label id="brand" x="44" y="28" width="510" height="30" text="KAKERA / XML UI" font-size="19" color="#EEDDB8" />
     <button id="portraitStageButton" x="44" y="420" width="150" height="38" text="立绘舞台" visible="ui.portraitMode" event="open-portrait-stage" image="ui.button" hover-image="ui.hover" />
     <button id="autoPlayButton" x="260" y="20" width="150" height="38" bind="game.autoText" event="toggle-auto" image="ui.button" hover-image="ui.hover" />
-    <button id="skipVideo" x="44" y="420" width="150" height="40" text="跳过视频" visible="game.videoSkippable" event="skip-video" image="ui.button" hover-image="ui.hover" />
     <button id="live2dMotion" x="44" y="360" width="180" height="40" text="Live2D 动作" visible="game.live2dEnabled" event="live2d-tap" image="ui.button" hover-image="ui.hover" />
     <button id="effectsButton" x="420" y="20" width="170" height="38" text="效果演示" event="open-effects" image="ui.button" hover-image="ui.hover" />
     <button id="historyButton" x="602" y="20" width="88" height="38" text="历史" event="open-history" image="ui.button" hover-image="ui.hover" />
@@ -15,8 +14,9 @@
     <button id="saveButton" x="896" y="20" width="88" height="38" text="保存" event="open-save" image="ui.button" hover-image="ui.hover" />
     <button id="loadButton" x="994" y="20" width="88" height="38" text="读档" event="open-load" image="ui.button" hover-image="ui.hover" />
     <button id="restartButton" x="1092" y="20" width="152" height="38" text="重新开始" event="restart" image="ui.button" hover-image="ui.hover" />
+    <button id="presentationButton" x="260" y="80" width="180" height="38" text="演出与角色音效" route="open:presentation" image="ui.button" hover-image="ui.hover" />
     <label id="status" x="44" y="466" width="700" height="26" bind="ui.status" font-size="17" color="#F0CA89" />
-    <nine-patch id="dialogue" visible="not:game.videoPlaying" x="36" y="505" width="1208" height="180" image="ui.dialogue">
+    <nine-patch id="dialogue" x="36" y="505" width="1208" height="180" image="ui.dialogue">
       <label id="speaker" x="28" y="14" width="1000" height="30" bind="game.speaker" font-size="22" color="#F0CA89" />
       <label id="line" x="28" y="50" width="1146" height="78" bind="game.text" font-size="26" />
       <button id="continue" x="1058" y="132" width="120" height="34" bind="game.continueText" visible="game.canAdvance" event="advance" image="ui.button" hover-image="ui.hover" font-size="18" />

@@ -97,7 +97,7 @@ pub enum GatedIntent {
 pub fn gate(intent: Intent, complete: bool) -> GatedIntent {
     match (intent, complete) {
         (Intent::Advance, false) => GatedIntent::Reveal,
-        (Intent::Choose(_), false) => GatedIntent::Ignore,
+        (Intent::Choose(_) | Intent::Resume(_), false) => GatedIntent::Ignore,
         (intent, true) => GatedIntent::Dispatch(intent),
     }
 }

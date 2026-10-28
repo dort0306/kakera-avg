@@ -1,5 +1,5 @@
 use crate::model::*;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use roxmltree::{Document, Node};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
@@ -363,7 +363,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             node,
             "frame",
             &["id", "name", "visual", "speaker"],
-            &["text", "options", "audio", "transition", "video"],
+            &["text", "options", "audio", "transition"],
             false,
         )?;
         let name = node
@@ -462,7 +462,6 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             id,
             Frame {
                 name: name.map(str::to_owned),
-                video: media_xml::video(node, &assets)?,
                 transition: if elements(node).any(|n| n.has_tag_name("transition")) {
                     effect_xml::transition(s, single(s, node, "transition")?)?
                 } else {
@@ -532,13 +531,6 @@ pub fn load_game(
     logic
         .options(&parsed.story, &parsed.story.start())
         .map_err(anyhow::Error::msg)?;
-    for frame in parsed.story.frames.values() {
-        if frame.video.as_ref().is_some_and(|v| v.advance)
-            && parsed.story.routes[&frame.id] != Route::Advance
-        {
-            bail!("视频场景 {} 的 advance=true 需要 Advance 路由", frame.id);
-        }
-    }
     let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
     let interface = ui.parse(&parsed.story, &logic.ui_handlers()?)?;
     let loaded = LoadedStory {
@@ -580,6 +572,7 @@ pub fn initial_ui_plan(
         });
         let commands = logic.ui_event(
             &Event {
+                sound: None,
                 route: None,
                 name: "game.enter".into(),
                 item: serde_json::Value::Null,

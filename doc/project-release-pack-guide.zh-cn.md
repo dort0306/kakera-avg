@@ -1,6 +1,6 @@
-# v0.8.4 工程、发布与窗口模式指南
+# v0.9.0 工程、发布与窗口模式指南
 
-适用版本 0.8.4；唯一数据契约 story 8 / UI 3 / save 8；资源包新增 KPAK 2，保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。
+适用版本 0.9.0；唯一数据契约 story 8 / UI 3 / save 9；资源包为 KPAK 2（流式）并保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。Frame 视频已移除，视频只在 UI sequence 中；幕与页面以生命周期回调双向交接，隐藏交接使用 flow-checkpoint.json，详见 API 第 32 节。
 
 ## 工程运行
 
@@ -35,10 +35,10 @@ kakera-pack 两个位置参数先于选项。支持 --format 1|2（默认 2）�
 
 打包先记录引擎实际读取的依赖，建立只含发布文件的固定快照；合并 next 链到包内 story.xml，移除链上的源章节，UI include 另行展开为原入口路径的单个完整 UI，并移除实际子文件；JS/资源及其他显式附加文件保留逻辑路径，不改源工程。完整候选校验、包自检/独立加载和所选源文件指纹复查通过后原子写出；输出须在工程根外，已有输出没有 --force 就拒绝。KPAK 按逻辑路径排序、同字节去重、Zstandard 压缩与 SHA-256 损坏检测，未加密。2 使用独立 1MiB 原文块，1 保持整包 solid。素材不有损转码。默认只含引擎依赖、assets/licenses 与 licenses 目录的普通文件。其他文件须在根 kakera.package.json 以 schema 1/include 列表明确声明；不支持目录/通配，清单自身不入包。未引用的设计稿、模型权重和编辑器索引不会自动收集。
 
-发布脚本默认 target/package/kakera-avg-v0.8.4，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
+发布脚本默认 target/package/kakera-avg-v0.9.0，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
 
 ```text
-kakera-avg-v0.8.4/
+kakera-avg-v0.9.0/
   kakera-avg.exe
   game.kpak
   Live2DCubismCore.dll
@@ -66,7 +66,7 @@ Windows 播放器为 GUI 子系统：发布无控制台，启动失败显示原�
 
 ## 选择包格式与流式边界
 
-默认生成 KPAK 2；`kakera-pack games/demo target/small.kpak --format 1` 保留小包输出，发布脚本也支持 `-Format 1`。播放器按包头自动识别，不需额外播放参数；未知版本或坏包明确失败，不回退散文件。KPAK 1 的旧包可直接读取，包内内容仍须符合 story 8/UI 3/save 8。
+默认生成 KPAK 2；`kakera-pack games/demo target/small.kpak --format 1` 保留小包输出，发布脚本也支持 `-Format 1`。播放器按包头自动识别，不需额外播放参数；未知版本或坏包明确失败，不回退散文件。KPAK 1 的旧包可直接读取，包内内容仍须符合 story 8/UI 3/save 9。
 
 2 打开时只读取头和索引，访问时验证并解压对应块，每个流只缓存当前 1MiB 原文块；`--check` 完整扫描唯一块。没有访问的坏块不保证在普通启动时发现。格式与损坏检测约定见 [KPAK 1/2 格式](kpak-format.zh-cn.md)。
 
@@ -106,13 +106,23 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 ## 用户数据和限制
 
---save-dir 直接使用指定目录，不额外附 story_id。工程与发布默认同 story_id 会共享数据，验收建议隔离。当前手动 slot-1..200.json、自动 auto-1..10.json 为 save 8，加载完整重放历史与变量；旧格式或内容版本不匹配明确拒绝。设置、CG、已读分别在 settings.json/profile.json/read.json，不被槽覆盖；settings 必须完整包含当前字段，无缺字段迁移。screenshot 字段必需，可 null（工具快照）。
+--save-dir 直接使用指定目录，不额外附 story_id。工程与发布默认同 story_id 会共享数据，验收建议隔离。当前手动 slot-1..200.json、自动 auto-1..10.json 为 save 9，加载完整重放历史与变量（含显式 resume_to 返回边）；旧格式或内容版本不匹配明确拒绝。设置、CG、已读、UI 音效分别在 settings.json/profile.json/read.json/ui-audio.json，不被槽覆盖；幕与页面交接使用固定隐藏 flow-checkpoint.json（不进入玩家槽位页和普通自动槽，不受 autosave 开关影响），成功返回写 inactive 墓碑。settings 必须完整包含当前字段，无缺字段迁移。screenshot 字段必需，可 null（工具快照）。
 
-用户 JSON、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
+用户 JSON（settings.json/profile.json/read.json/ui-audio.json/slot-*/auto-*/flow-checkpoint.json）、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
 
-数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.8.4 验收](v0.8.4-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
+数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.9.0 验收](v0.9.0-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
 
 
 v0.8.4 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。
 
 按钮 route="open:页面ID"/"close" 在两种包中保留，不需要额外打包开关；UI 拆分后目标仍全局校验，详见 API 第 30 节。
+
+
+## UI 演出与发布检查
+
+UI 根 ui-media 可跨 include 拆分；两格式仍汇总为单 UI 入口。音效候选、UI 视频引用的资源由 ContentSource 实际准备并入包。玩家 ui-audio.json 是独立偏好，不发布、不热更、不随剧情槽回退。发布前除 --check 外，检查演出自动触发、淡入淡出、失焦暂停、鼠标/空格跳过无穿透、视频返回及角色禁用后重启保持；听感单独记录。新增演出交互优先 XML/JS，接口与限制见 API 第 31 节。
+
+
+## v0.9.0 生命周期与隐藏交接
+
+应用版本 0.9.0，story 8/UI 3，save 9，demo content-version=9。frame 内 video 已删除，只用 UI sequence.video；on.frameEnter/Exit 与 on.screenOpen/Close、ctx.present/resume 负责双向交接。flow-checkpoint.json 是固定隐藏自动槽，独立于 slot-* 和 auto-*，不显示、不发布、不监控；活动交接重启恢复 UI，视频从零播放，成功返回写 inactive 墓碑。发布前验证离幕插播、自然结束/跳过关闭与指定幕恢复、隐藏槽跨进程/原子失败/普通槽隔离。接口见 API 第 32 节，旧 frame 视频写法仅在归档手册保留。

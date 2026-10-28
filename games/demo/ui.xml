@@ -2,6 +2,7 @@
 <!-- UI entry: pages and shared state use game-root-relative includes. -->
 <ui schema="3" width="1280" height="720" initial="hud" title-bind="ui.windowTitle">
   <include src="ui/state.xml" />
+  <include src="ui/presentation.xml" />
   <include src="ui/hud.xml" />
   <include src="ui/save.xml" />
   <include src="ui/load.xml" />

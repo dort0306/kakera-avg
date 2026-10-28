@@ -107,6 +107,7 @@ fn js_title_changes_are_validated_with_the_whole_ui_transaction() -> Result<()> 
     let profile = Profile::new(&loaded.story.id, def);
     let commands = logic.ui_event(
         &interface::Event {
+            sound: None,
             route: None,
             name: "caption".into(),
             item: json!(null),
@@ -156,6 +157,7 @@ fn js_title_changes_are_validated_with_the_whole_ui_transaction() -> Result<()> 
     assert_eq!(plan.state.window_title, "最终标题");
     let enter = logic.ui_event(
         &interface::Event {
+            sound: None,
             route: None,
             name: "game.enter".into(),
             item: json!(null),

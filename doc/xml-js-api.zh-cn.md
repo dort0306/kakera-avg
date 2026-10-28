@@ -1,6 +1,6 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.8.4。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-28。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
+适用版本：Kakera AVG Rust v0.9.0。唯一创作与存档契约为 story 8 / UI 3 / save 9，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-28。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -36,10 +36,12 @@
 28. [可配置窗口标题](#28-可配置窗口标题)
 29. [编辑器调试与发布清单](#29-v083-编辑器调试与发布清单)
 30. [按钮 UI 路由](#30-v084-按钮-ui-路由)
+31. [UI 演出、过场视频与角色音效](#31-ui-演出过场视频与角色音效)
+32. [v0.9.0 幕与页面生命周期、隐藏交接槽](#32-v090-幕与页面生命周期隐藏交接槽)
 
 ## 1. 版本与职责
 
-当前唯一契约为 **story schema 8 + UI schema 3 + 外部 JavaScript/QuickJS + 存档 schema 8**。只保留这一条内容/存档执行路径，旧 schema、flow.xml 与旧档导入均拒绝。KPAK 1/2 与数据 schema 独立，v0.8.1 按用户要求保留 KPAK 1 容器兼容。
+当前唯一契约为 **story schema 8 + UI schema 3 + 外部 JavaScript/QuickJS + 存档 schema 9**。只保留这一条内容/存档执行路径，旧 schema、flow.xml 与旧档导入均拒绝。KPAK 1/2 与数据 schema 独立，v0.8.1 按用户要求保留 KPAK 1 容器兼容。
 
 | 文件/接口 | 职责 |
 | --- | --- |
@@ -53,8 +55,8 @@
 | --- | --- | --- |
 | `<story schema="8">` | 8 | 新剧本语法；每份文件必须有 next |
 | `<ui schema="3">` | 3 | 界面语法 |
-| `<story content-version="8">` | demo 为 8，作者维护正整数 | 历史重放/存档契约；不兼容剧情变化时提升 |
-| 剧情 JSON `schema_version` | 8 | 手动/自动槽结构；旧槽不自动接受 |
+| `<story content-version="9">` | demo 为 9，作者维护正整数 | 历史重放/存档契约；不兼容剧情变化时提升 |
+| 剧情 JSON `schema_version` | 9 | 手动/自动槽结构；旧槽不自动接受 |
 | CG JSON `schema_version` | 1 | 独立 profile，按 story_id 识别 |
 
 不读取 flow.xml，不包含旧解析器；所有场景均由外部 JS 完整注册。
@@ -315,7 +317,7 @@ schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声�
 | `frame.speaker` | 可省略 | 引用 character；省略表示旁白 |
 | `text` | 恰好一个 | 非空普通文本，无属性；没有 HTML/富文本/变量插值 |
 | `audio` | 可选，最多一个 | 只有 `bgm/voice/se` 三个可选属性，各引用 audio 资源 |
-| `video` | 可选，最多一个 | asset 必填，skippable/advance 默认 true；不可与 options 同帧，详见第 19.4 节 |
+| `video` | 禁止 | v0.9.0 已移除；只允许 UI sequence.video，见第 32 节 |
 | `options` | 可省略，最多一组 | 若存在至少一个 option；无属性 |
 | `option` | `id` 必填 | 内部为非空普通文本；ID 在所属 frame 内唯一 |
 
@@ -442,7 +444,7 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 
 宽高必须构成 16:9；任一数值不能超过 8192。画布在窗口可用区域内居中、等比缩放并留黑边，坐标不是物理屏幕像素。一般保留 1280×720。
 
-每个源文件根元素只接受至多一组 variables、一组 gallery、screen 与 include。展开后全局须有 1–64 个 screen；变量/画廊分组可跨文件合并，不允许其他任意分组。引入规则见第 7.4 节。
+每个源文件根元素只接受至多一组 variables、一组 gallery、一组 ui-media，以及 screen 与 include。展开后全局须有 1–64 个 screen；变量/画廊/演出分组可跨文件合并，不允许其他任意分组。ui-media 的音效与演出声明见第 31 节。引入规则见第 7.4 节。
 
 ### 7.2 screen 与页面栈
 
@@ -453,6 +455,7 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 | `pause` | 默认 true | 此页面在栈内时暂停逐字呈现 |
 | `background-click` | 可选 | 非控件区左键的 on.ui 事件名，规则见第 22 节 |
 | `background-right-click` | 可选 | 非控件区右键的 on.ui 事件名，不继承下层 |
+| `sequence` | 可选 | 页面成为顶层时自动启动已声明的演出 ID；同页重绘不重复触发，见第 31 节 |
 
 页面本身没有 x/y/width/height；位置由其子节点定义。入栈时保留下层页面绘制，但仅顶层可操作；栈深度包含根页最多八层。模态页不得重复入栈；`close()` 不可关闭唯一根页。
 
@@ -560,7 +563,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
 | `image` | `image/image-bind/fit/effect/region/region-bind` | 否 |
 | `nine-patch` | `image/density` | 是，子节点使用标记内容区，见第 26 节 |
 | `label` | `text/bind/font-size` | 否 |
-| `button` | `text/bind/font-size/event/route/image/hover-image/disabled-image/radius/region/region-bind` | 否 |
+| `button` | `text/bind/font-size/event/route/sound/image/hover-image/disabled-image/radius/region/region-bind` | 否 |
 | `slider` | `value/min/max/event` | 否 |
 | `toggle` | `text/value/event/font-size` | 否 |
 | `repeat` | `source/columns/item-width/item-height/gap` | 是，作为每一项模板 |
@@ -609,7 +612,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
         event="open-save" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" />
 ```
 
-`event` 与 `route` 必须二选一：event 须注册对应 on.ui，route 直接执行页面导航（第 30 节）；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
+`event` 与 `route` 互斥：event 须注册对应 on.ui，route 直接执行页面导航（第 30 节）。也可仅声明 `sound="音频资源或音效组ID"` 创建纯音效按钮；有 sound 时可不写 event/route，或与二者之一组合（第 31 节）；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
 
 悬停优先使用 hover-image，禁用优先使用 disabled-image；缺省回退到普通 image，无图则填色。禁用背景额外变暗，且不发事件。color 控制背景/图片 tint，当前按钮文字固定白色居中；不能用 color 单独改按钮文字颜色。radius 只作用于无图背景。若需复杂按钮字效，推荐把文字画入美术图片。
 
@@ -688,13 +691,14 @@ repeat 自身矩形是垂直滚动视口；模板内坐标相对每项左上角�
 | `settings.auto_delay` | number | 完成文字/转场/语音后等待的秒数，0.2–15 |
 | `game.autoPlaying` | bool | 当前是否开启自动播放（瞬时状态） |
 | `game.autoText` | string | “自动播放”或“停止自动” |
-| `game.videoPlaying` | bool | 当前视频尚未结束；菜单暂停期间仍为 true |
-| `game.videoSkippable` | bool | 视频播放中且声明允许跳过 |
 | `game.live2dEnabled` | bool | 当前存在已启用的真实 Live2D 实例 |
 | `saves.page` / `saves.pages` | number | 当前手动槽页 / 总页数 20 |
 | `saves.pageText` | string | “第 x / 20 页 · 200 手动槽” |
 | `saves.canPrev` / `saves.canNext` | bool | 是否可翻到前/后一页 |
 | `ui.<已声明ID>` | number/bool/string | 局部 UI 变量值 |
+| `audio.enabled` | bool | UI 音效总开关 |
+| `audio.actor.<角色ID>` | bool | 此角色的 UI 音效是否启用 |
+| `audio.excluded.<音频资源ID>` | bool | 此音频是否被玩家排除；true 表示禁止播放 |
 
 game 进度字段逐帧更新，但选项条件只在提交边界求值缓存。设置默认值见第 10.5 节。UI int 直接显示为十进制；JS 对应的 ctx.ui int 是 BigInt。
 
@@ -730,7 +734,7 @@ on.ui(eventName, ctx => {
 });
 ```
 
-eventName 是非空字符串，同名只能注册一次。一个事件可被多个按钮共用；未被 XML 引用的注册可以保留。唯一特殊保留名为 `game.enter`，不能用于节点 event。当前没有 on.click、on.open、on.tick、DOM 事件或任意事件派发 API。
+eventName 是非空字符串，同名只能注册一次。一个事件可被多个按钮共用；未被 XML 引用的注册可以保留。唯一特殊保留名为 `game.enter`，不能用于节点 event。没有 on.click/on.tick、DOM 事件或任意事件派发 API；具名幕/页面生命周期使用第 32 节的 on.frameEnter/Exit、on.screenOpen/Close。
 
 v0.5 的 `ctx.transition/animate` 参数及生命周期权限见 [第 17 节](#17-内置转场与图片效果)，v0.5.1 的 `ctx.portrait` 见第 18 节；其余 UI 命令在本章逐项说明。
 
@@ -777,7 +781,7 @@ on.ui("increment", ctx => {
 | `ctx.choose(optionId)` | string | 未完成时忽略；完成后验证当前场景、选项存在及条件，非法/隐藏选项报错 |
 | `ctx.restart()` | 无 | 返回故事入口、恢复剧情变量初值并重置历史；重建音频，重新逐字 |
 
-这些方法没有可用的同步返回值；读取 ctx.game 仍是事件开始时的旧场景。没有 `jump/setFrame`，也不能从 UI ctx 直接修改剧情变量。与剧情相关的更新应放 on.advance/choice。
+这些方法没有可用的同步返回值；读取 ctx.game 仍是事件开始时的旧场景。没有 `jump/setFrame`，也不能从 UI ctx 直接修改剧情变量；v0.9.0 的 `ctx.resume(frameId)` 是受隐藏交接事务约束的显式 UI 返回命令，见第 32 节。与剧情相关的更新应放 on.advance/choice。
 
 restart 不会自动清除 CG、设置或 UI 局部状态；若在菜单中使用，可按页面栈情况在同一回调中 close，或 open 非模态 hud。
 
@@ -839,13 +843,30 @@ cgId 必须在 XML gallery 清单中。新解锁原子写入独立 profile.json�
 | 可以合并的命令 | 说明 |
 | --- | --- |
 | open/close/setUi/message 多条 | 纯 UI 计划，仍逐项验证 |
-| 上述 UI 命令 + 一次 save/load/loadAuto/restart/advance/choose/skipVideo | 例如存档成功后关页；操作失败则不提交 UI 草稿 |
+| 上述 UI 命令 + 一次 save/load/loadAuto/restart/advance/choose | 例如存档成功后关页；操作失败则不提交 UI 草稿 |
 | 上述 UI 命令 + 多个 setting | 聚合为一次 settings.json 写入；每一步值均校验 |
 | 上述 UI 命令 + 多个新 unlock | 聚合为一次 profile.json 写入 |
+| UI 局部/页面命令 + playSound/sequence/多个音效偏好命令 | 偏好聚合为一次 ui-audio.json 写入；只允许一个 sequence，不能再混合剧情、settings/profile 或存读档操作 |
 
 不能在同一普通 UI 回调中混合 save + setting、load + restart、advance + choose、setting + 新 unlock，或保存两个槽。重复同一种剧情/槽操作也不允许。不要依赖已解锁 unlock 无 IO 的细节来组合不同类副作用。
 
 这是单个剧情操作/单个文件的提交边界，不提供跨多个文件的事务。新场景生命周期可能另外规划 CG 写入，见下一节。JS 异常、命令格式错误、引用/范围错误或所需 IO 失败都会放弃本次计划；剧情进入失败时保留旧 Session 与音频。
+
+### 10.8 UI 演出与音效方法速查
+
+以下方法可用于普通 `on.ui`；新生命周期仅按第 32 节白名单使用，不可在 `game.enter` 中调用；全部返回 undefined，不能同步获得抽中的声音或演出完成结果。
+
+| 方法 | 参数 | 用法与约束 |
+| --- | --- | --- |
+| `ctx.present(screenId)` | string | 保存隐藏交接槽并打开 UI；不能嵌套交接，详见第 32 节 |
+| `ctx.resume(frameId?)` | 可省略的 string | 从隐藏续接点进入指定幕；省略时恢复待续位置，详见第 32 节 |
+| `ctx.playSound(id)` | string | 播放 Audio 资源或 ui-media.sound 组；先过滤，再随机，空集静音 |
+| `ctx.sequence(id)` | string | 启动 ui-media.sequence；一次事件最多一个，不允许演出重入或与剧情视频并行 |
+| `ctx.soundEnabled(enabled)` | boolean | UI 音效总开关，独立持久化 |
+| `ctx.soundActor(actorId, enabled)` | string、boolean | 已声明 character；false 禁用该角色的 UI 音效，true 恢复 |
+| `ctx.soundExclude(assetId, excluded)` | string、boolean | 已声明 Audio 资源；true 排除，false 解除玩家排除，不能撤销作者 enabled=false |
+
+布尔参数必须是 true/false，不能传字符串、0/1 或 BigInt。偏好只控制 UI 音效；剧情 voice/se/BGM 不受这些角色开关影响。完整 XML 属性、返回页面、示例与排错见 [第 31 节](#31-ui-演出过场视频与角色音效)。
 
 ## 11. 进入场景生命周期
 
@@ -947,19 +968,21 @@ on.ui("view-cg", ctx => {
 
 | 状态 | 存储 | 读剧情槽后 | 进程重启后 |
 | --- | --- | --- | --- |
-| 剧情位置、变量、历史 | slot-1.json … slot-200.json，schema 8 | 替换为槽内容 | 默认从入口启动，用户读槽后恢复 |
-| 自动保存 | auto-1.json … auto-10.json，schema 8 | 替换剧情，自动槽本身不写回 | 保留十份轮换文件 |
+| 剧情位置、变量、历史 | slot-1.json … slot-200.json，schema 9 | 替换为槽内容 | 默认从入口启动，用户读槽后恢复 |
+| 自动保存 | auto-1.json … auto-10.json，schema 9 | 替换剧情，自动槽本身不写回 | 保留十份轮换文件 |
 | 文字速度、自动保存/播放延迟、静音、四通道音量、Ctrl 快进范围 | settings.json | 不被槽替换 | 恢复设置 |
 | CG 解锁 | profile.json，schema 1 + story_id | 不被旧槽撤销 | 恢复解锁 |
 | 已读进度（Ctrl 只快进已读的依据） | read.json，schema 1 + story_id + frame ID 集合 | 不被槽替换 | 恢复已读集合 |
-| UI 变量、页面栈 | 仅内存 | 不自动重置，回调可显式改变 | 恢复 XML 初值与 initial 页 |
+| UI 变量、页面栈 | 普通游戏仅内存；活动交接另存隐藏槽 | 普通槽不重置，回调可显式改变 | 有效活动隐藏槽恢复保存的 UI；否则恢复 XML 初值与 initial 页 |
+| UI 角色/单条音效偏好 | ui-audio.json，schema 1 | 不被剧情槽替换 | 恢复偏好 |
+| 剧情与 UI 交接 | flow-checkpoint.json，schema 1，内嵌 save 9 | 活动交接不允许普通读档 | active 时恢复 UI 与待续点；inactive 不重播 |
 | 逐字进度、音频指针、JS 闭包/堆 | 不入档 | 当前句完整、音频重建 | 不恢复 |
 
-schema 8 剧情槽包含当前位置、变量和最多 1000 条历史，以及历史起点变量检查点。裁剪历史时推进检查点；读取时重放保留历史的条件/更新/目标，并核对终点变量，全部通过才提交。
+schema 9 剧情槽包含当前位置、变量和最多 1000 条历史，以及历史起点变量检查点。裁剪历史时推进检查点；读取时重放保留历史的条件/更新/目标，并核对终点变量，全部通过才提交。
 
 更改场景 ID、路由语义、剧情变量声明或更新规则可能让旧历史不再可重放；需要显式提升 content-version，而非悄悄接受。只调整 UI 布局/皮肤通常不改变剧情兼容版本。当前 profile 校验 story_id 和 CG 清单，但不含 content-version；移除已解锁 CG ID 会使旧 profile 报错，应保留稳定 ID。
 
-v0.8 严格读写 schema 8，包含 generation（手动档为 0；自动档为轮换序号）。旧 schema、story_id 或 content_version 不匹配均拒绝，保留当前 Session 和原文件。示例见 [v0.8-save.example.json](v0.8-save.example.json)。不自动迁移历史槽。
+v0.9.0 严格读写 schema 9，包含 generation（手动档为 0；自动档为轮换序号）。旧 schema、story_id 或 content_version 不匹配均拒绝，保留当前 Session 和原文件。示例见 [v0.9.0-save.example.json](v0.9.0-save.example.json)。不自动迁移历史槽。
 
 设置/CG 损坏时使用默认值/初始解锁并提示，加载时不自动重写原文件。以后明确保存或新的解锁可能替换该文件。各 JSON 总量上限 2MiB，原子写入使用同目录临时文件及平台替换；失败保留旧文件，不承诺所有文件系统的掉电持久性。存档一致性校验不是防篡改签名。
 
@@ -1023,7 +1046,7 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 
 ## 15. 旧格式说明
 
-v0.8 只接受 story 8 / UI 3 / save 8。旧 story 1–7、UI 1–2、存档 1–7 均拒绝；没有 flow.xml、默认声明式执行器、兼容菜单、旧档导入或设置字段补齐。旧版本内容与接口说明仅在 doc/archive 及历史设计文档保留，当前程序不能运行它们。迁移需作者手工准备新契约并使用新的内容版本，不自动改写用户旧文件。
+v0.9.0 只接受 story 8 / UI 3 / save 9。旧 story 1–7、UI 1–2、存档 1–8 均拒绝；没有 flow.xml、默认声明式执行器、兼容菜单、旧档导入或设置字段补齐。旧版本内容与接口说明仅在 doc/archive 及历史设计文档保留，当前程序不能运行它们。迁移需作者手工准备新契约并使用新的内容版本，不自动改写用户旧文件。
 
 ## 16. 实现位置与扩展边界
 
@@ -1048,7 +1071,7 @@ v0.8 只接受 story 8 / UI 3 / save 8。旧 story 1–7、UI 1–2、存档 1�
 
 目前不包含 CSS/DOM、富文本/台词插值、作者自定义 shader/遮罩/任意关键帧、任意立绘坐标、异步脚本、回滚、全尺寸截图导出、音频淡变/精确进度恢复或可视化编辑器。可运行的完整创作参考始终是 [games/demo](../games/demo/story.xml)，历史目录只是相应旧契约示例。
 
-本文示例已切换为 v0.8 契约；历史 v0.7.1 的示例执行记录只见归档。当前实际运行检查以 games/demo 与本版验收记录为准，片段需按各节说明补齐上下文。
+本文示例已切换为当前 v0.9.0 契约（story 8/UI 3/save 9）；历史 v0.7.1 的示例执行记录只见归档。当前实际运行检查以 games/demo 与本版验收记录为准，片段需按各节说明补齐上下文。
 
 ## 17. 内置转场与图片效果
 
@@ -1175,7 +1198,7 @@ target 不接受素材 ID、CSS 选择器、repeat 实例索引或普通 button/
 
 ## 18. 人物立绘动作
 
-本版新内容使用 story schema 8、UI schema 3、存档 schema 8。动作只作用 scene 中的 left/center/right 立绘，不作用 UI image；UI 图片继续使用第 17 节的 `ctx.animate`。XML/JS 通过 ContentSource 快照读取；工程中监控修改并验证更新，发布中使用固定资源包。
+本版新内容使用 story schema 8、UI schema 3、存档 schema 9。动作只作用 scene 中的 left/center/right 立绘，不作用 UI image；UI 图片继续使用第 17 节的 `ctx.animate`。XML/JS 通过 ContentSource 快照读取；工程中监控修改并验证更新，发布中使用固定资源包。
 
 ### 18.1 XML 属性与最终姿态
 
@@ -1316,39 +1339,23 @@ on.ui("auto-delay", ctx => ctx.setting("auto_delay", ctx.value));
 
 选项页和 end 自动停止；不会选择默认分支。手动继续/选择、读档、重开停止自动模式。菜单/提示/失焦和视频期间暂停计时，不积累等待时间。每次更新用户输入优先，至多执行一个剧情操作。auto_delay 保存到 settings.json，autoPlaying、等待时钟不入档。
 
-### 19.4 视频 XML、结束与跳过
+### 19.4 UI 视频、结束与跳过
+
+视频资产仍在 story.assets 声明 `<video id="movie.op" src="assets/video/op.mp4"/>`；播放节点只允许出现在 UI 的 ui-media.sequence 内：
 
 ```xml
-<!-- assets 内 -->
-<video id="movie.op" src="assets/video/op.mp4" />
-<!-- frames 内；text 仍然必需；visual 可省略 -->
-<frame id="op" visual="room">
-  <text>片头结束后开始故事。</text>
-  <video asset="movie.op" skippable="true" advance="true" />
-</frame>
+<ui-media>
+  <sequence id="movie.op.sequence" finish="close" skippable="true">
+    <video asset="movie.op"/>
+  </sequence>
+</ui-media>
 ```
 
-```javascript
-// 所有 frame 仍必须注册且只注册一种剧情路由。
-on.advance("op", () => "opening");
-on.ui("skip-video", ctx => ctx.skipVideo());
-```
+UI video 只接受 asset，skippable 写在 sequence，结束行为写在 finish；没有 advance 属性。鼠标主键/空格跳过整个演出，完成与跳过共用一次性结束路由。`finish="close"` 要求启动页有下层页；要自动续接剧情，在 on.screenClose 回调使用 ctx.resume。完整示例见第 31–32 节。
 
-| video 属性 | 必填/默认 | 语义 |
-| --- | --- | --- |
-| `asset` | 必填 | 已登记 video 资源 ID |
-| `skippable` | 默认 true | 允许 skipVideo 或继续/空格跳过；false 时输入不跳过 |
-| `advance` | 默认 true | 自然结束/跳过后执行已登记 Advance；必须具有 Advance 路由 |
+视频音轨使用 video_volume/muted，播放期间暂停剧情 BGM/语音/音效。菜单的剧情暂停不暂停 UI 演出；失焦、宿主提示和调试暂停同时冻结视频时钟与音轨。隐藏槽恢复时从零播放视频，不保存解码指针，不提供 seek、外挂字幕或网络流。
 
-每帧至多一个 video，不可含 options。`advance=false` 可配 end（片尾）或 Advance：自然结束后停留最后画面，跳过时停留最后已解码画面，继续逐字，再由正常剧情输入推进。视频播放期间停止逐字和自动播放等待；作者可用 `visible="not:game.videoPlaying"` 隐藏对话框，用 `visible="game.videoSkippable"` 显示跳过按钮。scene 区域内等比 contain、黑边；菜单/HUD 仍由 XML 布局。
-
-`ctx.skipVideo()` 无参数，按声明跳过；当前没有视频声明时报错；已结束或声明不允许跳过时无效果，不自动关闭菜单。它是一种剧情操作，不能与 load/advance/save 等其他操作混在同一回调。推进目标先验证，失败保留原 Session 和当前媒体；自然结束事件会等到输入仲裁可用时再提交，不从绘制函数跳转。
-
-视频音轨使用独立 video_volume 与 muted。播放期间暂停 BGM/语音/音效，结束后恢复剧情音频；菜单/失焦同时暂停视频时钟和音轨。读档从视频零秒重播，不保存解码指针，也不保证精确音画同步或拖动 seek。
-
-Windows x64 使用系统 Media Foundation，运行无需 ffmpeg。已验证 H.264/AAC MP4（720p/30fps）；其他格式取决于系统解码器，不作保证。Windows N 等缺少媒体组件的环境可能无法解码，启动报出资源 ID/路径，不播放占位假视频。
-
-资源预算：最多 16 段，单文件流复制最多 64GiB，最大 1920×1080、约 60fps、300 秒；视频音频转为 48kHz 双声道浮点 PCM，总缓存 256MiB。视频字节从 ContentSource 流式复制，不构造整文件 Vec；内部临时文件在资源生命周期结束时释放。图像由单工作线程顺序解码，有界请求与结果；App 更新时上传，绘制只读。音频在启动时完整解码，因此长视频会增加启动时间；本版无网络流、外挂字幕、循环/混剪、视频 UI 控件或跨平台视频后端。
+Windows x64 使用系统 Media Foundation，验证 H.264/AAC MP4（720p/30fps）；其他格式取决于系统解码器。视频最多 16 段，单文件流复制最多 64GiB，最大 1920×1080、约 60fps、300 秒；视频音频转为 48kHz 双声道浮点 PCM，总缓存 256MiB。所有视频读取走 ContentSource，至多一个有界解码工作线程，App 更新时上传，绘制只读；长视频的音轨预解码会增加启动时间。
 
 ### 19.5 Live2D SDK 与模型资源
 
@@ -1494,7 +1501,7 @@ cargo run --locked --bin kakera-pack -- games/demo target/game.kpak --force --le
 
 在所有 frame.id 均显式固定时，同样的所选工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
 
-默认发布脚本输出 target/package/kakera-avg-v0.8.3，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
+默认发布脚本输出 target/package/kakera-avg-v0.9.0，包含播放器、game.kpak、Core 和许可/手册，不复制 games/demo 散装内容。kakera-pack.exe 留在 target/release，供工程作者使用。工具本身没有公开上传/发布行为。
 
 脚本支持 `-Project <工程>`、`-Output <新目录>`、`-CompressionLevel <1..22>`、`-Format <1|2>`（默认 2），相对路径以仓库根为准；输出目录已存在就拒绝，失败目录保留供诊断。它复制仓库固定 Core，没有单独的 Core/禁用选项。新目录示例：
 
@@ -1639,7 +1646,7 @@ on.end("chapter.ending");
 
 编辑任意章节或 next 都触发完整候选构建；校验失败保留旧 Session、音频和画面。语法、同类重复 ID、错误引用和属性诊断尽量给出源文件行列，例如 `chapters/first.xml:4:5`，不要求作者去查看内部合并文本。发布后的诊断针对包内 story.xml 坐标，因为包内不保留这些源章节。
 
-章节拆分、挪动且保持 ID/变量/路由语义时，无需仅因文件组织改变提升 content-version；修改不兼容剧情契约仍必须提升。demo 现在为五文件链，content-version=8；存档重放与文件名无关。
+章节拆分、挪动且保持 ID/变量/路由语义时，无需仅因文件组织改变提升 content-version；修改不兼容剧情契约仍必须提升。demo 现在为五文件链，content-version=9；存档重放与文件名无关。
 
 ### 21.5 打包结果
 
@@ -1652,7 +1659,7 @@ UI XML 不并入 story.xml：其根级 include 通过独立装配合并到原 UI
 
 ## 22. v0.7.2 背景输入、HUD 与截图存档
 
-本节新增能力使用 story 8 / UI 3 / save 8；容器为 KPAK 1/2。save 8 必须包含 screenshot 字段，JSON null 表示无窗口工具快照；不接受缺字段旧档。
+本节新增能力使用 story 8 / UI 3 / save 9；容器为 KPAK 1/2。save 9 必须包含 screenshot 字段，JSON null 表示无窗口工具快照；不接受缺字段旧档。
 
 ### 22.1 screen 背景事件
 
@@ -1703,7 +1710,7 @@ ctx.advance 继续使用原仲裁：活动转场先跳过、逐字未完成先�
 
 Windows D3D11、CPU 像素模式及 WARP 窗口共享捕获入口；正常帧仅 GPU 拷贝，真正保存才回读/编码。宿主保留最近窗口与最近无菜单游戏画面，最多两份、每份 64MiB；场景版本不匹配拒绝使用旧图，设备重建清理缓存。其他宿主未提供捕获能力时，GUI 保存明确失败，自动保存提示并停用。
 
-JSON 当前字段示意（其余字段见原 save 8 示例）：
+JSON 当前字段示意（其余字段见原 save 9 示例）：
 
 ```json
 {
@@ -1795,7 +1802,7 @@ Ctrl 快进不需要专用 XML 节点或 JS API，使用设置项 `skip_all`、�
 
 ### 23.4 槽位预览去 frame ID
 
-存档/读档页（`repeat source="slots"` / `"autosaves"`）的 `item.preview` 与 `item.excerpt` 现在只含台词与状态文本；内部 frame ID 仍保存在槽位 JSON 并参与加载校验，但不再出现在界面或数据集中。截图、时间与身份校验沿用当前 save 8；不接受旧版本槽位。
+存档/读档页（`repeat source="slots"` / `"autosaves"`）的 `item.preview` 与 `item.excerpt` 现在只含台词与状态文本；内部 frame ID 仍保存在槽位 JSON 并参与加载校验，但不再出现在界面或数据集中。截图、时间与身份校验沿用当前 save 9；不接受旧版本槽位。
 
 ## 24. v0.8 固定比例窗口与全屏
 
@@ -1821,7 +1828,7 @@ on.ui("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
 
 ## 25. v0.8.1 KPAK 2 与创作边界
 
-资源引用、XML/JS API、story 8/UI 3/save 8/content-version=8 均不变。文件流/分块解压属于 XML/JS 不具备的宿主能力，本版扩展 Rust 内容边界；游戏作者无需更改剧情或 UI 脚本。
+资源引用、XML/JS API、story 8/UI 3/save 9/content-version=9 为当前基线。文件流/分块解压属于 XML/JS 不具备的宿主能力，本版扩展 Rust 内容边界；游戏作者无需更改剧情或 UI 脚本。
 
 默认 kakera-pack 生成 KPAK 2，--format 1 可生成兼容小包；播放器自动识别 1/2，未知版本明确失败。该兼容不恢复旧剧情/界面/存档。设计和实际结果见 [策略](v0.8.1-implementation-plan.zh-cn.md) 与 [验收](v0.8.1-validation.zh-cn.md)，二进制细节和流式/内存边界见 [KPAK 规范](kpak-format.zh-cn.md)。
 
@@ -1962,7 +1969,7 @@ demo 启动/进入场景后显示“午后物语 · 场景名”；效果演示 
 
 ## 29. v0.8.3 编辑器调试与发布清单
 
-story 8/UI 3/save 8、KPAK 1/2 均不变。本节是宿主/工具能力：现有 XML/JS 无法安全提供进程通信和发布资源选择，因此扩展 Rust；游戏 JS 仍无网络/路径/随机/时钟或任意原生能力。
+story 8/UI 3/save 9、KPAK 1/2 均不变。本节是宿主/工具能力：现有 XML/JS 无法安全提供进程通信和发布资源选择，因此扩展 Rust；游戏 JS 仍无网络/路径/随机/时钟或任意原生能力。
 
 ### 29.1 调试启动与运行状态
 
@@ -2007,8 +2014,287 @@ kakera-pack 两种格式均以真实 Bundle 加载所读文件构建依赖闭包
 <button id="backButton" width="120" height="40" text="返回" route="close" />
 ```
 
-route 仅允许 button 使用，必须与 event 二选一；空值、未知动作、缺失目标、空白目标或与 event 同时设置均拒绝。目标是 screen ID，不是剧情 frame 或文件路径。跨 include 文件的页面在完整 UI 合并后统一校验，错误保留作者文件行列。
+route 仅允许 button 使用，与 event 互斥；纯音效按钮可仅写 sound（第 31 节）；空值、未知动作、缺失目标、空白目标或与 event 同时设置均拒绝。目标是 screen ID，不是剧情 frame 或文件路径。跨 include 文件的页面在完整 UI 合并后统一校验，错误保留作者文件行列。
 
 open 沿用页面 modal：true 压栈并暂停（依 pause），false 替换根页面栈。close 只能关闭顶层页，不能关闭唯一根页；重复模态和超过八层仍拒绝，旧 UI 状态保留。隐藏/禁用按钮、下层页面、提示与调试暂停仍遵循原输入阻挡规则，每次更新最多一个意图。
 
-路由产生类型化 UI 事件，经既有 host::prepare 事务验证后提交，不执行 JS，不开放剧情跳转或 IO。需要赋值、确认等复合逻辑时继续使用 event + on.ui/ctx.open/close。UI 3/story 8/save 8、KPAK 1/2 不变，两种包保留 route 属性。demo 的设置入口和设置页返回已采用直接路由。完整结果见 [v0.8.4 验收](v0.8.4-validation.zh-cn.md)。
+路由产生类型化 UI 事件，经既有 host::prepare 事务验证后提交，不执行 JS，不开放剧情跳转或 IO。需要赋值、确认等复合逻辑时继续使用 event + on.ui/ctx.open/close。UI 3/story 8/save 9、KPAK 1/2 不变，两种包保留 route 属性。demo 的设置入口和设置页返回已采用直接路由。完整结果见 [v0.8.4 验收](v0.8.4-validation.zh-cn.md)。
+
+
+## 31. UI 演出、过场视频与角色音效
+
+UI 演出从 v0.8.4 提供；本手册按 v0.9.0 的 story 8/UI 3/save 9 说明。完整边界见 [落地计划](ui-presentation-implementation-plan.zh-cn.md) 与 [验收](ui-presentation-validation.zh-cn.md)。
+
+### 31.1 视频统一放在 UI
+
+v0.9.0 起，frame 不再接受 video，剧情中途插播也使用 UI sequence。普通视频演示可 finish=return 回到原页或 finish=open:ID 打开目标页；需要剧情/页面互相唤起时，使用第 32 节的生命周期及隐藏交接槽。视频不再自行向 Controller 提交 Advance。
+
+### 31.2 声明式演出
+
+`ui-media` 可通过已有 include 合并，多文件声明统一校验：
+
+```xml
+<ui-media>
+  <sound id="ui.character">
+    <clip asset="voice.lin" actor="lin" weight="2"/>
+    <clip asset="se.knock" weight="1"/>
+  </sound>
+  <sequence id="opening" finish="return" skippable="true">
+    <fade target="welcomePanel" from="0" to="1" duration="800"/>
+    <sound ref="ui.character"/>
+    <video asset="video.intro"/>
+    <fade target="welcomePanel" from="0" to="1" duration="800"/>
+  </sequence>
+</ui-media>
+<screen id="welcome" sequence="opening">
+  <panel id="welcomePanel" width="1280" height="720" color="#182638">
+    <label id="welcomeText" width="800" height="60" text="欢迎"/>
+  </panel>
+</screen>
+```
+
+顶层页面首次进入自动启动 screen.sequence；同页重绘、finish=return 和剧情自循环不反复触发。JS 的 `ctx.sequence("opening")` 显式启动一次，不能重入。fade 对 UI 控件/容器应用继承透明度，包含文字、按钮与子控件；目标必须为非 repeat 模板节点的全局 ID。from/to 为有限 0–1（默认 0/1），duration 为 1–10000 毫秒（默认 400），采用 smoothstep。步骤顺序执行，完成保留最终透明度，离开页面或剧情切换时清除；不支持并行轨道、循环、任意 JS 计时回调或动画完成 JS 回调。
+
+演出期间底层输入、自动播放、快进与保存受阻。skippable 默认为 true，点击主鼠标按钮或空格立即完成整个序列、设置最终透明度并执行结束路由一次；未执行的声音/视频不补播，该输入不穿透到剧情。false 时不能跳过。UI 时钟独立于菜单的剧情暂停，失焦/提示/调试暂停冻结。已有自动档等待呈现完成后才可启动，显式提前启动报错；自动页面触发会等待。热更候选延后到演出结束，成功替换不重播当前页自动演出；设备重建取消演出。运行失败取消并提示，保留当前剧情和未消耗的隐藏槽，不执行结束路由。
+
+每份 UI 最多 64 个 sound 组、每组 64 候选、64 个 sequence、每个 64 步，演出总长度（含视频）不超过 600 秒。所有视频/音频仍通过 ContentSource 及原解码预算准备。时间、随机结果、播放指针和淡入进度不入 Model、存档或 UI 变量。
+
+### 31.3 单一音效、随机组与排除
+
+```xml
+<button id="tap" width="180" height="44" text="敲门" sound="se.knock"/>
+<button id="voice" width="180" height="44" text="随机台词" sound="ui.character"/>
+<button id="backWithSound" width="180" height="44" text="返回" route="close" sound="se.knock"/>
+```
+
+sound 属性仅用于 button，可单独使用，也可与 event 或 route 组合；event/route 仍互斥。音效在路由/回调整批验证并提交成功后才播放。JS `ctx.playSound("ui.character")` 或 `ctx.playSound("se.knock")` 同样有效。为避免跨 IO 回滚歧义，声音/演出命令只能与 UI 局部赋值、页面命令及本节音效偏好组合，不能同批混合普通剧情推进、存读档、settings/profile 等操作，也不能在 game.enter 中调用；页面关闭回调的 resume 为独立结束事务，不与新声音/序列同批。
+
+clip.asset 必须是已声明 Audio，actor 可省略，存在时必须是 character ID；同一资产在所有组中的角色归属必须一致。weight 为 1–1000 整数，默认 1。enabled 为作者控制的 bool，默认 true；任何声明中 enabled=false 的资源对整个 UI 音效系统禁用，不能经另一组或直接资源引用绕过。sound/sequence ID 最多 128 字节且不能含空白；sound 组 ID 不得与 Audio 资源 ID 重名，同组不能重复资产。
+
+宿主先按作者禁用、总开关、玩家排除资产、玩家禁用角色过滤，再在余下候选中无偏带权抽取；全被排除时静音，不回退到禁用资源。只有这一呈现层使用随机源，剧情 QuickJS 仍不开放随机/时钟。UI 声音最多 4 路，超出停止最早的一路，遵循 settings.muted/se_volume/失焦；菜单仍可播放。角色禁用/资源排除提交后立即停止相应在播 UI 声音。只控制 UI 声音，不关闭剧情 frame 的 voice/se 或 BGM；若希望角色选择同样影响剧情配音，应另行设计剧情音频策略。
+
+### 31.4 玩家偏好与绑定
+
+```js
+on.ui("role", ctx => ctx.soundActor("lin", ctx.value));
+on.ui("exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
+on.ui("ui-audio", ctx => ctx.soundEnabled(ctx.value));
+on.ui("watch", ctx => ctx.sequence("opening"));
+```
+
+只接受严格 bool 和已声明的角色/Audio ID。偏好保存为存档目录内独立 `ui-audio.json`（schema 1、story_id、enabled、disabled_actors、excluded 完整字段），原子替换，失败不提交本批 UI 状态/声音；坏文件提示并采用默认值，未知旧 ID 保留排除意图但不参与当前选择。不随剧情槽读档/重开回滚，不打包、不触发工程热更。存档仍只保存剧情变量/位置/历史。
+
+只读 bool 绑定：`audio.enabled`、`audio.actor.lin`（true=启用）、`audio.excluded.voice.lin`（true=排除）。角色或资产 ID 中的点按整个 ID 查找，不拆层级；配合 toggle 的 value 与上述事件使用。实际示例见 games/demo/ui/presentation.xml 和 scripts/ui.js。
+
+
+### 31.5 XML 参数速查
+
+以下标签均使用严格属性白名单；资源引用填写 story.assets 的 ID，不填写文件路径。ui-media 放在 ui 根下，不放在 screen 内；每份源文件最多一组，可通过 include 汇总。
+
+| 标签/属性 | 必填或默认 | 含义 |
+| --- | --- | --- |
+| `sound.id` | 必填 | 音效组 ID；与 Audio 资源 ID 不重名 |
+| `clip.asset` | 必填 | 已声明 Audio 资源 ID；每组 1–64 个 clip，同组资源不重复 |
+| `clip.actor` | 可选 | 已声明 character ID；同资源跨组必须保持一致归属，包括是否省略 actor |
+| `clip.weight` | 默认 1 | 整数 1–1000；过滤后按剩余权重抽取 |
+| `clip.enabled` | 默认 true | 作者是否允许 UI 播放；任何组声明 false 都会禁用此资源的 UI 播放 |
+| `sequence.id` | 必填 | 演出 ID，供 screen.sequence / ctx.sequence 使用 |
+| `sequence.finish` | 默认 return | return 保留启动时页面栈；close 弹出启动页；open:ID 按目标 modal 属性压栈或替换根页 |
+| `sequence.skippable` | 默认 true | 是否允许鼠标主键/空格跳过整个序列 |
+| `fade.target` | 必填 | 非 repeat 模板内的 UI 节点 ID；容器透明度传递给子节点 |
+| `fade.from` / `fade.to` | 默认 0 / 1 | 有限数值 0–1；不自动读取控件此前透明度 |
+| `fade.duration` | 默认 400 | 毫秒，有限数值 1–10000 |
+| `video.asset` | 必填 | 已声明 Video 资源 ID；跳过策略来自所属 sequence，无 advance 属性 |
+| `sound.ref`（sequence 内） | 必填 | Audio 资源 ID 或已声明音效组 ID，进入此步骤时触发一次 |
+| `screen.sequence` | 可选 | 自动演出 ID；页面成为顶层时触发 |
+| `button.sound` | 可选 | 点击成功提交后播放的 Audio 资源或音效组 ID |
+
+根 ui-media 中的 `<sound id="...">` 定义组，sequence 中的 `<sound ref="..."/>` 执行播放，两者不能交换属性。一个 clip 就是固定单音效组；不需要角色归属或候选配置时也可直接播放 Audio ID。组外直接引用仍遵守该资源的角色/禁用配置。
+
+例如组内两条音效权重为 2 和 1：两条均可用时概率分别为 2/3 和 1/3；排除第一条后第二条概率为 1；全部排除后静音。解除玩家排除不会覆盖作者的 enabled=false，也不会自动恢复仍被禁用的角色。
+
+### 31.6 在已有工程中接入的完整示例
+
+以下示例可直接加入 games/demo；自建工程需先在 story 中声明 `video.intro`、`video.credits` 两个 Video 资源、`voice.lin`、`se.knock` 两个 Audio 资源及 `lin` 角色。示例沿用已有非模态 `hud` 页面，不重复声明它；节点/组/事件名使用 api 前缀，避免和 demo 原页面重名。
+
+**第一步：** 在现有 UI 入口根中添加 `<include src="ui/api-presentation.xml"/>`，再创建下面的子文件。入口 initial 保持原 hud；通过按钮打开演示页，页面自动淡入。
+
+```xml
+<!-- ui/api-presentation.xml -->
+<ui schema="3">
+  <ui-media>
+    <sound id="api.roles">
+      <clip asset="voice.lin" actor="lin" weight="2"/>
+      <clip asset="se.knock" weight="1"/>
+    </sound>
+    <sequence id="api.reveal">
+      <fade target="apiPanel" from="0" to="1" duration="800"/>
+    </sequence>
+    <sequence id="api.fade">
+      <fade target="apiPanel" from="1" to="0" duration="600"/>
+      <sound ref="se.knock"/>
+      <fade target="apiPanel" from="0" to="1" duration="600"/>
+    </sequence>
+    <sequence id="api.intro" finish="return">
+      <video asset="video.intro"/>
+    </sequence>
+    <sequence id="api.credits" finish="open:hud">
+      <video asset="video.credits"/>
+    </sequence>
+  </ui-media>
+  <screen id="api-menu" sequence="api.reveal">
+    <panel id="apiPanel" x="150" y="90" width="980" height="540" color="#182638">
+      <label id="apiTitle" x="30" y="30" width="800" height="44" text="演出与角色音效" font-size="28"/>
+      <button id="apiBack" x="840" y="30" width="100" height="44" text="返回" route="close"/>
+      <button id="apiFade" x="30" y="120" width="260" height="44" text="淡出与淡入" event="api-fade"/>
+      <button id="apiIntro" x="330" y="120" width="260" height="44" text="片头：回到本页" event="api-intro"/>
+      <button id="apiCredits" x="630" y="120" width="300" height="44" text="片尾：返回剧情界面" event="api-credits"/>
+      <button id="apiSingle" x="30" y="200" width="260" height="44" text="固定敲门声" sound="se.knock"/>
+      <button id="apiRandom" x="330" y="200" width="360" height="44" text="随机配音或敲门声" sound="api.roles"/>
+      <toggle id="apiMaster" x="30" y="290" width="800" height="38" text="启用 UI 音效" value="audio.enabled" event="api-master"/>
+      <toggle id="apiActor" x="30" y="350" width="800" height="38" text="启用凛的 UI 音效" value="audio.actor.lin" event="api-actor"/>
+      <toggle id="apiExclude" x="30" y="410" width="800" height="38" text="排除 voice.lin 这一条" value="audio.excluded.voice.lin" event="api-exclude"/>
+      <label id="apiHint" x="30" y="480" width="900" height="35" text="演出中点击或按空格跳过，角色偏好在重启后保留。"/>
+    </panel>
+  </screen>
+</ui>
+```
+
+**第二步：** 在现有 hud 的可见、可交互容器内增加入口按钮；坐标按项目布局调整，不要放进只在某些剧情中显示的容器。
+
+```xml
+<button id="apiOpen" x="260" y="160" width="220" height="44"
+        text="打开演出示例" route="open:api-menu"/>
+```
+
+**第三步：** 创建 JS 文件，并在现有 story.scripts 分组增加 `<script src="scripts/api-presentation.js"/>`。若把回调合入已加载 JS，则不必增加 script 项；同名 on.ui 事件不要重复注册。
+
+```js
+// scripts/api-presentation.js
+on.ui("api-fade", ctx => ctx.sequence("api.fade"));
+on.ui("api-intro", ctx => ctx.sequence("api.intro"));
+on.ui("api-credits", ctx => ctx.sequence("api.credits"));
+on.ui("api-master", ctx => ctx.soundEnabled(ctx.value));
+on.ui("api-actor", ctx => ctx.soundActor("lin", ctx.value));
+on.ui("api-exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
+```
+
+三个开关的值均由只读绑定恢复，作者不需要再用 UI 变量复制偏好。关闭凛后，随机组只剩敲门声；排除 voice.lin 也会让它无法经直接资源引用播放。演出页返回按钮关闭当前模态页；片尾的 open:hud 目标必须是 modal=false 才会直接回到根剧情界面。finish=return 不会自动退出当前页，也不会推进剧情。
+
+要由同一事件先开页面再播放，可将入口改为 event 并注册 `ctx.open("api-menu"); ctx.sequence("api.intro");`，这会显式启动片头而不再额外启动该页的自动淡入。不要同时保留入口的 route。通常采用示例中的“页面自动淡入、按钮显式播放”更容易组织演出。
+
+### 31.7 排错入口
+
+未知属性时先确认 video 只在 UI sequence 中、skippable 写在 sequence；frame.video、ctx.skipVideo 和 game.videoPlaying/game.videoSkippable 均已移除。淡出最终透明度会保留，需要回到可见界面时补一段 to=1 或路由到其他页。无声时检查 muted/se_volume、UI 总开关、角色、单条排除和作者 enabled。交接与生命周期排错见第 32 节。
+
+## 32. v0.9.0 幕与页面生命周期、隐藏交接槽
+
+本版应用版本 v0.9.0；story 8/UI 3 保留，存档为唯一当前 **save 9**，demo content-version=9，KPAK 1/2 不变。旧 save 8 不迁移、不补字段。旧 frame 视频接口只在归档手册说明，运行时不保留兼容分支。实现依据见 [落地计划](v0.9.0-implementation-plan.zh-cn.md) 与 [验收](v0.9.0-validation.zh-cn.md)。
+
+### 32.1 注册生命周期
+
+```js
+on.frameEnter("opening", ctx => ctx.setUi("status", "进入开场"));
+on.frameExit("opening", ctx => ctx.open("opening-movie"));
+on.screenOpen("opening-movie", ctx => ctx.sequence("opening-sequence"));
+on.screenClose("opening-movie", ctx => ctx.resume("question"));
+```
+
+| 注册方法 | 触发时机 | ID 与回调 |
+| --- | --- | --- |
+| `on.frameEnter(frame, fn)` | 正常开始进入该幕；UI 进入新目标时也触发；恢复已进入的同幕不重放 | frame 可用实际 ID 或稳定 name；同一实际幕不可按 ID/name 重复注册同种回调 |
+| `on.frameExit(frame, fn)` | 控制器已验证可推进目标、变量和条件后，当前幕即将离开 | 自循环也触发；补全文字、无有效推进、隐藏选项失败不触发；end 不凭空产生退出 |
+| `on.screenOpen(screen, fn)` | 页面进入候选栈；根替换、压栈、启动/隐藏槽恢复都适用 | screen 必须存在；只被上层覆盖不算关闭 |
+| `on.screenClose(screen, fn)` | 页面从候选栈移除 | 从顶层向下关闭；随后由下向上打开新增页面；仅重绘不触发 |
+
+四种注册可省略，fn 必须是同步函数并返回 undefined；回调按每次独立 QuickJS 隔离执行。普通参数快照沿用 on.ui：ctx.vars 只读，ctx.ui 为事件开始时 UI 变量，ctx.game.frameId 对具名幕给出 name。幕 exit 读取旧幕快照，幕 enter 读取候选幕快照；离幕交给 UI 期间剧情尚未提交，UI 读取保留的旧剧情，待续目标/变量由隐藏槽持有；进入幕触发 UI 时，该幕与 UI 一起提交，UI 读取该幕快照。
+
+新生命周期允许 open/close/setUi/message/playSound/sequence/present；离幕 sequence 需要同批打开 UI 页，推荐只在 frameExit 中打开页面、在 screenOpen 中启动序列；**只有 screenClose 额外允许 resume**。普通 on.ui 也可 present/resume。生命周期不允许 setting、unlock、存读档、普通 advance/choose/restart、任意变量修改或 IO。原有 game.enter 保持自己的白名单；正常进入时顺序为旧 frameExit → game.enter → 新 frameEnter；exit 已打开交接页时，game.enter/新 frameEnter 延后到续接提交前。读档/隐藏槽恢复及历史校验不重放 frameEnter/Exit；隐藏槽恢复不重放 game.enter，保留隐藏 UI 变量；普通存读档仍沿用既有 game.enter 恢复规则。
+
+页面回调也只生成候选计划，不在绘制时执行。同一事务所有回调合计最多 32 条命令、页面生命周期最多 16 次派发，一次最多启动一个序列、一个返回操作；循环开关、重复模态页、超限、非法目标或回调异常拒绝整个事务，旧剧情/UI/音频不部分提交。UI 返回及进入幕交接同样支持场景断点：断点暂停期间隐藏槽不提前写成已完成，继续成功提交后才更新。XML 节点 event 不可伪造这些保留生命周期事件。
+
+### 32.2 剧情即将结束时插播视频
+
+下面三个部分合入既有工程：story 已有 opening/question 的正常剧情路由，已声明 video.intro 和非模态 hud；在 UI 根加入 ui-media 与 screen，在已加载 JS 中加入回调。若已有同名注册，请合并到原回调而不重复声明。
+
+```xml
+<!-- UI 根的 ui-media 内；已有 ui-media 时只添加 sequence -->
+<sequence id="opening-sequence" finish="close" skippable="true">
+  <video asset="video.intro"/>
+</sequence>
+```
+
+```xml
+<!-- UI 根下；该页是模态页，hud 留在下层 -->
+<screen id="opening-movie" pause="true">
+  <label id="openingMovieHint" width="800" height="50" text="开场视频"/>
+</screen>
+```
+
+```js
+// 剧情推进仍在剧情 JS 中声明，变量更新会和待续位置一起保存。
+on.advance("opening", ctx => "question");
+on.frameExit("opening", ctx => ctx.open("opening-movie"));
+on.screenOpen("opening-movie", ctx => ctx.sequence("opening-sequence"));
+on.screenClose("opening-movie", ctx => ctx.resume());
+```
+
+流程：用户确认离开 opening → 验证 opening→question 的正常路由和更新 → exit 打开 UI → 原子保存隐藏槽 → screenOpen 自动启动视频 → 视频自然结束或被跳过 → finish=close → screenClose → resume 从隐藏槽续接 question → 执行 game.enter/frameEnter 并提交。确认期间显示旧幕，不提前执行 question 的进入音频；跳过输入被消费，不再推进 question。
+
+`ctx.resume()` 恢复完整待续 Session，因此正常路由中的变量更新只应用一次；不要用普通自动槽/手动槽模拟这个交接。若要指定不同目标，可用 `ctx.resume("other-frame")`；目标按 ID/name 解析，保留待续变量，并在 history 中记录一条显式 UI 返回边，不伪造普通选项或路由。若目标就是待续位置，不重复增加历史边。指定目标不允许给变量赋值或指定路径。
+
+### 32.3 UI 主动进入剧情
+
+```js
+on.ui("watch-intro", ctx => ctx.present("opening-movie"));
+on.screenOpen("opening-movie", ctx => ctx.sequence("opening-sequence"));
+on.screenClose("opening-movie", ctx => ctx.resume("opening"));
+```
+
+present 保存当前剧情及 UI 交接点，再按页面 modal 规则打开页面；已经有活动交接时禁止嵌套 present。普通 open 仍用于设置、画廊等页面；从幕生命周期打开页面、或通过 UI 事件启动含视频的 sequence 时，宿主也会建立隐藏交接槽。
+
+resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，以当前 Session 建立一次隐藏返回事务。省略目标时回到待续点；指定目标时记录显式 UI 返回，变量按同样的类型/范围规则保留。未显式切页时恢复原页面栈；若从独立主菜单进入 hud，可在回调中先 `ctx.open("hud")` 再 `ctx.resume("opening")`。hud 必须为非模态根页面。
+
+离幕时打开 UI 会保留旧幕和未提交的续接点；进入幕时打开 UI 则将该幕与 UI 一起原子提交，并暂停该幕。返回同一已进入幕只恢复显示，不再次调用 game.enter/frameEnter，避免无条件循环播放。返回不同幕才执行新的进入回调。
+
+返回后新的 frameEnter 若继续打开另一 UI，可形成下一段交接；新的交接会写入同一固定隐藏槽，仍不嵌套解码线程。不要让同幕 frameEnter 与该页 screenClose 无条件互相调用，除非确实要循环播放。返回事务中的 game.enter 不能再混合 CG/设置等持久 IO；应把这些操作放在独立普通交互中，避免把隐藏槽与其他文件当作跨文件原子事务。
+
+### 32.4 隐藏槽、恢复与故障
+
+固定文件为存档目录内 **flow-checkpoint.json**，不开放路径或槽号参数，不显示在手动/普通自动存档页，也不占用 auto-1…10 的 generation。它不依赖 settings.autosave 开关；自动保存关闭时仍保存交接。
+
+| 保存内容 | 说明 |
+| --- | --- |
+| schema 1 / active / exited / entered | 隐藏交接契约、是否待恢复、旧幕退出状态、待续幕是否已进入 |
+| source / continuation | 两份 save 9 快照，分别用于恢复保留剧情与提交待续剧情；加载时完整重放验证 |
+| stack / origin / variables | 当前页栈、交接前页栈、完整 UI 局部变量；标题/图集绑定重新验证并生成 |
+| sequence | 手动启动的演出 ID；恢复时从头播放，不保存视频时间、音轨或 GPU/解释器对象 |
+
+写入使用同目录临时文件和平台原子覆盖，整个 JSON 上限 2MiB。候选条件/脚本/页面/媒体准备和预算检查完成后才写入，成功后才改变呈现与 Session。写入失败保留旧隐藏槽、旧 UI 和剧情，不执行页面结束动作；超出预算也拒绝交接。成功返回写 active=false 墓碑，启动时不会把已完成交接再播放一次；随后普通自动保存仍按自己的规则工作。
+
+启动发现 active 隐藏槽时，先校验故事/内容版本、两份历史、变量、页面栈和资源引用，再恢复 UI；frameEnter/Exit 不重放，screenOpen 会再次执行，演出从零开始。screenOpen 建议只写幂等 UI 初始化与播放命令，不用追加计数模拟业务进度。坏槽或旧内容版本提示后保留文件，从当前工程入口正常显示，不悄悄导入旧格式。正常退出时不把活动隐藏槽标为已消耗，所以视频中关闭程序后重启仍可继续交接。
+
+活动交接暂停底层剧情，禁止普通存读档/重开/设置及其他持久 IO，普通 UI 返回流程除外；UI 视频的失焦/提示/调试暂停仍有效。热更替换延后到交接结束。flow-checkpoint.json 排除出监控与两种资源包，发布时不复制玩家数据。
+
+### 32.5 save 9 与迁移
+
+每条历史新增必填 `resume_to`，普通路由为 null；UI 返回边为实际目标 ID，且 choice_id 必须为 null。加载时普通边重放原 JS 条件/更新/目标，UI 返回边验证目标存在并保持变量不变；终点变量仍必须与重放一致。历史裁剪也推进相同检查点，不因返回 UI 丢失原剧情变量或历史。
+
+```json
+{"frame_id":"question","choice_id":null,"resume_to":"opening"}
+```
+
+这是历史条目的结构示意，不是完整存档；当前完整示例见 [save 9 示例](v0.9.0-save.example.json)。save 8 及缺少 resume_to 的输入拒绝，旧存档文件不会被自动迁移或删除。视频从 frame 移到 UI、路由或生命周期改变时，作者须提升 content-version；demo 已从 8 提升为 9。
+
+### 32.6 排错
+
+| 现象 | 检查 |
+| --- | --- |
+| frame 下 video 报错 | 删除该子节点，把视频放进 UI sequence，并按 32.2 注册交接 |
+| 视频结束后没有剧情变化 | finish 只管理 UI；要续接剧情，在 screenClose 注册 resume |
+| 无法关闭唯一根页 | 把视频页面作为模态页压在 hud 上，或 finish=open:目标根页 |
+| 隐藏交接已存在 | 不要嵌套 present；先完成/取消当前页返回。普通 open 不要求再创建嵌套交接 |
+| 生命周期不断开关页 | 检查 on.screenOpen 的 close 和 on.screenClose 的 open；事务会在预算内拒绝 |
+| 返回幕不存在/变量报错 | frame 参数使用有效 ID/name；检查正常路由变量更新及待续目标条件，失败保留隐藏槽 |
+| 重启又播放视频 | 活动交接按设计从头重播；成功返回后 active=false，不应重复恢复 |
+| 旧存档拒绝 | v0.9.0 仅 save 9；保留旧文件供历史版本使用，当前版本不迁移 |

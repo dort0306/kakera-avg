@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <story schema="8">
   <frames>
-    <frame id="intro"><text>片头动画：可以打开历史暂停，或点击跳过。</text><video asset="video.intro" skippable="true" advance="true" /></frame>
-    <frame id="credits"><text>片尾动画结束，感谢体验 v0.6。</text><video asset="video.credits" skippable="true" advance="false" /></frame>
+    <frame id="intro"><text>片头即将播放。继续后由 UI 播放视频，结束或跳过后回到开场。</text></frame>
+    <frame id="credits"><text>片尾通过 UI 自动播放，结束或跳过后回到开场。</text></frame>
     <frame id="live2d.stage" visual="live2d.stage" speaker="haru">
       <text>这是 Haru 的真实 Live2D 模型。可测试待机、点击动作、表情与参数；菜单会暂停动画，存档会记录当前测试场景。</text>
       <audio bgm="bgm.room" />

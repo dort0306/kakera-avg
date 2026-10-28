@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <ui-media>
+    <sound id="ui.character"><clip asset="voice.lin" actor="lin" weight="2"/><clip asset="se.knock" weight="1"/></sound>
+    <sequence id="ui.reveal"><fade target="presentationPanel" from="0" to="1" duration="1200"/></sequence>
+    <sequence id="ui.fade"><fade target="presentationPanel" from="1" to="0" duration="1200"/><sound ref="se.knock"/><fade target="presentationPanel" from="0" to="1" duration="1200"/></sequence>
+    <sequence id="ui.intro"><video asset="video.intro"/></sequence>
+    <sequence id="ui.credits" finish="open:hud"><video asset="video.credits"/></sequence>
+    <sequence id="story.intro" finish="close"><video asset="video.intro"/></sequence>
+    <sequence id="story.credits" finish="close"><video asset="video.credits"/></sequence>
+  </ui-media>
+  <screen id="presentation" sequence="ui.reveal">
+    <panel id="presentationPanel" x="150" y="100" width="980" height="520" color="#182638F5">
+      <label id="presentationTitle" x="30" y="25" width="840" height="48" text="UI 演出与角色音效" font-size="28"/>
+      <button id="presentationClose" x="840" y="25" width="100" height="40" text="返回" route="close" image="ui.button"/>
+      <label id="presentationHelp" x="30" y="85" width="910" height="60" text="进入页面自动淡入。演出期间点击或按空格跳过；完成后恢复交互。UI 视频不改变剧情位置。" font-size="21"/>
+      <button id="presentationFade" x="30" y="165" width="250" height="44" text="淡出 → 音效 → 淡入" event="ui-fade" image="ui.button"/>
+      <button id="presentationIntro" x="310" y="165" width="260" height="44" text="片头（回到本页）" event="ui-intro" image="ui.button"/>
+      <button id="presentationCredits" x="600" y="165" width="330" height="44" text="片尾（返回剧情界面）" event="ui-credits" image="ui.button"/>
+      <button id="presentationSingle" x="30" y="240" width="300" height="44" text="单一音效" sound="se.knock" image="ui.button"/>
+      <button id="presentationRandom" x="370" y="240" width="360" height="44" text="随机（凛配音 / 敲门声）" sound="ui.character" image="ui.button"/>
+      <toggle id="presentationAudio" x="30" y="320" width="500" height="38" text="启用 UI 音效" value="audio.enabled" event="ui-sound-enabled"/>
+      <toggle id="presentationLin" x="30" y="370" width="500" height="38" text="启用凛的角色 UI 音效" value="audio.actor.lin" event="ui-sound-lin"/>
+      <toggle id="presentationExclude" x="30" y="420" width="600" height="38" text="排除凛的这一条音效（voice.lin）" value="audio.excluded.voice.lin" event="ui-sound-exclude"/>
+      <label id="presentationNote" x="30" y="475" width="910" height="30" text="角色开关和排除列表独立保存；不改变剧情配音、BGM 或剧情存档。" font-size="18"/>
+    </panel>
+  </screen>
+  <screen id="story-intro"><label id="storyIntroCaption" width="800" height="50" text="片头播放中"/><button id="storyIntroClose" x="1030" y="650" width="220" height="44" text="关闭并继续剧情" route="close"/></screen>
+  <screen id="story-credits"><label id="storyCreditsCaption" width="800" height="50" text="片尾播放中"/><button id="storyCreditsClose" x="1030" y="650" width="220" height="44" text="关闭并继续剧情" route="close"/></screen>
+</ui>

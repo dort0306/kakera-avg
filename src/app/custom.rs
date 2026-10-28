@@ -97,6 +97,7 @@ impl PlayerApp {
         let commands = if custom.definition.enter {
             self.logic.ui_event(
                 &Event {
+                    sound: None,
                     route: None,
                     name: "game.enter".into(),
                     item: Value::Null,
@@ -117,6 +118,17 @@ impl PlayerApp {
             commands,
             true,
         )?;
+        plan.command_count += base.command_count;
+        ensure!(plan.command_count <= 32, "生命周期整批命令超过 32");
+        plan.ui_actions.splice(0..0, base.ui_actions);
+        if matches!(plan.operation, Operation::None) {
+            plan.operation = base.operation;
+        } else {
+            ensure!(
+                matches!(base.operation, Operation::None),
+                "生命周期持久 IO 冲突"
+            );
+        }
         plan.message = plan.message.or(base.message);
         plan.animations.splice(0..0, base.animations);
         plan.portraits.splice(0..0, base.portraits);
@@ -199,11 +211,21 @@ impl PlayerApp {
     pub(super) fn custom_event(&mut self, event: Event) -> Result<()> {
         let custom = &self.custom;
         ensure!(
-            event.name != "game.enter",
+            event.name != "game.enter"
+                && ![
+                    "frame.enter:",
+                    "frame.exit:",
+                    "screen.open:",
+                    "screen.close:"
+                ]
+                .iter()
+                .any(|p| event.name.starts_with(p)),
             "生命周期事件不能作为用户事件触发"
         );
-        let commands = if let Some(route) = &event.route {
+        let mut commands = if let Some(route) = &event.route {
             vec![route.command()]
+        } else if event.name.is_empty() && event.sound.is_some() {
+            Vec::new()
         } else {
             self.logic.ui_event(
                 &event,
@@ -212,6 +234,9 @@ impl PlayerApp {
                 &custom.data.values,
             )?
         };
+        if let Some(id) = &event.sound {
+            commands.push(host::Command::PlaySound { id: id.clone() });
+        }
         let plan = host::prepare(
             &custom.definition,
             &custom.state,
@@ -220,6 +245,14 @@ impl PlayerApp {
             commands,
             false,
         )?;
+        let plan = self.page_lifecycle(plan, &self.session, None)?;
+        if matches!(plan.operation, Operation::Present | Operation::Resume(_)) {
+            return self.commit_page_plan(plan);
+        }
+        ensure!(
+            self.handoff.is_none() || matches!(plan.operation, Operation::None),
+            "交接期间禁止普通剧情/持久 IO 操作"
+        );
         let validate_current = || {
             self.prepared_live2d
                 .validate_commands(&self.story.frames[&self.session.frame_id], &plan.live2d)?;
@@ -234,18 +267,18 @@ impl PlayerApp {
             Operation::Load(_)
                 | Operation::LoadAuto(_)
                 | Operation::Restart
-                | Operation::SkipVideo
                 | Operation::Advance
                 | Operation::Choose(_)
         ) {
             validate_current()?;
         }
+        if matches!(plan.operation, Operation::None) {
+            return self.commit_page_plan(plan);
+        }
+        let ui_prepared = self.prepare_ui_media(&plan)?;
         let refresh = plan.state.stack != custom.state.stack
             || plan.state.slot_page != custom.state.slot_page;
         match &plan.operation {
-            Operation::SkipVideo => {
-                return self.skip_video(Some(plan));
-            }
             Operation::Save(slot, overwrite) => {
                 ensure!(
                     *overwrite || !self.saves.slot_path(*slot).exists(),
@@ -266,13 +299,6 @@ impl PlayerApp {
             }
             Operation::Advance | Operation::Choose(_) => {
                 self.auto_play.set(false);
-                if self.video.playing() {
-                    return if matches!(plan.operation, Operation::Advance) {
-                        self.skip_video(Some(plan))
-                    } else {
-                        Ok(())
-                    };
-                }
                 let intent = match &plan.operation {
                     Operation::Choose(id) => Intent::Choose(id.clone()),
                     _ => Intent::Advance,
@@ -313,10 +339,18 @@ impl PlayerApp {
             Operation::Profile => plan
                 .profile
                 .save(&self.saves.directory().join("profile.json"))?,
+            Operation::UiAudio => {
+                ui_prepared
+                    .prefs
+                    .save(&self.saves.directory().join("ui-audio.json"))?;
+            }
+            Operation::Present | Operation::Resume(_) => unreachable!("handled flow operations"),
             Operation::None => {}
         }
         let saved = matches!(plan.operation, Operation::Save(..));
+        self.persist_page_plan(&plan)?;
         self.commit_ui(plan, refresh || saved);
+        self.apply_ui_media(ui_prepared);
         Ok(())
     }
 }

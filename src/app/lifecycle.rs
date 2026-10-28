@@ -1,0 +1,1007 @@
+use super::*;
+use crate::interface::{
+    self,
+    host::{self, Command, Operation, Plan, State},
+    presentation::Action,
+};
+use crate::save::Snapshot;
+use anyhow::{Context, Result, ensure};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Checkpoint {
+    schema: u32,
+    active: bool,
+    exited: bool,
+    entered: bool,
+    source: Snapshot,
+    continuation: Snapshot,
+    stack: Vec<String>,
+    origin: Vec<String>,
+    variables: crate::model::Variables,
+    #[serde(deserialize_with = "Option::deserialize")]
+    sequence: Option<String>,
+}
+impl PlayerApp {
+    pub(super) fn ui_video_position(&self) -> f64 {
+        self.ui_media.position()
+    }
+    pub(super) fn empty_ui_plan(&self) -> Result<Plan> {
+        host::prepare(
+            &self.custom.definition,
+            &self.custom.state,
+            &self.settings,
+            &self.custom.profile,
+            vec![],
+            false,
+        )
+    }
+    fn merge_lifecycle(&self, mut base: Plan, extra: Plan) -> Result<Plan> {
+        let combined = if let (Operation::Resume(a), Operation::Resume(b)) =
+            (&base.operation, &extra.operation)
+        {
+            ensure!(
+                a.is_none() || b.is_none() || a == b,
+                "关闭回调与原返回目标冲突"
+            );
+            Some(Operation::Resume(a.clone().or(b.clone())))
+        } else {
+            None
+        };
+        ensure!(
+            combined.is_some()
+                || matches!(base.operation, Operation::None)
+                || matches!(extra.operation, Operation::None),
+            "生命周期与原事件的操作冲突"
+        );
+        base.command_count += extra.command_count;
+        ensure!(base.command_count <= 32, "生命周期整批命令超过 32");
+        base.state = extra.state;
+        base.settings = extra.settings;
+        base.profile = extra.profile;
+        if let Some(operation) = combined {
+            base.operation = operation;
+        } else if !matches!(extra.operation, Operation::None) {
+            base.operation = extra.operation;
+        }
+        base.message = extra.message.or(base.message);
+        base.auto_play = extra.auto_play.or(base.auto_play);
+        base.transition = extra.transition.or(base.transition);
+        base.animations.extend(extra.animations);
+        base.portraits.extend(extra.portraits);
+        base.live2d.extend(extra.live2d);
+        base.ui_actions.extend(extra.ui_actions);
+        ensure!(
+            base.ui_actions
+                .iter()
+                .filter(|a| matches!(a, Action::Sequence(_)))
+                .count()
+                <= 1,
+            "一次生命周期只能启动一个演出"
+        );
+        Ok(base)
+    }
+    pub(super) fn lifecycle_hook(
+        &self,
+        plan: Plan,
+        session: &Session,
+        phase: &str,
+        id: &str,
+    ) -> Result<Plan> {
+        let Some(event) = self
+            .custom
+            .definition
+            .lifecycle
+            .get(&format!("{phase}:{id}"))
+        else {
+            return Ok(plan);
+        };
+        let available = self
+            .logic
+            .options(&self.story, session)
+            .map_err(anyhow::Error::msg)?;
+        let snapshot = interface::Data::build(interface::data::Input {
+            definition: &self.custom.definition,
+            story: &self.story,
+            session,
+            available: &available,
+            state: &plan.state,
+            profile: &plan.profile,
+            slots: &self.custom.slots,
+            settings: &plan.settings,
+            complete: true,
+        });
+        let commands = self.logic.ui_event(
+            &interface::Event {
+                sound: None,
+                route: None,
+                name: event.clone(),
+                item: serde_json::Value::Null,
+                value: serde_json::Value::Null,
+            },
+            session,
+            &plan.state.variables,
+            &snapshot.values,
+        )?;
+        for command in &commands {
+            ensure!(
+                matches!(
+                    command,
+                    Command::Open { .. }
+                        | Command::Close
+                        | Command::SetUi { .. }
+                        | Command::Message { .. }
+                        | Command::PlaySound { .. }
+                        | Command::Sequence { .. }
+                        | Command::Present { .. }
+                ) || (phase == "screen.close" && matches!(command, Command::Resume { .. })),
+                "生命周期 {phase} 不允许此命令"
+            );
+        }
+        let extra = host::prepare(
+            &self.custom.definition,
+            &plan.state,
+            &plan.settings,
+            &plan.profile,
+            commands,
+            false,
+        )?;
+        self.merge_lifecycle(plan, extra)
+    }
+    pub(super) fn page_lifecycle(
+        &self,
+        mut plan: Plan,
+        session: &Session,
+        initial: Option<Vec<String>>,
+    ) -> Result<Plan> {
+        let mut current = initial.unwrap_or_else(|| self.custom.state.stack.clone());
+        let mut budget = 0;
+        while current != plan.state.stack {
+            budget += 1;
+            ensure!(budget <= 16, "页面生命周期循环或超过 16 次派发");
+            let common = current
+                .iter()
+                .zip(&plan.state.stack)
+                .take_while(|(a, b)| a == b)
+                .count();
+            if current.len() > common {
+                let page = current.pop().unwrap();
+                plan = self.lifecycle_hook(plan, session, "screen.close", &page)?;
+            } else {
+                let page = plan.state.stack[current.len()].clone();
+                current.push(page.clone());
+                plan = self.lifecycle_hook(plan, session, "screen.open", &page)?;
+            }
+        }
+        Ok(plan)
+    }
+    fn checkpoint(&self, continuation: &Session, plan: &Plan) -> Result<Checkpoint> {
+        Ok(Checkpoint {
+            schema: 1,
+            active: true,
+            exited: continuation != &self.session,
+            entered: continuation == &self.session && self.effects.has_entered,
+            source: Snapshot::capture_committed(&self.story, &self.session)?,
+            continuation: Snapshot::capture_committed(&self.story, continuation)?,
+            stack: plan.state.stack.clone(),
+            origin: self.custom.state.stack.clone(),
+            variables: plan.state.variables.clone(),
+            sequence: plan.ui_actions.iter().find_map(|a| {
+                if let Action::Sequence(id) = a {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            }),
+        })
+    }
+    pub(super) fn begin_handoff(&mut self, continuation: &Session, plan: Plan) -> Result<()> {
+        ensure!(self.handoff.is_none(), "不允许嵌套剧情交接");
+        let mut plan = plan;
+        ensure!(
+            matches!(plan.operation, Operation::None | Operation::Present),
+            "交接不能混合其他 IO 或返回操作"
+        );
+        plan.operation = Operation::None;
+        let prepared = self.prepare_ui_media(&plan)?;
+        let checkpoint = self.checkpoint(continuation, &plan)?;
+        crate::save::atomic_json(
+            &self.saves.directory().join("flow-checkpoint.json"),
+            &checkpoint,
+        )?;
+        self.handoff = Some(checkpoint);
+        self.pending_auto = None;
+        self.auto_play.set(false);
+        self.commit_ui(plan, true);
+        self.apply_ui_media(prepared);
+        self.lifecycle_ready = true;
+        Ok(())
+    }
+
+    pub(super) fn commit_handoff_file(&mut self, checkpoint: Checkpoint) -> Result<()> {
+        crate::save::atomic_json(
+            &self.saves.directory().join("flow-checkpoint.json"),
+            &checkpoint,
+        )?;
+        self.handoff = checkpoint.active.then_some(checkpoint);
+        self.lifecycle_ready = true;
+        Ok(())
+    }
+    pub(super) fn begin_enter_handoff(
+        &mut self,
+        session: Session,
+        available: Vec<String>,
+        mut plan: Plan,
+    ) -> Result<()> {
+        ensure!(
+            self.handoff.is_none()
+                && matches!(plan.operation, Operation::None | Operation::Present),
+            "进入幕不能嵌套交接或混合持久 IO"
+        );
+        plan.operation = Operation::None;
+        let mut checkpoint = self.checkpoint(&session, &plan)?;
+        checkpoint.source = checkpoint.continuation.clone();
+        checkpoint.exited = false;
+        checkpoint.entered = true;
+        let ui_media = self.prepare_ui_media(&plan)?;
+        let live2d = crate::live2d::Live2DPlayer::prepare_with(
+            &self.story.frames[&session.frame_id],
+            &self.prepared_live2d,
+            self.renderer.clone(),
+        )?;
+        let entry = PreparedEntry {
+            session,
+            available,
+            restored: false,
+            force_audio: false,
+            plan,
+            ui_media,
+            live2d,
+            handoff_commit: Some(checkpoint),
+        };
+        if let Some(entry) = self.debug_break(entry) {
+            self.commit_entry(entry)?;
+        }
+        Ok(())
+    }
+    pub(super) fn persist_page_plan(&mut self, plan: &Plan) -> Result<()> {
+        let Some(mut checkpoint) = self.handoff.clone() else {
+            return Ok(());
+        };
+        ensure!(
+            matches!(plan.operation, Operation::None),
+            "交接期间不能混入持久 IO"
+        );
+        checkpoint.stack = plan.state.stack.clone();
+        checkpoint.variables = plan.state.variables.clone();
+        if let Some(id) = plan.ui_actions.iter().find_map(|a| {
+            if let Action::Sequence(id) = a {
+                Some(id.clone())
+            } else {
+                None
+            }
+        }) {
+            checkpoint.sequence = Some(id);
+        } else if !self.ui_media.active() {
+            checkpoint.sequence = None;
+        }
+        if checkpoint.stack == checkpoint.origin {
+            checkpoint.active = false;
+        }
+        crate::save::atomic_json(
+            &self.saves.directory().join("flow-checkpoint.json"),
+            &checkpoint,
+        )?;
+        self.handoff = checkpoint.active.then_some(checkpoint);
+        Ok(())
+    }
+    pub(super) fn commit_page_plan(&mut self, mut plan: Plan) -> Result<()> {
+        match plan.operation.clone() {
+            Operation::Present => return self.begin_handoff(&self.session.clone(), plan),
+            Operation::Resume(target) => return self.resume_handoff(plan, target),
+            _ => {}
+        }
+        ensure!(
+            matches!(plan.operation, Operation::None),
+            "页面演出不能混合其他 IO"
+        );
+        let video = plan.ui_actions.iter().any(|a| {
+            if let Action::Sequence(id) = a {
+                self.custom.definition.media.sequences[id]
+                    .steps
+                    .iter()
+                    .any(|s| matches!(s, interface::presentation::Step::Video(_)))
+            } else {
+                false
+            }
+        });
+        if video && self.handoff.is_none() {
+            return self.begin_handoff(&self.session.clone(), plan);
+        }
+        plan.operation = Operation::None;
+        let prepared = self.prepare_ui_media(&plan)?;
+        self.persist_page_plan(&plan)?;
+        let refresh = plan.state.stack != self.custom.state.stack
+            || plan.state.slot_page != self.custom.state.slot_page;
+        self.commit_ui(plan, refresh);
+        self.apply_ui_media(prepared);
+        Ok(())
+    }
+    fn resume_handoff(&mut self, mut plan: Plan, target: Option<String>) -> Result<()> {
+        ensure!(plan.ui_actions.is_empty(), "返回剧情不能同时启动演出或音效");
+        let mut checkpoint = if let Some(c) = &self.handoff {
+            c.clone()
+        } else {
+            self.checkpoint(&self.session, &plan)?
+        };
+        // Read the durable slot again: a damaged file must never be replaced by an unchecked jump.
+        if self.handoff.is_some() {
+            checkpoint = serde_json::from_slice(&crate::save::read_json_bytes(
+                &self.saves.directory().join("flow-checkpoint.json"),
+            )?)?;
+            ensure!(
+                checkpoint.schema == 1 && checkpoint.active,
+                "隐藏槽已消耗或格式错误"
+            );
+            let (source, _, _) = self.validated_checkpoint(&checkpoint)?;
+            ensure!(source == self.session, "隐藏槽来源已改变");
+        }
+        let mut target = target;
+        if plan.state.stack == self.custom.state.stack && plan.state.stack != checkpoint.origin {
+            plan.state.stack = checkpoint.origin.clone();
+            plan = self.page_lifecycle(plan, &self.session, None)?;
+            if let Operation::Resume(frame) = &plan.operation {
+                target = frame.clone();
+            }
+        }
+        let mut session = checkpoint
+            .continuation
+            .restore_with(&self.story, &self.logic)?;
+        if let Some(target) = target {
+            let actual = self
+                .story
+                .resolve_frame(&target)
+                .context("返回目标场景不存在")?;
+            if actual != session.frame_id {
+                session = controller::transition_with(
+                    &self.story,
+                    &session,
+                    controller::Intent::Resume(actual.into()),
+                    &self.logic,
+                )?
+                .session;
+            }
+        }
+        let already_entered =
+            checkpoint.entered && session.frame_id == checkpoint.continuation.frame_id;
+        plan.operation = Operation::None;
+        let return_stack = plan.state.stack.clone();
+        let available = self
+            .logic
+            .options(&self.story, &session)
+            .map_err(anyhow::Error::msg)?;
+        if !checkpoint.exited && session != self.session {
+            plan =
+                self.lifecycle_hook(plan, &self.session, "frame.exit", &self.session.frame_id)?;
+        }
+        let mut entry_plan = if already_entered {
+            plan
+        } else {
+            self.prepare_ui_entry(&session, &available, false, Some(plan))?
+        };
+        if !already_entered {
+            entry_plan =
+                self.lifecycle_hook(entry_plan, &session, "frame.enter", &session.frame_id)?;
+        }
+        ensure!(
+            matches!(entry_plan.operation, Operation::None | Operation::Present),
+            "返回剧情的 enter 不能混合持久 IO"
+        );
+        let next_handoff = entry_plan.state.stack != return_stack
+            || entry_plan
+                .ui_actions
+                .iter()
+                .any(|a| matches!(a, Action::Sequence(_)))
+            || matches!(entry_plan.operation, Operation::Present);
+        if next_handoff {
+            entry_plan = self.page_lifecycle(entry_plan, &session, Some(return_stack.clone()))?;
+        }
+        ensure!(
+            matches!(entry_plan.operation, Operation::None | Operation::Present),
+            "返回后页面不能再次同时返回剧情"
+        );
+        entry_plan.operation = Operation::None;
+        let prepared_ui = self.prepare_ui_media(&entry_plan)?;
+        let live2d = crate::live2d::Live2DPlayer::prepare_with(
+            &self.story.frames[&session.frame_id],
+            &self.prepared_live2d,
+            self.renderer.clone(),
+        )?;
+        checkpoint.active = next_handoff;
+        checkpoint.continuation = Snapshot::capture_with(&self.story, &session, &self.logic)?;
+        checkpoint.source = checkpoint.continuation.clone();
+        checkpoint.origin = return_stack;
+        checkpoint.stack = entry_plan.state.stack.clone();
+        checkpoint.variables = entry_plan.state.variables.clone();
+        checkpoint.exited = false;
+        checkpoint.entered = true;
+        checkpoint.sequence = entry_plan.ui_actions.iter().find_map(|a| {
+            if let Action::Sequence(id) = a {
+                Some(id.clone())
+            } else {
+                None
+            }
+        });
+        let entry = PreparedEntry {
+            ui_media: prepared_ui,
+            handoff_commit: Some(checkpoint),
+            session,
+            restored: false,
+            force_audio: true,
+            available,
+            plan: entry_plan,
+            live2d,
+        };
+        if let Some(entry) = self.debug_break(entry) {
+            self.commit_entry(entry)?;
+        }
+        Ok(())
+    }
+
+    fn validated_checkpoint(&self, c: &Checkpoint) -> Result<(Session, Session, State)> {
+        ensure!(c.schema == 1, "未知隐藏槽 schema");
+        let source = c.source.restore_with(&self.story, &self.logic)?;
+        let continuation = c.continuation.restore_with(&self.story, &self.logic)?;
+        ensure!(
+            !c.entered || (source == continuation && !c.exited),
+            "隐藏已进入标记不一致"
+        );
+        ensure!(c.exited == (source != continuation), "隐藏槽离幕标记不一致");
+        if source != continuation {
+            let previous = continuation
+                .history
+                .iter()
+                .rev()
+                .nth(1)
+                .context("隐藏续接历史缺少来源")?;
+            ensure!(
+                previous.frame_id == source.frame_id && previous.resume_to.is_none(),
+                "隐藏续接不是普通剧情交接"
+            );
+            let intent = previous
+                .choice_id
+                .as_ref()
+                .map(|id| controller::Intent::Choose(id.clone()))
+                .unwrap_or(controller::Intent::Advance);
+            let expected = controller::transition_with(&self.story, &source, intent, &self.logic)?;
+            ensure!(
+                expected.entered && expected.session == continuation,
+                "隐藏源状态与续接状态不一致"
+            );
+        }
+        let d = &self.custom.definition;
+        ensure!(c.variables.len() == d.variables.len(), "隐藏 UI 变量不完整");
+        for (id, decl) in &d.variables {
+            crate::model::rules::validate_value(
+                decl,
+                c.variables.get(id).context("隐藏 UI 变量缺失")?,
+            )
+            .map_err(anyhow::Error::msg)?;
+        }
+        for stack in [&c.stack, &c.origin] {
+            ensure!(!stack.is_empty() && stack.len() <= 8, "隐藏 UI 栈超限");
+            let mut seen = std::collections::BTreeSet::new();
+            for (i, id) in stack.iter().enumerate() {
+                let page = d.screens.get(id).context("隐藏页面不存在")?;
+                ensure!(seen.insert(id) && page.modal == (i > 0), "隐藏 UI 栈非法");
+            }
+        }
+        ensure!(
+            c.sequence
+                .as_ref()
+                .is_none_or(|id| d.media.sequences.contains_key(id)),
+            "隐藏演出不存在"
+        );
+        let mut state = State::new(d);
+        state.stack = c.stack.clone();
+        state.variables = c.variables.clone();
+        let checked = host::prepare(
+            d,
+            &state,
+            &self.settings,
+            &self.custom.profile,
+            vec![],
+            false,
+        )?;
+        Ok((source, continuation, checked.state))
+    }
+    pub(super) fn restore_handoff(&mut self) -> Result<bool> {
+        let path = self.saves.directory().join("flow-checkpoint.json");
+        if !path.exists() {
+            return Ok(false);
+        }
+        let result = (|| -> Result<bool> {
+            let checkpoint: Checkpoint =
+                serde_json::from_slice(&crate::save::read_json_bytes(&path)?)?;
+            ensure!(checkpoint.schema == 1, "未知隐藏槽 schema");
+            if !checkpoint.active {
+                return Ok(false);
+            }
+            let (session, _, state) = self.validated_checkpoint(&checkpoint)?;
+            let d = &self.custom.definition;
+            let mut plan = host::prepare(
+                d,
+                &state,
+                &self.settings,
+                &self.custom.profile,
+                vec![],
+                false,
+            )?;
+            plan = self.page_lifecycle(plan, &session, Some(vec![]))?;
+            if !plan
+                .ui_actions
+                .iter()
+                .any(|a| matches!(a, Action::Sequence(_)))
+                && let Some(id) = &checkpoint.sequence
+            {
+                let extra = host::prepare(
+                    d,
+                    &plan.state,
+                    &plan.settings,
+                    &plan.profile,
+                    vec![Command::Sequence { id: id.clone() }],
+                    false,
+                )?;
+                plan = self.merge_lifecycle(plan, extra)?;
+            }
+            ensure!(
+                matches!(plan.operation, Operation::None),
+                "恢复页面生命周期不能更改剧情"
+            );
+            let available = self
+                .logic
+                .options(&self.story, &session)
+                .map_err(anyhow::Error::msg)?;
+
+            let live2d = crate::live2d::Live2DPlayer::prepare_with(
+                &self.story.frames[&session.frame_id],
+                &self.prepared_live2d,
+                self.renderer.clone(),
+            )?;
+            let prepared_ui = self.prepare_ui_media(&plan)?;
+            self.commit_entry(PreparedEntry {
+                ui_media: prepared_ui,
+                handoff_commit: None,
+                session,
+                restored: true,
+                force_audio: true,
+                available,
+                plan,
+                live2d,
+            })?;
+            self.pending_auto = None;
+            self.handoff = Some(checkpoint);
+            self.lifecycle_ready = true;
+            Ok(true)
+        })();
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.lifecycle_ready = true;
+                let text = format!("隐藏交接槽无效，未恢复：{error:#}");
+                self.message = Some(
+                    self.message
+                        .take()
+                        .map(|s| format!("{s}\n{text}"))
+                        .unwrap_or(text),
+                );
+                Ok(false)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    fn write_game(root: &Path, extra: &str) -> Result<()> {
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo/assets/fonts/chinese.otf"),
+            root.join("font.otf"),
+        )?;
+        std::fs::write(
+            root.join("story.xml"),
+            r#"<story schema="8" id="lifecycle" content-version="9" entry="a"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/></assets><variables><int id="n" initial="0" min="0" max="100"/></variables><characters/><visuals/><frames><frame id="a"><text>甲</text></frame><frame id="b"><text>乙</text></frame><frame id="c"><text>丙</text></frame></frames><next end="true"/></story>"#,
+        )?;
+        std::fs::write(
+            root.join("ui.xml"),
+            r#"<ui schema="3" initial="hud"><variables><string id="trace" initial=""/></variables><ui-media><sequence id="cut" finish="close"><fade target="caption" duration="1000"/></sequence></ui-media><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen><screen id="movie"><label id="caption" width="400" height="50" text="视频演出"/></screen></ui>"#,
+        )?;
+        std::fs::write(
+            root.join("story.js"),
+            format!(
+                "on.advance('a',ctx=>{{ctx.add('n',1);return 'b';}});on.end('b');on.end('c');on.frameEnter('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));on.ui('advance',ctx=>ctx.advance());{extra}"
+            ),
+        )?;
+        Ok(())
+    }
+    fn load(root: &Path, saves: &Path) -> Result<PlayerApp> {
+        let b = crate::runtime::Bundle::load(
+            &crate::package::Snapshot::directory(root)?,
+            &crate::runtime::LoadOptions {
+                core: None,
+                no_live2d: true,
+            },
+        )?;
+        let mut app = PlayerApp::new_context(
+            &egui::Context::default(),
+            b.loaded,
+            b.assets,
+            SaveStore::at(saves.to_owned()),
+            true,
+            b.logic,
+            crate::render::Renderer::cpu(),
+        )?;
+        app.pending_auto = None;
+        app.lifecycle_ready = true;
+        app.typewriter.finish();
+        app.effects.finish();
+        Ok(app)
+    }
+    fn standard(target: &str) -> String {
+        format!(
+            "on.frameExit('a',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');}});on.screenOpen('movie',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');}});on.screenClose('movie',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');ctx.resume({target});}});"
+        )
+    }
+    fn advance(app: &mut PlayerApp) -> Result<()> {
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "advance".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })
+    }
+    fn skip(app: &mut PlayerApp) -> Result<bool> {
+        let ctx = app.context.clone();
+        let mut result = Ok(false);
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Space,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                result = app.tick_ui_media(ctx, true);
+            },
+        );
+        result
+    }
+    #[test]
+    fn frame_exit_ui_open_close_resume_commits_continuation_once() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'b'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        let before = app.session.clone();
+        advance(&mut app)?;
+        assert_eq!(app.session, before);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AXO");
+        assert!(app.handoff.is_some());
+        assert_eq!(
+            app.handoff.as_ref().unwrap().continuation.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "b");
+        assert_eq!(
+            app.session.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AXOCB");
+        assert!(app.handoff.is_none());
+        assert_eq!(app.session.history.len(), 2);
+        app.story
+            .validate_session_with(&app.session, &app.logic)
+            .map_err(anyhow::Error::msg)?;
+        let committed = app.session.clone();
+        let ctx = app.context.clone();
+        assert!(!app.tick_ui_media(&ctx, true)?);
+        assert_eq!(app.session, committed);
+        let slot: Checkpoint =
+            serde_json::from_slice(&std::fs::read(saves.path().join("flow-checkpoint.json"))?)?;
+        assert!(!slot.active);
+        Ok(())
+    }
+    #[test]
+    fn hidden_checkpoint_survives_process_recreation_and_does_not_touch_normal_slots() -> Result<()>
+    {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'c'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        std::fs::write(saves.path().join("auto-1.json"), b"ordinary-auto")?;
+        std::fs::write(saves.path().join("slot-1.json"), b"manual")?;
+        advance(&mut app)?;
+        drop(app);
+        let mut app = load(root.path(), saves.path())?;
+        assert_eq!(app.session.frame_id, "a");
+        assert!(app.handoff.is_some());
+        assert_eq!(app.custom.state.stack, vec!["hud", "movie"]);
+        assert!(app.ui_media.active());
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(
+            app.session.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        assert_eq!(app.session.history[1].resume_to.as_deref(), Some("c"));
+        let saved = Snapshot::capture_with(&app.story, &app.session, &app.logic)?;
+        assert_eq!(saved.schema_version, 9);
+        assert_eq!(saved.restore_with(&app.story, &app.logic)?, app.session);
+        assert_eq!(
+            std::fs::read(saves.path().join("auto-1.json"))?,
+            b"ordinary-auto"
+        );
+        assert_eq!(std::fs::read(saves.path().join("slot-1.json"))?, b"manual");
+        drop(app);
+        let app = load(root.path(), saves.path())?;
+        assert!(app.handoff.is_none());
+        assert_eq!(app.session.frame_id, "a");
+        Ok(())
+    }
+    #[test]
+    fn checkpoint_io_failure_and_lifecycle_cycles_keep_old_state() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'b'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        let before = app.session.clone();
+        let ui = app.custom.state.clone();
+        let blocked = saves.path().join("flow-checkpoint.json");
+        std::fs::create_dir(&blocked)?;
+        std::fs::write(blocked.join("marker"), b"old")?;
+        assert!(advance(&mut app).is_err());
+        assert_eq!(app.session, before);
+        assert_eq!(app.custom.state, ui);
+        assert_eq!(std::fs::read(blocked.join("marker"))?, b"old");
+        let saves2 = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameExit('a',ctx=>ctx.open('movie'));on.screenOpen('movie',ctx=>ctx.close());on.screenClose('movie',ctx=>ctx.open('movie'));",
+        )?;
+        let mut app = load(root.path(), saves2.path())?;
+        let before = app.session.clone();
+        assert!(advance(&mut app).unwrap_err().to_string().contains("16"));
+        assert_eq!(app.session, before);
+        assert_eq!(app.custom.state.stack, vec!["hud"]);
+        assert!(!saves2.path().join("flow-checkpoint.json").exists());
+        Ok(())
+    }
+    #[test]
+    fn corrupt_hidden_slot_and_bad_resume_keep_session_and_ui() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'missing'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        let before = app.session.clone();
+        let ui = app.custom.state.clone();
+        let old = std::fs::read(saves.path().join("flow-checkpoint.json"))?;
+        assert!(skip(&mut app).is_err());
+        assert_eq!(app.session, before);
+        assert_eq!(app.custom.state, ui);
+        assert_eq!(
+            std::fs::read(saves.path().join("flow-checkpoint.json"))?,
+            old
+        );
+        std::fs::write(saves.path().join("flow-checkpoint.json"), b"{}")?;
+        drop(app);
+        let app = load(root.path(), saves.path())?;
+        assert_eq!(app.session.frame_id, "a");
+        assert!(app.message.as_ref().unwrap().contains("隐藏交接槽无效"));
+        Ok(())
+    }
+    #[test]
+    fn explicit_ui_present_records_return_and_runs_exit_enter() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.ui('present',ctx=>ctx.present('movie'));on.frameExit('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));on.screenOpen('movie',ctx=>ctx.sequence('cut'));on.screenClose('movie',ctx=>ctx.resume('c'));",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "present".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })?;
+        assert_eq!(app.session.frame_id, "a");
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(
+            app.session.variables["n"],
+            crate::model::VariableValue::Int(0)
+        );
+        assert_eq!(app.session.history[0].resume_to.as_deref(), Some("c"));
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AX");
+        Ok(())
+    }
+    #[test]
+    fn frame_enter_can_handoff_to_a_second_ui_after_resume() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            &(standard("'b'")
+                + "on.screenOpen('second',ctx=>ctx.sequence('cut2'));on.screenClose('second',ctx=>ctx.resume('c'));"),
+        )?;
+        let path = root.path().join("story.js");
+        let js = std::fs::read_to_string(&path)?.replace(
+            "on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
+            "on.frameEnter('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('second');});",
+        );
+        std::fs::write(path, js)?;
+        let path = root.path().join("ui.xml");
+        let xml=std::fs::read_to_string(&path)?.replace("</ui-media>","<sequence id=\"cut2\" finish=\"close\"><fade target=\"caption2\"/></sequence></ui-media>").replace("</ui>","<screen id=\"second\"><label id=\"caption2\" width=\"200\" height=\"40\" text=\"二\"/></screen></ui>");
+        std::fs::write(path, xml)?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "b");
+        assert_eq!(app.custom.state.stack, vec!["hud", "second"]);
+        assert!(app.handoff.is_some());
+        assert!(app.ui_media.active());
+        // Release the key so the second sequence sees a separate user action.
+        let ctx = app.context.clone();
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "c");
+        assert!(app.handoff.is_none());
+        assert_eq!(
+            app.session.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        app.story
+            .validate_session_with(&app.session, &app.logic)
+            .map_err(anyhow::Error::msg)?;
+        Ok(())
+    }
+    #[test]
+    fn initial_frame_and_initial_page_lifecycles_fire_before_ui_handoff() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.screenOpen('hud',ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));on.screenOpen('movie',ctx=>{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');});on.screenClose('movie',ctx=>ctx.resume('c'));",
+        )?;
+        let path = root.path().join("story.js");
+        let js = std::fs::read_to_string(&path)?.replace(
+            "on.frameEnter('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));",
+            "on.frameEnter('a',ctx=>{ctx.setUi('trace',ctx.ui.trace+'A');ctx.open('movie');});",
+        );
+        std::fs::write(path, js)?;
+        let mut app = load(root.path(), saves.path())?;
+        assert!(app.handoff.is_some());
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AHO");
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "c");
+        Ok(())
+    }
+    #[test]
+    fn entering_a_frame_can_present_ui_and_resume_same_frame_without_reentry_loop() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.screenOpen('movie',ctx=>ctx.sequence('cut'));on.screenClose('movie',ctx=>ctx.resume());",
+        )?;
+        let path = root.path().join("story.js");
+        let js = std::fs::read_to_string(&path)?.replace(
+            "on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
+            "on.frameEnter('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('movie');});",
+        );
+        std::fs::write(path, js)?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        assert_eq!(app.session.frame_id, "b");
+        assert!(app.handoff.as_ref().unwrap().entered);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AB");
+        skip(&mut app)?;
+        assert!(app.handoff.is_none());
+        assert!(!app.ui_media.active());
+        assert_eq!(app.session.frame_id, "b");
+        assert_eq!(app.session.history.len(), 2);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AB");
+        Ok(())
+    }
+    #[test]
+    fn return_breakpoint_keeps_active_checkpoint_until_candidate_commits() -> Result<()> {
+        use crate::debug::{Command as DebugCommand, Server};
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'b'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        app.attach_debug(Server::bind("127.0.0.1:0".parse()?, "t".repeat(32))?);
+        let revision = |app: &PlayerApp| app.debug_snapshot()["state_revision"].as_u64();
+        app.debug_command(
+            DebugCommand::Breakpoints {
+                frames: vec!["b".into()],
+            },
+            revision(&app),
+        )?;
+        app.debug_command(DebugCommand::Resume, revision(&app))?;
+        advance(&mut app)?;
+        let old = std::fs::read(saves.path().join("flow-checkpoint.json"))?;
+        skip(&mut app)?;
+        assert_eq!(app.session.frame_id, "a");
+        assert_eq!(app.debug_snapshot()["pending_frame"], "b");
+        assert_eq!(
+            std::fs::read(saves.path().join("flow-checkpoint.json"))?,
+            old
+        );
+        app.debug_command(DebugCommand::Resume, revision(&app))?;
+        assert_eq!(app.session.frame_id, "b");
+        assert!(app.handoff.is_none());
+        let checkpoint: Checkpoint =
+            serde_json::from_slice(&std::fs::read(saves.path().join("flow-checkpoint.json"))?)?;
+        assert!(!checkpoint.active);
+        Ok(())
+    }
+    #[test]
+    fn tampered_checkpoint_origin_or_source_link_is_rejected_before_resume() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), &standard("'b'"))?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        let before = app.session.clone();
+        let path = saves.path().join("flow-checkpoint.json");
+        let bytes = std::fs::read(&path)?;
+        let mut bad: serde_json::Value = serde_json::from_slice(&bytes)?;
+        bad["origin"] = serde_json::json!(["missing"]);
+        std::fs::write(&path, serde_json::to_vec(&bad)?)?;
+        assert!(skip(&mut app).is_err());
+        assert_eq!(app.session, before);
+        let mut bad: Checkpoint = serde_json::from_slice(&bytes)?;
+        bad.continuation = bad.source.clone();
+        std::fs::write(&path, serde_json::to_vec(&bad)?)?;
+        let plan = app.empty_ui_plan()?;
+        assert!(app.resume_handoff(plan, Some("b".into())).is_err());
+        assert_eq!(app.session, before);
+        Ok(())
+    }
+    #[test]
+    fn implicit_resume_closes_page_and_runs_close_callback_once() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            &(standard("'b'") + "on.ui('resume-direct',ctx=>ctx.resume());"),
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        app.ui_media.cancel();
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "resume-direct".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })?;
+        assert_eq!(app.session.frame_id, "b");
+        assert_eq!(app.custom.state.stack, vec!["hud"]);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "AXOCB");
+        assert!(app.handoff.is_none());
+        Ok(())
+    }
+}

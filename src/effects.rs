@@ -250,6 +250,7 @@ pub fn blend(kind: TransitionKind, t: f32) -> Blend {
 }
 #[derive(Default)]
 pub struct Player {
+    pub ui_alpha: BTreeMap<String, f32>,
     pub portrait_actions: BTreeMap<Slot, (PortraitAnimation, f32)>,
     pub departing: Vec<Departure>,
     pub has_entered: bool,

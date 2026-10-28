@@ -1,0 +1,52 @@
+{
+  "schema_version": 9,
+  "story_id": "kakera-demo",
+  "content_version": 9,
+  "frame_id": "opening",
+  "history": [
+    {
+      "frame_id": "opening",
+      "choice_id": null,
+      "resume_to": null
+    }
+  ],
+  "variables": {
+    "invited": {
+      "type": "bool",
+      "value": false
+    },
+    "met": {
+      "type": "bool",
+      "value": false
+    },
+    "mood": {
+      "type": "string",
+      "value": "平静"
+    },
+    "trust": {
+      "type": "int",
+      "value": 0
+    }
+  },
+  "history_base_variables": {
+    "invited": {
+      "type": "bool",
+      "value": false
+    },
+    "met": {
+      "type": "bool",
+      "value": false
+    },
+    "mood": {
+      "type": "string",
+      "value": "平静"
+    },
+    "trust": {
+      "type": "int",
+      "value": 0
+    }
+  },
+  "saved_at_unix_ms": 1792771200000,
+  "generation": 0,
+  "screenshot": null
+}

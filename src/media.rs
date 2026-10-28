@@ -2,7 +2,7 @@
 use crate::{
     assets::AssetCache,
     content::ContentSource,
-    model::{AssetKind, Story, VideoCue},
+    model::{AssetKind, Story},
 };
 use anyhow::{Context, Result, ensure};
 use eframe::egui;
@@ -112,9 +112,13 @@ impl Drop for Worker {
         }
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VideoCue {
+    pub asset: String,
+    pub skippable: bool,
+}
 #[derive(Default)]
 pub struct VideoPlayer {
-    pub pending_advance: bool,
     worker: Option<Worker>,
     pub cue: Option<VideoCue>,
     pub position: f64,
@@ -160,12 +164,21 @@ impl VideoPlayer {
         ctx: &egui::Context,
         assets: &mut AssetCache,
     ) -> Result<bool> {
+        self.tick_named(seconds, ctx, assets, "$video")
+    }
+    pub fn tick_named(
+        &mut self,
+        seconds: f32,
+        ctx: &egui::Context,
+        assets: &mut AssetCache,
+        texture: &str,
+    ) -> Result<bool> {
         if let Some(first) = self.first.take() {
-            assets.update_stream(ctx, "$video", first);
+            assets.update_stream(ctx, texture, first);
             self.texture_ready = true;
         }
         if !self.playing() {
-            return Ok(self.pending_advance);
+            return Ok(self.ended);
         }
         if self.failed {
             return Ok(false);
@@ -174,7 +187,7 @@ impl VideoPlayer {
         while let Ok(result) = worker.frames.try_recv() {
             match result {
                 Ok(frame) => {
-                    assets.update_stream(ctx, "$video", frame.image);
+                    assets.update_stream(ctx, texture, frame.image);
                     self.texture_ready = true;
                     if frame.ended {
                         self.ended = true;
@@ -197,7 +210,6 @@ impl VideoPlayer {
         if self.position >= self.duration {
             self.ended = true;
         }
-        self.pending_advance = self.ended && self.cue.as_ref().is_some_and(|c| c.advance);
-        Ok(self.pending_advance)
+        Ok(self.ended)
     }
 }

@@ -114,6 +114,7 @@ fn commands(f: &Fixture, name: &str, item: Value, value: Value) -> Vec<Command> 
     f.logic
         .ui_event(
             &Event {
+                sound: None,
                 route: None,
                 name: name.into(),
                 item,
@@ -139,7 +140,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 12);
+    assert_eq!(f.definition.screens.len(), 15);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));
@@ -152,6 +153,7 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let cmds = logic
         .ui_event(
             &Event {
+                sound: None,
                 route: None,
                 name: "credits".into(),
                 item: Value::Null,
@@ -421,6 +423,7 @@ fn gallery_is_independent_of_story_slots_and_preserves_atomic_writes() {
     let mut snapshot = snapshot(&f, &f.story.start(), true);
     snapshot.values["game"]["frameId"] = json!("accept");
     let event = Event {
+        sound: None,
         route: None,
         name: "game.enter".into(),
         item: Value::Null,
@@ -534,6 +537,7 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
             logic
                 .ui_event(
                     &Event {
+                        sound: None,
                         route: None,
                         name: "test".into(),
                         item: json!({}),
@@ -553,6 +557,7 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
         let out = logic
             .ui_event(
                 &Event {
+                    sound: None,
                     route: None,
                     name: "test".into(),
                     item: Value::Null,

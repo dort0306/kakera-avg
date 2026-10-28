@@ -23,6 +23,10 @@ impl PlayerApp {
             .transpose()
     }
     pub(super) fn save_current(&self, slot: SlotId) -> Result<()> {
+        anyhow::ensure!(
+            self.handoff.is_none() && !self.ui_media.active(),
+            "UI 演出期间不能保存"
+        );
         let image = self
             .screenshot(self.revision)?
             .context("当前场景尚未呈现，请稍后保存")?;
@@ -166,6 +170,7 @@ mod tests {
         let auto = std::fs::read(app.saves.auto_path(1)?)?;
         let slot = SlotId::new(1)?;
         app.custom_event(Event {
+            sound: None,
             route: None,
             name: "save".into(),
             item: serde_json::Value::Null,
@@ -194,6 +199,7 @@ mod tests {
         cache.borrow_mut().error = Some("injected readback error".into());
         assert!(
             app.custom_event(Event {
+                sound: None,
                 route: None,
                 name: "save".into(),
                 item: serde_json::Value::Null,

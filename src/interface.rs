@@ -10,11 +10,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod data;
 pub mod host;
+pub mod presentation;
 pub mod render;
 pub mod source;
 
 #[derive(Clone, Debug)]
 pub struct Definition {
+    pub lifecycle: BTreeMap<String, String>,
+    pub media: presentation::Catalog,
     pub window_title: WindowTitle,
     pub size: [f32; 2],
     pub initial: String,
@@ -60,6 +63,7 @@ pub struct Cg {
 }
 #[derive(Clone, Debug)]
 pub struct Screen {
+    pub sequence: Option<String>,
     pub modal: bool,
     pub pause: bool,
     pub background_click: Option<String>,
@@ -88,6 +92,7 @@ pub enum Kind {
 }
 #[derive(Clone, Debug)]
 pub struct Node {
+    pub sound: Option<String>,
     pub route: Option<UiRoute>,
     pub location: String,
     pub region: Option<crate::image_layout::Region>,
@@ -114,6 +119,7 @@ pub struct Node {
 }
 #[derive(Clone, Debug)]
 pub struct Event {
+    pub sound: Option<String>,
     pub route: Option<UiRoute>,
     pub name: String,
     pub item: Value,
@@ -141,6 +147,19 @@ pub struct Data {
 }
 impl Data {
     pub fn get<'a>(&'a self, path: &str, item: &'a Value) -> Option<&'a Value> {
+        for prefix in ["audio.actor.", "audio.excluded."] {
+            if let Some(id) = path.strip_prefix(prefix) {
+                return self
+                    .values
+                    .get("audio")?
+                    .get(if prefix == "audio.actor." {
+                        "actor"
+                    } else {
+                        "excluded"
+                    })?
+                    .get(id);
+            }
+        }
         let (mut value, tail) = if let Some(tail) = path.strip_prefix("item.") {
             (item, tail)
         } else {
@@ -301,9 +320,19 @@ fn binding(
         return match id {
             "frameId" | "speaker" | "text" | "continueText" | "autoText" => Some(ValueKind::Text),
             "complete" | "canAdvance" | "ended" | "noChoices" | "transitioning" | "autoPlaying"
-            | "videoPlaying" | "videoSkippable" | "live2dEnabled" => Some(ValueKind::Bool),
+            | "live2dEnabled" => Some(ValueKind::Bool),
             _ => None,
         };
+    }
+    if path == "audio.enabled"
+        || path
+            .strip_prefix("audio.excluded.")
+            .is_some_and(|id| !id.is_empty())
+        || path
+            .strip_prefix("audio.actor.")
+            .is_some_and(|id| !id.is_empty())
+    {
+        return Some(ValueKind::Bool);
     }
     if let Some(id) = path.strip_prefix("settings.") {
         return match id {
@@ -386,6 +415,7 @@ impl Parser<'_> {
                 "label" => attrs.extend(["text", "bind", "font-size"]),
                 "button" => attrs.extend([
                     "route",
+                    "sound",
                     "text",
                     "bind",
                     "font-size",
@@ -604,6 +634,7 @@ impl Parser<'_> {
                     "image-bind 需要 ui 字符串，或 gallery/slots/autosaves 模板的 item.image",
                 ));
             }
+            let sound = xml.attribute("sound").map(str::to_owned);
             let event = xml.attribute("event").map(str::to_owned);
             let route = xml
                 .attribute("route")
@@ -635,6 +666,7 @@ impl Parser<'_> {
             if matches!(kind, Kind::Button | Kind::Slider { .. } | Kind::Toggle)
                 && event.is_none()
                 && route.is_none()
+                && sound.is_none()
             {
                 return Err(error(self.file, xml, "交互节点缺少 event"));
             }
@@ -649,6 +681,7 @@ impl Parser<'_> {
                 [255, 255, 255, 255]
             };
             nodes.push(Node {
+                sound,
                 route,
                 location: {
                     let p = xml.document().text_pos_at(xml.range().start);
@@ -707,7 +740,7 @@ pub fn parse(
             "title",
             "title-bind",
         ],
-        &["variables", "gallery", "screen"],
+        &["variables", "gallery", "screen", "ui-media"],
         false,
     )?;
     if required(file, root, "schema")? != "3" {
@@ -795,6 +828,7 @@ pub fn parse(
                 "pause",
                 "background-click",
                 "background-right-click",
+                "sequence",
             ],
             &[
                 "scene",
@@ -826,6 +860,7 @@ pub fn parse(
                 .transpose()
         };
         let value = Screen {
+            sequence: screen.attribute("sequence").map(str::to_owned),
             modal: boolean(file, screen, "modal", true)?,
             pause: boolean(file, screen, "pause", true)?,
             background_click: event("background-click")?,
@@ -870,7 +905,79 @@ pub fn parse(
         .filter(|(_, asset)| asset.kind == AssetKind::Image)
         .map(|(id, _)| id.clone())
         .collect();
+    let media = presentation::Catalog::parse(root, file, story, &screens)?;
+    fn validate_media(
+        file: &str,
+        node: XmlNode<'_, '_>,
+        media: &presentation::Catalog,
+        story: &Story,
+    ) -> Result<()> {
+        if let Some(id) = node.attribute("sound")
+            && !media.sound_exists(id)
+        {
+            return Err(error(file, node, "UI 音效不存在"));
+        }
+        if node.has_tag_name("screen")
+            && let Some(id) = node.attribute("sequence")
+            && !media.sequences.contains_key(id)
+        {
+            return Err(error(file, node, "UI 演出不存在"));
+        }
+        for name in ["visible", "enabled", "value", "bind"] {
+            if let Some(path) = node.attribute(name)
+                && let Some(asset) = path
+                    .strip_prefix("audio.excluded.")
+                    .or_else(|| path.strip_prefix("not:audio.excluded."))
+                && !media.audio.contains(asset)
+            {
+                return Err(error(file, node, "排除绑定的音效不存在"));
+            }
+            if let Some(path) = node.attribute(name)
+                && let Some(actor) = path
+                    .strip_prefix("audio.actor.")
+                    .or_else(|| path.strip_prefix("not:audio.actor."))
+                && !story.characters.contains_key(actor)
+            {
+                return Err(error(file, node, "UI 音效绑定角色不存在"));
+            }
+        }
+        for child in elements(node) {
+            validate_media(file, child, media, story)?;
+        }
+        Ok(())
+    }
+    validate_media(file, root, &media, story)?;
+    let mut lifecycle = BTreeMap::new();
+    for event in handlers {
+        for prefix in [
+            "frame.enter:",
+            "frame.exit:",
+            "screen.open:",
+            "screen.close:",
+        ] {
+            if let Some(id) = event.strip_prefix(prefix) {
+                let actual = if prefix.starts_with("frame") {
+                    story
+                        .resolve_frame(id)
+                        .ok_or_else(|| anyhow::anyhow!("生命周期场景不存在：{event}"))?
+                } else {
+                    screens
+                        .get_key_value(id)
+                        .map(|(id, _)| id.as_str())
+                        .ok_or_else(|| anyhow::anyhow!("生命周期页面不存在：{event}"))?
+                };
+                ensure!(
+                    lifecycle
+                        .insert(format!("{prefix}{actual}"), event.clone())
+                        .is_none(),
+                    "生命周期 ID/name 重复注册"
+                );
+            }
+        }
+    }
     let definition = Definition {
+        lifecycle,
+        media,
         window_title,
         size,
         initial,
@@ -888,6 +995,17 @@ pub fn parse(
         enter: handlers.contains("game.enter"),
     };
     for event in definition.events() {
+        ensure!(
+            ![
+                "frame.enter:",
+                "frame.exit:",
+                "screen.open:",
+                "screen.close:"
+            ]
+            .iter()
+            .any(|p| event.starts_with(p)),
+            "XML 不能直接派发生命周期事件"
+        );
         ensure!(
             handlers.contains(&event),
             "{file}：UI 事件未注册 on.ui：{event}"

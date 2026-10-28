@@ -1,5 +1,5 @@
 param(
-    [string]$Output = 'target/package/kakera-avg-v0.8.4',
+    [string]$Output = 'target/package/kakera-avg-v0.9.0',
     [string]$Project = 'games/demo',
     [ValidateRange(1,22)][int]$CompressionLevel = 19,
     [ValidateSet(1,2)][int]$Format = 2
@@ -11,6 +11,7 @@ try {
     cargo build --locked --release --bins
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     New-Item -ItemType Directory -Path $Output | Out-Null
+    # UI includes/ui-media are merged; ui-audio.json/flow-checkpoint.json are player data excluded by the packer.
     & ./target/release/kakera-pack.exe $Project (Join-Path $Output 'game.kpak') --level $CompressionLevel --format $Format
     if ($LASTEXITCODE -ne 0) { throw 'Resource validation or packing failed; output directory retained for diagnosis.' }
     Copy-Item -LiteralPath target/release/kakera-avg.exe -Destination $Output

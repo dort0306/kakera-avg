@@ -134,13 +134,6 @@ pub struct Live2DPose {
     pub expression: Option<String>,
     pub parameters: BTreeMap<String, f32>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VideoCue {
-    pub asset: String,
-    pub skippable: bool,
-    pub advance: bool,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Visual {
     pub background: Option<String>,
@@ -157,7 +150,6 @@ pub struct Choice {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     pub name: Option<String>,
-    pub video: Option<VideoCue>,
     pub id: String,
     pub visual: Visual,
     pub transition: effects::Transition,
@@ -211,6 +203,8 @@ pub struct Session {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryEntry {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub resume_to: Option<String>,
     pub frame_id: String,
     pub choice_id: Option<String>,
 }
@@ -221,6 +215,7 @@ impl Session {
         let frame_id = frame_id.into();
         Self {
             history: vec![HistoryEntry {
+                resume_to: None,
                 frame_id: frame_id.clone(),
                 choice_id: None,
             }],
@@ -275,18 +270,27 @@ impl Story {
             }
         }
         let last = session.history.last().expect("nonempty history");
-        if last.frame_id != session.frame_id || last.choice_id.is_some() {
+        if last.frame_id != session.frame_id
+            || (last.choice_id.is_some() || last.resume_to.is_some())
+        {
             return Err("历史末尾必须是未离开的当前场景".into());
         }
         let mut variables = session.history_base_variables.clone();
         for pair in session.history.windows(2) {
             let previous = &pair[0];
-            let rule = logic.resolve(
-                self,
-                &previous.frame_id,
-                previous.choice_id.as_deref(),
-                &variables,
-            )?;
+            let rule = if let Some(target) = &previous.resume_to {
+                if previous.choice_id.is_some() || !self.frames.contains_key(target) {
+                    return Err("UI 返回历史无效".into());
+                }
+                Some(TransitionRule::plain(target.clone()))
+            } else {
+                logic.resolve(
+                    self,
+                    &previous.frame_id,
+                    previous.choice_id.as_deref(),
+                    &variables,
+                )?
+            };
             if rule.as_ref().map(|rule| &rule.to) != Some(&pair[1].frame_id) {
                 return Err(format!(
                     "历史路由不一致：{} → {}",

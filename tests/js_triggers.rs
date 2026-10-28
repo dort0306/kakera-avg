@@ -334,6 +334,7 @@ fn script_self_loop_advances_the_trimmed_history_checkpoint() {
     let mut session = story.start();
     session.history = vec![
         HistoryEntry {
+            resume_to: None,
             frame_id: "opening".into(),
             choice_id: None
         };

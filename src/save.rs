@@ -58,7 +58,7 @@ impl Snapshot {
     }
     pub(crate) fn capture_committed(story: &Story, session: &Session) -> Result<Self> {
         Ok(Self {
-            schema_version: 8,
+            schema_version: 9,
             story_id: story.id.clone(),
             content_version: story.content_version,
             frame_id: session.frame_id.clone(),
@@ -80,7 +80,7 @@ impl Snapshot {
             image.decode()?;
         }
         ensure!(
-            self.schema_version == 8,
+            self.schema_version == 9,
             "不支持的槽位存档 schema：{}",
             self.schema_version
         );
@@ -116,7 +116,7 @@ fn validate_identity(story: &Story, id: &str, content_version: u32) -> Result<()
 
 fn parse_snapshot(data: &[u8], story: &Story, logic: &dyn Logic) -> Result<Snapshot> {
     let snapshot: Snapshot =
-        serde_json::from_slice(data).context("需要 v0.8 schema 8 存档，请重新开始旧版本故事")?;
+        serde_json::from_slice(data).context("需要 v0.9.0 schema 9 存档，请重新开始旧版本故事")?;
     snapshot.restore_with(story, logic)?;
     Ok(snapshot)
 }
@@ -169,7 +169,7 @@ impl SaveStore {
         for slot in 1..=AUTO_COUNT {
             if let Ok(data) = read_json_bytes(&self.auto_path(slot)?)
                 && let Ok(snapshot) = serde_json::from_slice::<Snapshot>(&data)
-                && snapshot.schema_version == 8
+                && snapshot.schema_version == 9
                 && snapshot.story_id == snapshot_identity.0
                 && snapshot.content_version == snapshot_identity.1
             {
@@ -211,7 +211,7 @@ impl SaveStore {
                 .and_then(|data| serde_json::from_slice::<Snapshot>(&data).map_err(Into::into));
             let (preview, loadable, generation, saved_at, has_image) = match result {
                 Ok(s)
-                    if s.schema_version == 8
+                    if s.schema_version == 9
                         && s.story_id == story.id
                         && s.content_version == story.content_version
                         && story.frames.contains_key(&s.frame_id)
@@ -255,7 +255,7 @@ impl SaveStore {
                         serde_json::from_slice::<Snapshot>(&data).map_err(Into::into)
                     }) {
                         Ok(s)
-                            if s.schema_version == 8
+                            if s.schema_version == 9
                                 && s.story_id == story.id
                                 && s.content_version == story.content_version
                                 && story.frames.contains_key(&s.frame_id)

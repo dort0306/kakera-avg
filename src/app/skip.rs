@@ -22,7 +22,7 @@ impl PlayerApp {
 
     /// A fully displayed sentence counts as read; videos hide the dialogue and never mark it.
     pub(super) fn mark_current_read(&mut self) {
-        if self.video.playing() || !self.typewriter.complete() {
+        if self.ui_media.video() || !self.typewriter.complete() {
             return;
         }
         let frame_id = self.session.frame_id.clone();

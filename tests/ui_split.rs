@@ -107,6 +107,7 @@ fn nested_includes_resolve_global_references_locations_and_real_js() -> Result<(
     assert_eq!(state.window_title, "中文 & Game");
     let commands = logic.ui_event(
         &interface::Event {
+            sound: None,
             route: None,
             name: "edit".into(),
             item: json!(null),

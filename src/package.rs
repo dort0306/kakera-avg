@@ -70,7 +70,12 @@ pub(crate) fn excluded(name: &str, directory: bool) -> bool {
         || name.ends_with('~')
         || matches!(
             name,
-            "settings.json" | "profile.json" | "save.json" | "read.json"
+            "settings.json"
+                | "profile.json"
+                | "save.json"
+                | "read.json"
+                | "ui-audio.json"
+                | "flow-checkpoint.json"
         )
         || (name.ends_with(".json") && (name.starts_with("slot-") || name.starts_with("auto-")))
 }

@@ -5,6 +5,7 @@ use std::fmt;
 pub enum Intent {
     Advance,
     Choose(String),
+    Resume(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,15 +43,22 @@ pub fn transition_with(
         Intent::Choose(id) => Some(id.clone()),
         _ => None,
     };
-    let Some(rule) = logic
-        .resolve(
-            story,
-            &session.frame_id,
-            choice_id.as_deref(),
-            &session.variables,
-        )
-        .map_err(ControlError)?
-    else {
+    let rule = if let Intent::Resume(target) = &intent {
+        if !story.frames.contains_key(target) {
+            return Err(ControlError("UI 返回目标不存在".into()));
+        }
+        Some(crate::model::TransitionRule::plain(target.clone()))
+    } else {
+        logic
+            .resolve(
+                story,
+                &session.frame_id,
+                choice_id.as_deref(),
+                &session.variables,
+            )
+            .map_err(ControlError)?
+    };
+    let Some(rule) = rule else {
         return Ok(Transition {
             session: session.clone(),
             entered: false,
@@ -67,26 +75,36 @@ pub fn transition_with(
         .history
         .last_mut()
         .ok_or_else(|| ControlError("会话历史为空".into()))?;
-    if last.frame_id != session.frame_id || last.choice_id.is_some() {
+    if last.frame_id != session.frame_id || (last.choice_id.is_some() || last.resume_to.is_some()) {
         return Err(ControlError("会话历史末尾与当前场景不一致".into()));
     }
     last.choice_id = choice_id;
+    last.resume_to = if matches!(intent, Intent::Resume(_)) {
+        Some(target.clone())
+    } else {
+        None
+    };
     next.frame_id = target.clone();
     next.history.push(HistoryEntry {
+        resume_to: None,
         frame_id: target.clone(),
         choice_id: None,
     });
     if next.history.len() > MAX_HISTORY {
         let first = &next.history[0];
-        let dropped = logic
-            .resolve(
-                story,
-                &first.frame_id,
-                first.choice_id.as_deref(),
-                &next.history_base_variables,
-            )
-            .map_err(ControlError)?
-            .ok_or_else(|| ControlError("历史检查点缺少有效流转".into()))?;
+        let dropped = if let Some(target) = &first.resume_to {
+            crate::model::TransitionRule::plain(target.clone())
+        } else {
+            logic
+                .resolve(
+                    story,
+                    &first.frame_id,
+                    first.choice_id.as_deref(),
+                    &next.history_base_variables,
+                )
+                .map_err(ControlError)?
+                .ok_or_else(|| ControlError("历史检查点缺少有效流转".into()))?
+        };
         next.history_base_variables =
             rules::apply_effects(story, &next.history_base_variables, &dropped.effects)
                 .map_err(ControlError)?;

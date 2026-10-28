@@ -118,7 +118,7 @@ fn autosaves_rotate_independently_and_corruption_or_failed_writes_preserve_old_d
 fn current_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_slot_200() {
     let (documented, documented_logic) = game();
     let snapshot: Snapshot =
-        serde_json::from_str(include_str!("../doc/v0.8-save.example.json")).unwrap();
+        serde_json::from_str(include_str!("../doc/v0.9.0-save.example.json")).unwrap();
     assert_eq!(
         snapshot
             .restore_with(&documented.story, &documented_logic)
@@ -140,7 +140,7 @@ fn current_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_sl
     saves.save_with(slot, story, &w, &logic).unwrap();
     assert_eq!(saves.load_with(slot, story, &logic).unwrap(), w);
     let mut snapshot = Snapshot::capture_with(story, &w, &logic).unwrap();
-    assert_eq!(snapshot.schema_version, 8);
+    assert_eq!(snapshot.schema_version, 9);
     snapshot.schema_version = 3;
     assert!(snapshot.restore_with(story, &logic).is_err());
 }
@@ -172,6 +172,7 @@ fn new_js_commands_are_bounded_and_game_enter_cannot_navigate_or_start_autoplay(
     let commands = logic
         .ui_event(
             &Event {
+                sound: None,
                 route: None,
                 name: "slots-last".into(),
                 item: Value::Null,
@@ -234,10 +235,10 @@ fn media_xml_rejects_unknown_attributes_wrong_types_and_unavailable_routes_with_
         DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
     let story = kakera_avg::story_chain::compile(&source).unwrap().xml;
     for (from, to) in [
-        ("asset=\"video.intro\"", "asset=\"bg.room\""),
-        ("skippable=\"true\"", "skippable=\"yes\""),
-        ("advance=\"true\"", "advance=\"true\" loop=\"true\""),
-        ("asset=\"video.intro\"", "asset=\"missing\""),
+        ("<text>片头", "<video asset=\"video.intro\"/><text>片头"),
+        ("<text>片头", "<video asset=\"bg.room\"/><text>片头"),
+        ("<text>片头", "<video/><text>片头"),
+        ("<text>片头", "<video asset=\"missing\"/><text>片头"),
     ] {
         struct Xml(String);
         impl kakera_avg::content::ContentSource for Xml {
@@ -267,8 +268,14 @@ fn real_mp4_decodes_video_and_embedded_audio_without_output_device_and_preserves
     assert!((11.9..12.2).contains(&clip.duration));
     assert!(clip.audio.is_some());
     assert!(clip.first.pixels.iter().any(|p| p.r() != p.b()));
-    let mut video =
-        VideoPlayer::prepare(loaded.story.frames["intro"].video.as_ref(), &media).unwrap();
+    let mut video = VideoPlayer::prepare(
+        Some(&kakera_avg::media::VideoCue {
+            asset: "video.intro".into(),
+            skippable: true,
+        }),
+        &media,
+    )
+    .unwrap();
     let ctx = eframe::egui::Context::default();
     let mut assets = kakera_avg::assets::PreparedAssets::load_from(&loaded.story, &source)
         .unwrap()
@@ -277,11 +284,15 @@ fn real_mp4_decodes_video_and_embedded_audio_without_output_device_and_preserves
     assert_eq!(video.position, 0.0);
     assert!(video.tick(13.0, &ctx, &mut assets).unwrap());
     assert!(video.tick(0.0, &ctx, &mut assets).unwrap());
-    assert!(video.pending_advance);
-    video.pending_advance = false;
-    assert!(!video.tick(0.0, &ctx, &mut assets).unwrap());
-    let mut video =
-        VideoPlayer::prepare(loaded.story.frames["credits"].video.as_ref(), &media).unwrap();
+    assert!(video.ended);
+    let mut video = VideoPlayer::prepare(
+        Some(&kakera_avg::media::VideoCue {
+            asset: "video.credits".into(),
+            skippable: true,
+        }),
+        &media,
+    )
+    .unwrap();
     assert!(video.skip());
     assert!(!video.playing());
 }
@@ -336,6 +347,7 @@ fn bundled_live2d_routes_and_tap_callback_preserve_variables_and_replayable_hist
     let commands = logic
         .ui_event(
             &Event {
+                sound: None,
                 route: None,
                 name: "choose".into(),
                 item: json!({"id":"tap"}),

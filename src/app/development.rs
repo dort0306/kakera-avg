@@ -6,6 +6,10 @@ impl PlayerApp {
     }
     pub fn rebuild_cpu_presentation(&mut self) -> Result<()> {
         self.debug_discard_candidate();
+        if self.ui_media.video() {
+            self.audio.video(None);
+        }
+        self.ui_media.cancel();
         let rebuilt = self
             .cpu_assets
             .clone()
@@ -38,7 +42,6 @@ impl PlayerApp {
             .options(&loaded.story, &session)
             .map_err(anyhow::Error::msg)?;
         let frame = loaded.story.frame(&session).context("热更新场景")?;
-        let video = crate::media::VideoPlayer::prepare(frame.video.as_ref(), &runtime.media)?;
         let live2d = crate::live2d::Live2DPlayer::prepare_with(
             frame,
             &runtime.live2d,
@@ -54,6 +57,7 @@ impl PlayerApp {
         );
         let cpu_assets = runtime.images.clone();
         let mut candidate = Self {
+            ui_media: super::ui_media::UiMedia::new(self.ui_media.prefs.clone()),
             debug: None,
             capture: self.capture.clone(),
             revision: self.revision.wrapping_add(1),
@@ -66,7 +70,8 @@ impl PlayerApp {
             no_audio: self.no_audio,
             prepared_media: runtime.media,
             prepared_live2d: runtime.live2d,
-            video,
+            handoff: None,
+            lifecycle_ready: true,
             live2d,
             auto_play: Default::default(),
             skip: Default::default(),
@@ -115,15 +120,13 @@ impl PlayerApp {
             .enter_scene(None, frame, frame.transition, true);
         candidate.typewriter = Typewriter::new(&frame.text, true);
         candidate.audio.enter(&frame.audio, true);
-        candidate
-            .audio
-            .video(frame.video.as_ref().map(|v| v.asset.as_str()));
         {
             candidate.commit_ui(plan, true);
         }
         if !warnings.is_empty() {
             eprintln!("工程更新：{}", warnings.join("\n"));
         }
+        candidate.ui_media.scope = candidate.custom.state.stack.last().cloned();
         candidate.project = self.project.take();
         candidate.debug = self.debug.take();
         candidate.debug_changed();

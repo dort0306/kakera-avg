@@ -134,19 +134,4 @@ pub fn scene(
     if motion.flash > 0.0 {
         painter.rect_filled(bounds, 0.0, Color32::WHITE.gamma_multiply(motion.flash));
     }
-    if frame.video.is_some() {
-        painter.rect_filled(bounds, 0.0, Color32::BLACK);
-        if let Some(texture) = assets.image("$video") {
-            let size = texture.size_vec2();
-            let scale = (bounds.width() / size.x).min(bounds.height() / size.y);
-            painter
-                .with_clip_rect(painter.clip_rect().intersect(bounds))
-                .image(
-                    texture.id(),
-                    Rect::from_center_size(bounds.center(), size * scale),
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-        }
-    }
 }

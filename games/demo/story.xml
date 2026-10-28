@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 可运行样例；素材与许可证见 assets/licenses。 -->
-<story schema="8" id="kakera-demo" content-version="8" entry="opening">
+<story schema="8" id="kakera-demo" content-version="9" entry="opening">
   <interface src="ui.xml" />
   <scripts>
     <script src="scripts/endings.js" />

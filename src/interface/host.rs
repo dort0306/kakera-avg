@@ -111,11 +111,33 @@ impl UiValue {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    PlaySound {
+        id: String,
+    },
+    Sequence {
+        id: String,
+    },
+    SoundEnabled {
+        enabled: bool,
+    },
+    SoundActor {
+        actor: String,
+        enabled: bool,
+    },
+    SoundExclude {
+        asset: String,
+        excluded: bool,
+    },
     Live2d {
         slot: String,
         motion: String,
     },
-    SkipVideo,
+    Present {
+        screen: String,
+    },
+    Resume {
+        frame: Option<String>,
+    },
     SlotsPage {
         page: u16,
     },
@@ -169,7 +191,9 @@ pub enum Command {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
-    SkipVideo,
+    UiAudio,
+    Present,
+    Resume(Option<String>),
     None,
     Save(SlotId, bool),
     Load(SlotId),
@@ -181,6 +205,8 @@ pub enum Operation {
     Profile,
 }
 pub struct Plan {
+    pub command_count: usize,
+    pub ui_actions: Vec<super::presentation::Action>,
     pub live2d: Vec<(crate::model::Slot, String)>,
     pub auto_play: Option<bool>,
     pub portraits: Vec<(crate::model::Slot, crate::model::effects::PortraitAnimation)>,
@@ -195,7 +221,9 @@ pub struct Plan {
 fn operation(current: &mut Operation, next: Operation) -> Result<()> {
     let aggregate = matches!(
         (&*current, &next),
-        (Operation::Settings, Operation::Settings) | (Operation::Profile, Operation::Profile)
+        (Operation::Settings, Operation::Settings)
+            | (Operation::Profile, Operation::Profile)
+            | (Operation::UiAudio, Operation::UiAudio)
     );
     ensure!(
         matches!(current, Operation::None) || aggregate,
@@ -214,6 +242,8 @@ pub fn prepare(
 ) -> Result<Plan> {
     ensure!(commands.len() <= 32, "UI 命令超过 32 条");
     let mut plan = Plan {
+        command_count: commands.len(),
+        ui_actions: Vec::new(),
         live2d: Vec::new(),
         auto_play: None,
         portraits: Vec::new(),
@@ -242,7 +272,74 @@ pub fn prepare(
             );
         }
         match command {
-            Command::SkipVideo => operation(&mut plan.operation, Operation::SkipVideo)?,
+            Command::PlaySound { id } => {
+                ensure!(
+                    !entering && def.media.sound_exists(&id),
+                    "UI 音效不存在或生命周期禁止"
+                );
+                plan.ui_actions.push(super::presentation::Action::Sound(id));
+            }
+            Command::Sequence { id } => {
+                ensure!(
+                    !entering && def.media.sequences.contains_key(&id),
+                    "UI 演出不存在或生命周期禁止"
+                );
+                ensure!(
+                    !plan
+                        .ui_actions
+                        .iter()
+                        .any(|a| matches!(a, super::presentation::Action::Sequence(_))),
+                    "一次只能启动一个演出"
+                );
+                plan.ui_actions
+                    .push(super::presentation::Action::Sequence(id));
+            }
+            Command::SoundEnabled { enabled } => {
+                ensure!(!entering, "生命周期禁止修改音效偏好");
+                operation(&mut plan.operation, Operation::UiAudio)?;
+                plan.ui_actions
+                    .push(super::presentation::Action::Enabled(enabled));
+            }
+            Command::SoundActor { actor, enabled } => {
+                ensure!(
+                    !entering && def.media.actors.contains(&actor),
+                    "未知音效角色或生命周期禁止"
+                );
+                operation(&mut plan.operation, Operation::UiAudio)?;
+                plan.ui_actions
+                    .push(super::presentation::Action::Actor(actor, enabled));
+            }
+            Command::SoundExclude { asset, excluded } => {
+                ensure!(
+                    !entering && def.media.audio.contains(&asset),
+                    "未知音效资源或生命周期禁止"
+                );
+                operation(&mut plan.operation, Operation::UiAudio)?;
+                plan.ui_actions
+                    .push(super::presentation::Action::Exclude(asset, excluded));
+            }
+            Command::Present { screen } => {
+                ensure!(!entering, "game.enter 禁止交接");
+                let target = def
+                    .screens
+                    .get(&screen)
+                    .ok_or_else(|| anyhow::anyhow!("交接页面不存在"))?;
+                if target.modal {
+                    ensure!(
+                        plan.state.stack.len() < 8 && !plan.state.stack.contains(&screen),
+                        "交接页面重复或栈超限"
+                    );
+                    plan.state.stack.push(screen);
+                } else {
+                    plan.state.stack = vec![screen];
+                }
+                operation(&mut plan.operation, Operation::Present)?;
+            }
+            Command::Resume { frame } => {
+                ensure!(!entering, "game.enter 禁止返回剧情");
+                operation(&mut plan.operation, Operation::Resume(frame))?;
+            }
+
             Command::Live2d { slot, motion } => {
                 let slot = match slot.as_str() {
                     "left" => crate::model::Slot::Left,

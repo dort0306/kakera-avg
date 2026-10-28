@@ -1,4 +1,4 @@
-# Kakera AVG Rust · v0.8.4
+# Kakera AVG Rust · v0.9.0
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
 
@@ -20,16 +20,20 @@ UI XML 支持根级 `<include src="ui/settings.xml" />`，可将状态、画廊�
 
 按钮支持 `route="open:页面ID"` 与 `route="close"`，简单页面导航无需 JS 回调；与 event 互斥，复用原页面栈及事务校验。见 [API 第 30 节](doc/xml-js-api.zh-cn.md#30-v084-按钮-ui-路由) 和 [v0.8.4 验收](doc/v0.8.4-validation.zh-cn.md)。
 
+UI 演出支持自动/JS 触发的顺序淡入淡出、UI 视频覆盖层及单次结束路由，点击或空格可跳过。HUD 的“演出与角色音效”页提供片头返回原页、片尾返回剧情界面、单音效/随机音效与角色开关示例。音效候选先过滤再随机，全排除静音；偏好独立保存在 `ui-audio.json`，不随读档回退，仅控制 UI 音效。演出进度不入档；同时只支持一个 UI 演出视频，首期不支持并行轨道。详见 [API 第 31 节](doc/xml-js-api.zh-cn.md#31-ui-演出过场视频与角色音效)、[计划](doc/ui-presentation-implementation-plan.zh-cn.md) 与 [验收](doc/ui-presentation-validation.zh-cn.md)。
+
+v0.9.0 将视频统一到 UI，frame 不再接受 video。新增 on.frameEnter/Exit、on.screenOpen/Close 与 ctx.present/resume，可在离幕时自动播放 UI 视频，结束后续接指定幕。隐藏 flow-checkpoint.json 独立保存剧情/待续点和 UI，既不显示在玩家槽位页，也不占普通自动槽；重启恢复演出从零播放。save 9、demo content-version=9，旧档拒绝且不迁移。见 [API 第 32 节](doc/xml-js-api.zh-cn.md#32-v090-幕与页面生命周期隐藏交接槽)。
+
 ## 当前数据契约
 
 | 对象 | 当前值 |
 | --- | --- |
 | story | schema 8；固定 story.xml，单/多文件均须显式 next |
 | XML UI | schema 3，必需；可多文件 include，打包合并，布局与交互仍由 XML/JS 定义 |
-| 手动/自动档 | schema 8；demo content-version=8 |
+| 手动/自动档 | schema 9；demo content-version=9 |
 | KPAK / profile / read | KPAK 2（流式）与 1（小包兼容）；profile/read 为 1 |
 
-从 v0.8 起删除旧 story/flow 解析、声明式路由、无 XML UI 的兼容菜单、旧档导入、默认旧执行器和旧设置字段补齐。旧内容/槽位明确拒绝，不自动迁移或覆盖；旧格式只在 [v0.7.3 归档](doc/archive/v0.7.3-xml-js-api.zh-cn.md) 与历史 doc 中说明。settings.json 必须包含完整字段（含 skip_all、fullscreen）；坏文件提示后使用默认值。save 8 的 screenshot 字段必需，可为 null（无窗口工具快照），图像坏时拒绝。
+从 v0.8 起删除旧 story/flow 解析、声明式路由、无 XML UI 的兼容菜单、旧档导入、默认旧执行器和旧设置字段补齐。旧内容/槽位明确拒绝，不自动迁移或覆盖；旧格式只在 [v0.7.3 归档](doc/archive/v0.7.3-xml-js-api.zh-cn.md) 与历史 doc 中说明。settings.json 必须包含完整字段（含 skip_all、fullscreen）；坏文件提示后使用默认值。save 9 的 screenshot 字段必需，可为 null（无窗口工具快照），图像坏时拒绝。
 
 ## 启动
 
@@ -55,7 +59,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.8.4，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.9.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -97,11 +101,11 @@ KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见
 
 每句是独立完整 Frame；纯 Controller 通过隔离 QuickJS 计划验证并原子提交变量/目标/历史。按 Unicode 字素逐字，继续先跳转场、再补全、再推进；选项不默认选择。支持 Ctrl 只读/全部快进、自动播放、历史、CG、图片效果和立绘动作。菜单、提示、失焦和截图等待正确仲裁。
 
-200 手动槽每页十个，自动槽十个独立轮换。剧情槽存位置、变量和历史检查点，加载完整重放；保存时间与 320×180 PNG 缩略图在同一 JSON 原子替换。settings.json/profile.json/read.json 独立于槽位，不随读档回退，排除出包与监控。已读最多 100000 条，文件 2MiB，超限不破坏旧文件；快进不开放 JS 已读查询。
+200 手动槽每页十个，自动槽十个独立轮换。剧情槽存位置、变量和历史检查点，加载完整重放；保存时间与 320×180 PNG 缩略图在同一 JSON 原子替换。settings.json/profile.json/read.json/ui-audio.json 独立于槽位，不随读档回退，排除出包与监控。幕与页面交接使用固定隐藏 flow-checkpoint.json（schema 1，最多 2MiB），不显示在槽位页、不占普通自动槽、不受自动保存开关影响，成功返回后写 inactive 墓碑。已读最多 100000 条，文件 2MiB，超限不破坏旧文件；快进不开放 JS 已读查询。
 
 Windows 原生 D3D11 负责窗口、滤镜与 Live2D 网格/蒙版合成，GPU 结果直接注册原生纹理；CPU fallback 保留，窗口仍由 D3D11/WARP 呈现。视频使用 Windows Media Foundation，Core 参数/形变仍为 CPU。GPU 失败报告并回退，设备失效最多一次 WARP 重建。
 
-demo 为 30 场景/4 变量/3 JS/12 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
+demo 为 30 场景/4 变量/3 JS/15 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
 
 ## 验证与限制
 
@@ -112,7 +116,7 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前策略见 [v0.8.4 落地文档](doc/v0.8.4-implementation-plan.zh-cn.md)，实际结果见 [v0.8.4 验收](doc/v0.8.4-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前策略见 [v0.9.0 落地文档](doc/v0.9.0-implementation-plan.zh-cn.md)，实际结果见 [v0.9.0 验收](doc/v0.9.0-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 

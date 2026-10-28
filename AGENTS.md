@@ -2,7 +2,7 @@
 
 ## 目标与依据
 
-先阅读当前 `doc/v0.8.4-implementation-plan.zh-cn.md`、`doc/v0.8.4-validation.zh-cn.md`，再阅读 `doc/v0.8.3-implementation-plan.zh-cn.md`、`doc/v0.8.3-validation.zh-cn.md`，再阅读 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
+先阅读当前 `doc/v0.9.0-implementation-plan.zh-cn.md`、`doc/v0.9.0-validation.zh-cn.md`，再阅读 `doc/v0.8.4-implementation-plan.zh-cn.md`、`doc/v0.8.4-validation.zh-cn.md`，再阅读 `doc/v0.8.3-implementation-plan.zh-cn.md`、`doc/v0.8.3-validation.zh-cn.md`，再阅读 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
 
 从 v0.8 起，每个新需求必须优先评估能否通过已有 XML 与 JavaScript 能力组合实现；能实现就只改 XML/JS。只有现有宿主能力确实无法满足需求时，才扩展 Rust 的明确命令、校验或平台能力，并在策略中说明原因。
 
@@ -29,8 +29,8 @@
 - 保持严格 XML 校验：未知元素/属性、重复 ID、错误资源类型、缺失引用、选项路由不一致必须报错，并保留文件名与位置。
 - 场景 ID 是存档契约，不用 XML 序号代替。修改不兼容内容要显式提升 content-version，不悄悄接受旧档。
 - 坏档不得修改当前 Session。写档采用同目录临时文件与平台原子替换；禁止先删旧档再改名。
-- v0.8 为唯一正式基线：story 8 / UI 3 / save 8，demo content-version=8；profile 1/read 1 为唯一现行格式；v0.8.1 用户明确要求同时支持 KPAK 2 与小包 KPAK 1，仅包容器保留兼容。删除旧格式解析器、flow 规则、兼容菜单、旧档导入和旧字段补齐，历史只保留文档说明。
-- schema 8 保存 generation、当前位置、变量与历史起点检查点；历史最多 1000 条，裁剪推进检查点，读档完整重放条件/更新/目标与终值。手动槽 1–200，十槽一页/20 页，只扫描当前页元信息；真正加载再完整验证。
+- v0.8 基线为 story 8 / UI 3 / save 8；v0.9.0 当前剧情存档为 save 9（history 每条必需 resume_to，可为 null），demo content-version=9；profile 1/read 1 为唯一现行格式；v0.8.1 用户明确要求同时支持 KPAK 2 与小包 KPAK 1，仅包容器保留兼容。删除旧格式解析器、flow 规则、兼容菜单、旧档导入和旧字段补齐，历史只保留文档说明。
+- save 9 保存 generation、当前位置、变量与历史起点检查点；历史最多 1000 条，裁剪推进检查点，读档完整重放条件/更新/目标与终值，显式 UI 返回边单独校验。手动槽 1–200，十槽一页/20 页，只扫描当前页元信息；真正加载再完整验证。
 - 自动槽 auto-1…10 独立于手动槽，按 generation 轮换，提交后写入、成功读档不写回；失败保留旧档及已提交剧情，提示并停用 autosave。外部捕获必须验证 Session；App 已提交状态可直接捕获，不能重复重放所有历史。
 - 新内容使用 entry/scripts/interface，不读取 flow.xml；JS 注册覆盖所有场景并与 XML 选项对应，动态目标在执行边界校验。错误保留 XML 位置或 JS 文件/栈，不承诺穷举动态分支。XML UI 为必需；无内置兼容界面，无旧格式回退。demo 的旧 flow.xml 仅在 `doc/archive/demo-flow-v0.3.xml` 留档。
 - UI 图片/模型/视频引用使用资源 ID，严格验证绑定/事件/模板。profile.json 独立保存 CG（schema 1/story_id），不被旧剧情槽或重开撤销；坏进度提示并使用初值。
@@ -64,7 +64,7 @@ portrait.pose 为最终显示契约；enter/exit 与 ctx.portrait 仅驱动呈�
 ## v0.6 自动播放与媒体
 
 - 自动播放为瞬时状态；文字、转场、语音都完成后等待 auto_delay。菜单/提示/失焦/视频暂停计时；选项/结尾、手动剧情输入/读档/重开停止。用户输入优先，每次更新只提交一个剧情操作。
-- 视频资源从 ContentSource 读取，临时文件属于后端细节；Windows Media Foundation 解码，有界队列/资源预算。准备候选视频和模型必须先于 Session/UI/IO 提交；结束/跳过必须经控制器，待提交结束事件不能因菜单输入丢失。读档视频从零秒重播。
+- v0.9.0 起视频只在 UI sequence；资源仍从 ContentSource 读取，临时文件属于后端细节；Windows Media Foundation 解码，有界队列/资源预算。准备候选视频和模型必须先于 Session/UI/IO 提交；结束/跳过只经 UI 一次性结束路由，不再提交 Controller。读档或隐藏槽恢复时从零秒重播。
 - 视频音轨独立 video_volume，播放期间暂停剧情音频；菜单/失焦同时暂停视频时钟与音轨，禁止绘制/tick 重启 Sink。
 - Live2D 使用真实 Cubism Core，动态库仅从宿主受信任配置加载，禁止游戏脚本或资源提供任意原生库路径。模型从 ContentSource 读取；Core 句柄/时钟/动作进度不入 Model/存档。候选 XML 参数、动作及 JS 动作先验证；静态 fallback 只在显式禁用时使用。
 - 保持模型/贴图/网格/动作/合成预算，不支持的 offscreen/高级混合明确拒绝；运行失败提示并冻结最后图像。蒙版取源贴图 alpha，不受蒙版源 drawable 是否可见/透明度影响。不要把辅助 physics JSON 读取说成物理模拟支持。
@@ -153,3 +153,20 @@ portrait.pose 为最终显示契约；enter/exit 与 ctx.portrait 仅驱动呈�
 ## v0.8.4 按钮 UI 路由
 
 button 的 route="open:页面ID"/"close" 与 event 二选一，其他控件仍用 event。全 UI 装配后校验目标，类型化事件复用 host::prepare 页面栈事务，不执行 JS 或开放剧情跳转。保留顶层/禁用/隐藏阻挡与单意图；重复模态、栈超限或关闭唯一根页失败保留状态。依据 doc/v0.8.4-implementation-plan.zh-cn.md 和 doc/v0.8.4-validation.zh-cn.md，接口见 API 第 30 节。
+
+
+## UI 演出与音效（v0.8.4 增量）
+
+- 依据 doc/ui-presentation-implementation-plan.zh-cn.md、doc/ui-presentation-validation.zh-cn.md 和 API 第 31 节。v0.9.0 起剧情过场改用 UI sequence，frame.video 已删除；UI 演出使用 ui-media/sequence，瞬时状态不入 Model/存档。
+- 至多一个有界视频解码线程；自然完成和跳过共用一次性结束路由，跳过输入不穿透剧情、不补播未来声音。UI 时钟不受菜单剧情暂停影响，失焦/提示/调试冻结；热更延后至演出结束，设备重建取消。绘制只读，不做 IO/脚本/解码或启动音频。
+- UI 音效随机在宿主呈现层执行，先按作者禁用/玩家角色与资源偏好过滤再带权选择，空集静音。直接资源引用不得绕过归属或禁用。ui-audio.json 独立、严格 schema 1/story_id、完整字段、原子替换，排除出包和监控；失败保留 UI/声音/剧情，不能混入其他剧情/IO 事务。QuickJS 剧情回调仍无随机/时间。
+- 验证动画暂停/最终态/页切清理、自动触发/单次完成/跳过无穿透、视频返回/单次跳过、过滤/权重/角色/全部静音、偏好重启/坏文件/原子失败、两种包重载；GUI、设备流和听感分别报告。
+
+
+## v0.9.0 UI 视频与生命周期（覆盖此前相冲突的媒体/存档规则）
+
+- 当前 story 8/UI 3/save 9，demo content-version=9；仅保留 KPAK 1/2 容器兼容。Frame 不含视频，严格拒绝 frame.video；旧剧情视频推进/渲染/输入分支、ctx.skipVideo/game.video* 删除，历史只在 doc/archive 说明。视频只在 UI sequence 中。
+- on.frameEnter/Exit 与 on.screenOpen/Close 收集纯候选 UI 命令，正常离幕先完整验证 Controller，再 exit/enter；回放不触发。页面栈变动回调整批执行，最多 32 命令/16 次派发，失败不部分提交；resume 只允许普通 UI 或 screenClose，frameEnter 可继续交给下一 UI。
+- 固定隐藏 flow-checkpoint.json schema 1，source/continuation 为完整 save 9，含 UI 栈/变量/原栈/序列 ID。先验证准备再原子写，再提交；成功返回写 inactive 墓碑，坏槽保留并提示。启动恢复只重开 UI 生命周期，视频从零播放，不入播放器指针。2MiB 总预算，独立于玩家槽和普通自动槽，不受 autosave 开关影响，排除监控/发布。
+- UI 返回通过显式 history.resume_to 保存和重放；不能伪造普通选项。save 9 每条 resume_to 必需可为 null，旧 save 8 不迁移。候选变量/历史/目标错误或隐藏写失败保留旧 Session/UI/音频。
+- 活动交接禁止普通剧情/存读档/设置及其他持久 IO，热更延后；恢复动作不能混合 CG/设置等跨文件 IO。验证四回调/首尾/自循环/别名/循环预算、单次视频返回、跨进程隐藏槽/原子失败/坏槽/墓碑/普通槽隔离与 save 9 历史裁剪重放。GUI/设备/听感分开记录，依据本版计划/验收/API 第 32 节。

@@ -31,6 +31,10 @@
       route.options.set(option, { run: callback(run), when: when === undefined ? undefined : callback(when) });
     },
     end(frame) { register(frame, "end"); },
+    frameEnter(frame, run) { this.ui(`frame.enter:${id(frame)}`, run); },
+    frameExit(frame, run) { this.ui(`frame.exit:${id(frame)}`, run); },
+    screenOpen(screen, run) { this.ui(`screen.open:${id(screen)}`, run); },
+    screenClose(screen, run) { this.ui(`screen.close:${id(screen)}`, run); },
     ui(event, run) {
       if (sealed) fail("回调执行期间不能注册 UI 事件");
       id(event);
@@ -99,6 +103,13 @@
       vars: context(request, false).ctx.vars,
       ui: context({ variables: request.uiVariables }, false).ctx.vars,
       item: readonly(request.item), value: readonly(request.value),
+      present(screen) { emit({type:"present",screen}); },
+      resume(frame) { emit({type:"resume",frame:frame === undefined ? null : frame}); },
+      playSound(id) { emit({type:"play_sound",id}); },
+      sequence(id) { emit({type:"sequence",id}); },
+      soundEnabled(enabled) { emit({type:"sound_enabled",enabled}); },
+      soundActor(actor, enabled) { emit({type:"sound_actor",actor,enabled}); },
+      soundExclude(asset, excluded) { emit({type:"sound_exclude",asset,excluded}); },
       open(screen) { emit({ type: "open", screen }); },
       close() { emit({ type: "close" }); },
       setUi(name, value) {
@@ -120,7 +131,6 @@
       slotsPage(page) { emit({type:"slots_page",page}); },
       loadAuto(slot) { emit({type:"load_auto",slot}); },
       autoPlay(enabled) { emit({type:"auto_play",enabled}); },
-      skipVideo() { emit({type:"skip_video"}); },
       live2d(slot, motion) { emit({type:"live2d",slot,motion}); },
       portrait(slot, kind, duration = 600, strength = 32, easing = "ease-in-out") { emit({ type: "portrait", slot, animation: { kind, duration, strength, easing } }); },
       animate(target, kind, duration = 400, strength = 12, easing = "ease-in-out") { emit({ type: "animate", target, animation: { kind, duration, strength, easing } }); }
