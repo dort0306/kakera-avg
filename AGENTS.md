@@ -2,7 +2,7 @@
 
 ## 目标与依据
 
-先阅读当前 `doc/v0.8.3-implementation-plan.zh-cn.md`、`doc/v0.8.3-validation.zh-cn.md`，再阅读 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
+先阅读当前 `doc/v0.8.4-implementation-plan.zh-cn.md`、`doc/v0.8.4-validation.zh-cn.md`，再阅读 `doc/v0.8.3-implementation-plan.zh-cn.md`、`doc/v0.8.3-validation.zh-cn.md`，再阅读 `doc/v0.8.2-implementation-plan.zh-cn.md`、`doc/v0.8.2-validation.zh-cn.md`，再阅读 `doc/v0.8.1-implementation-plan.zh-cn.md`、`doc/v0.8.1-validation.zh-cn.md`，再阅读 `doc/v0.8-implementation-plan.zh-cn.md`、`doc/v0.8-validation.zh-cn.md`，历史依据再阅读 `doc/v0.7.3-implementation-plan.zh-cn.md`、`doc/v0.7.3-validation.zh-cn.md`，再阅读 `doc/v0.7.2-implementation-plan.zh-cn.md`、`doc/v0.7.2-validation.zh-cn.md`、`doc/v0.7.2-maintenance.zh-cn.md`、`doc/v0.7.1-implementation-plan.zh-cn.md`、`doc/v0.7.1-validation.zh-cn.md`，再阅读 `doc/v0.7-implementation-plan.zh-cn.md`、`doc/v0.7-validation.zh-cn.md` 与 `doc/kpak-format.zh-cn.md`，再阅读基线 `doc/v0.6-implementation-plan.zh-cn.md`、`doc/xml-js-api.zh-cn.md` 与 `doc/v0.6-ui-validation.zh-cn.md`，再阅读历史 `doc/rust-mvc-plan.zh-cn.md`、`doc/v0.2-implementation-plan.zh-cn.md`、`doc/v0.3-implementation-plan.zh-cn.md`、`doc/js-trigger-implementation-plan.zh-cn.md`、`doc/v0.4-implementation-plan.zh-cn.md`、`doc/effects-implementation-plan.zh-cn.md` 和原始数据示例，再检查代码与测试。`doc/rust-mvc-example` 保留 v0.1，`doc/v0.3-example` 保留声明式规则，`doc/v0.3.1-example` 保留 schema 4 JS 契约；可运行样例在 `games/demo`。用户已要求 JavaScript/QuickJS 触发器与 XML/JS 自定义 UI；界面位置、基础样式与菜单放 XML，交互放 JS，不要求游戏作者编写 Rust。不提前引入 ECS、异步运行时、消息总线或插件框架。
 
 从 v0.8 起，每个新需求必须优先评估能否通过已有 XML 与 JavaScript 能力组合实现；能实现就只改 XML/JS。只有现有宿主能力确实无法满足需求时，才扩展 Rust 的明确命令、校验或平台能力，并在策略中说明原因。
 
@@ -139,3 +139,17 @@ portrait.pose 为最终显示契约；enter/exit 与 ctx.portrait 仅驱动呈�
 - 场景断点在完整候选校验后、事务提交前命中；旧会话/UI/音频保留，继续只提交缓存候选一次。暂停冻结时钟、阻挡普通剧情输入，热更替换延后；渲染重建丢弃 GPU 候选并报告。无 JS 行级调试器或 DAP 服务。
 - kakera-pack 的两种格式默认只捕获实际 ContentSource 依赖、assets/licenses 与 licenses 普通文件、严格 kakera.package.json schema 1/include 的显式附加文件。未引用普通文件不自动入包，清单自身不入包。只复制/复查所选源字节，并复查依赖集合、清单和许可列表；完整包重载/块自检后原子提交。低层容器 API 和工程完整热更快照不改成发布裁剪器。
 - 验证实际认证通信、候选暂停/单次提交/变量回滚/隐藏选项/自循环、计时暂停/恢复、两种格式依赖/附加/许可/坏清单/源变化/旧包保留及未引用大文件不入包。文档同步当前 API、指南、KPAK 规范、README、编辑器接口/路线/比较和发布脚本；不将协议测试宣称为整套 GUI/设备听感验收。
+
+
+## UI XML 拆分与合并（2026-10-28）
+
+- UI 入口根级 include.src 相对游戏根引用 .xml，子根仅 `<ui schema="3">`；按声明顺序深度优先展开 variables/gallery/完整 screen/include。全局画布、initial、title/title-bind 只在入口；不支持 screen 内 include 或局部组件模板。
+- 文件最多 128、引入深度 16（含入口），源与合并 UI XML 各 1MiB；全局页面/控件/变量/CG 和节点深度预算不放宽。循环、重复/大小写重复引入、跨文件重复 ID、未知字段/schema/路径/引用错误拒绝；绑定允许跨文件前向引用。
+- 所有读取走 ContentSource；源映射覆盖加载诊断及控件/标题运行期位置，XML 节点不进入运行数据。工程完整候选热更不变；无 include 单文件仍走当前唯一 UI 3 契约，不建旧格式兼容分支。
+- 两种 KPAK 的发布装配都合并到原 UI 入口路径（通常 ui.xml），只移除实际展开子文件，保留 JS/素材/其他附加 XML；源工程不改写。依赖集合/全部原始 UI 文件指纹复查与独立包重载、自检先于原子输出。
+- 依据 doc/ui-split-implementation-plan.zh-cn.md、doc/ui-split-validation.zh-cn.md；修改时覆盖嵌套/根路径/全局引用/源诊断、严格拒绝/预算、两种真实 CLI/底层装配、确定性/源不变/旧包保留，以及子文件热更坏编辑/修复。
+
+
+## v0.8.4 按钮 UI 路由
+
+button 的 route="open:页面ID"/"close" 与 event 二选一，其他控件仍用 event。全 UI 装配后校验目标，类型化事件复用 host::prepare 页面栈事务，不执行 JS 或开放剧情跳转。保留顶层/禁用/隐藏阻挡与单意图；重复模态、栈超限或关闭唯一根页失败保留状态。依据 doc/v0.8.4-implementation-plan.zh-cn.md 和 doc/v0.8.4-validation.zh-cn.md，接口见 API 第 30 节。

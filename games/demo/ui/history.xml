@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="history">
+    <panel id="historyPanel" x="140" y="60" width="1000" height="600" image="ui.panel">
+      <label id="historyTitle" x="30" y="20" width="700" height="40" text="旅程记录" font-size="28" color="#F0CA89" />
+      <button id="historyClose" x="880" y="20" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+      <button id="historySkipTransition" x="730" y="20" width="140" height="38" text="跳过转场" visible="game.transitioning" event="fx-skip-paused" image="ui.button" />
+      <repeat id="states" x="30" y="80" width="940" height="42" source="variables" columns="4" item-width="224" item-height="30" gap="5">
+        <label id="stateName" width="110" height="25" bind="item.label" font-size="16" />
+        <label id="stateValue" x="110" width="110" height="25" bind="item.value" font-size="16" color="#F0CA89" />
+      </repeat>
+      <repeat id="historyEntries" x="30" y="138" width="940" height="420" source="history" item-width="900" item-height="124" gap="12">
+        <label id="historySpeaker" width="120" height="24" bind="item.speaker" color="#F0CA89" font-size="18" />
+        <label id="historyId" x="150" width="700" height="24" bind="item.id" font-size="16" />
+        <label id="historyText" y="30" width="900" height="58" bind="item.text" />
+        <label id="historyChoice" y="92" width="900" height="26" bind="item.choice" color="#9FC8E8" font-size="17" />
+      </repeat>
+    </panel>
+  </screen>
+</ui>

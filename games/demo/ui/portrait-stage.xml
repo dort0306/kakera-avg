@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="portrait-stage" modal="false" pause="false" background-click="background-advance" background-right-click="toggle-hud">
+    <scene id="portraitScene" width="1280" height="720" />
+    <panel id="portraitHudControls" width="1280" height="720" color="#00000000" visible="ui.hudVisible">
+    <panel id="actorHeader" width="1280" height="98" color="#101C2CDD" />
+    <label id="actorTitle" x="34" y="12" width="720" height="32" text="v0.5.1 立绘动作舞台" font-size="24" color="#F0CA89" />
+    <label id="actorText" x="34" y="50" width="900" height="40" bind="game.text" font-size="19" />
+    <button id="actorHistory" x="968" y="20" width="88" height="38" text="历史" event="open-history" image="ui.button" />
+    <button id="actorSave" x="1062" y="20" width="88" height="38" text="保存" event="open-save" image="ui.button" />
+    <button id="actorLoad" x="1156" y="20" width="88" height="38" text="读档" event="open-load" image="ui.button" />
+    <repeat id="actorChoices" x="1000" y="116" width="246" height="530" source="choices" item-width="224" item-height="32" gap="6" visible="game.complete">
+      <button id="actorChoice" width="224" height="32" bind="item.text" event="choose" image="ui.button" hover-image="ui.hover" font-size="17" />
+    </repeat>
+    <button id="actorReplay" x="44" y="660" width="180" height="40" text="重播当前动作" event="portrait-replay" image="ui.button" hover-image="ui.hover" />
+    <button id="actorHud" x="244" y="660" width="150" height="40" text="回到主界面" event="portrait-hud" image="ui.button" hover-image="ui.hover" />
+    </panel>
+  </screen>
+</ui>

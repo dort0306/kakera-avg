@@ -21,7 +21,14 @@ static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
     kakera_avg::story_chain::compile(&source).unwrap().xml
 });
-const UI: &str = include_str!("../games/demo/ui.xml");
+static UI: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let source =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    // These mutation tests operate on one complete UI document, as published.
+    interface::source::compile(&source, Path::new("ui.xml"))
+        .unwrap()
+        .xml
+});
 const UI_JS: &str = include_str!("../games/demo/scripts/ui.js");
 struct Memory(BTreeMap<PathBuf, Vec<u8>>);
 impl ContentSource for Memory {
@@ -66,7 +73,7 @@ struct Fixture {
     focused: bool,
 }
 fn fixture() -> Fixture {
-    let (loaded, logic) = load_game(&source(UI, UI_JS)).unwrap();
+    let (loaded, logic) = load_game(&source(&UI, UI_JS)).unwrap();
     let definition = loaded.interface;
     let state = State::new(&definition);
     let profile = Profile::new(&loaded.story.id, &definition);
@@ -107,6 +114,7 @@ fn commands(f: &Fixture, name: &str, item: Value, value: Value) -> Vec<Command> 
     f.logic
         .ui_event(
             &Event {
+                route: None,
                 name: name.into(),
                 item,
                 value,
@@ -144,6 +152,7 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let cmds = logic
         .ui_event(
             &Event {
+                route: None,
                 name: "credits".into(),
                 item: Value::Null,
                 value: Value::Null,
@@ -412,6 +421,7 @@ fn gallery_is_independent_of_story_slots_and_preserves_atomic_writes() {
     let mut snapshot = snapshot(&f, &f.story.start(), true);
     snapshot.values["game"]["frameId"] = json!("accept");
     let event = Event {
+        route: None,
         name: "game.enter".into(),
         item: Value::Null,
         value: Value::Null,
@@ -503,7 +513,7 @@ fn lifecycle_is_not_run_by_history_replay_and_cannot_reenter_gameplay() {
         "if (ctx.game.frameId === \"accept\") ctx.unlock(\"cg.lin\");",
         "ctx.advance();",
     );
-    assert!(load_game(&source(UI, &js)).is_err());
+    assert!(load_game(&source(&UI, &js)).is_err());
 }
 
 #[test]
@@ -519,11 +529,12 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
         "for(let i=0;i<33;i++)ctx.close();",
     ] {
         let js = format!("{UI_JS}\non.ui('test',ctx=>{{{body}}});");
-        let (loaded, logic) = load_game(&source(UI, &js)).unwrap();
+        let (loaded, logic) = load_game(&source(&UI, &js)).unwrap();
         assert!(
             logic
                 .ui_event(
                     &Event {
+                        route: None,
                         name: "test".into(),
                         item: json!({}),
                         value: Value::Null
@@ -537,11 +548,12 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
         );
     }
     let js = format!("{UI_JS}\nlet n=0;on.ui('test',ctx=>ctx.message(String(++n))); ");
-    let (loaded, logic) = load_game(&source(UI, &js)).unwrap();
+    let (loaded, logic) = load_game(&source(&UI, &js)).unwrap();
     for _ in 0..2 {
         let out = logic
             .ui_event(
                 &Event {
+                    route: None,
                     name: "test".into(),
                     item: Value::Null,
                     value: Value::Null,
@@ -581,7 +593,7 @@ fn bound_lists_and_progress_obey_story_history_and_choice_gating() {
 fn ui_and_all_skins_are_loaded_through_the_content_source_boundary() {
     let directory =
         DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
-    let mut memory = source(UI, UI_JS);
+    let mut memory = source(&UI, UI_JS);
     let (loaded, _) = load_game(&memory).unwrap();
     for asset in loaded.story.assets.values() {
         memory
@@ -591,7 +603,7 @@ fn ui_and_all_skins_are_loaded_through_the_content_source_boundary() {
     let assets = kakera_avg::assets::PreparedAssets::load_from(&loaded.story, &memory).unwrap();
     assets.validate_text(&loaded.interface.text()).unwrap();
     assert!(!memory.0.contains_key(Path::new("flow.xml")));
-    let mut missing = source(UI, UI_JS);
+    let mut missing = source(&UI, UI_JS);
     missing.0.remove(Path::new("ui.xml"));
     assert!(load_game(&missing).is_err());
 }
@@ -899,4 +911,71 @@ fn hud_callbacks_restore_before_advancing_and_screen_handlers_are_validated() {
         );
         assert!(load_game(&source(&xml, UI_JS)).is_err());
     }
+}
+
+#[test]
+fn declarative_button_route_is_emitted_by_renderer_and_disabled_buttons_are_blocked() {
+    use eframe::egui;
+    let mut f = fixture();
+    let directory =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    let ctx = egui::Context::default();
+    let assets = kakera_avg::assets::PreparedAssets::load_from(&f.story, &directory)
+        .unwrap()
+        .install(&ctx);
+    let session = f.story.start();
+    let data = snapshot(&f, &session, true);
+    let click = |f: &Fixture| {
+        render_frame(&ctx, f, &assets, &session, &data, vec![]);
+        render_frame(
+            &ctx,
+            f,
+            &assets,
+            &session,
+            &data,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(740., 39.)),
+                egui::Event::PointerButton {
+                    pos: egui::pos2(740., 39.),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        render_frame(
+            &ctx,
+            f,
+            &assets,
+            &session,
+            &data,
+            vec![egui::Event::PointerButton {
+                pos: egui::pos2(740., 39.),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        )
+    };
+    let event = click(&f).unwrap();
+    assert_eq!(
+        event.route,
+        Some(interface::UiRoute::Open("settings".into()))
+    );
+    assert!(event.name.is_empty());
+    let button = f
+        .definition
+        .screens
+        .get_mut("hud")
+        .unwrap()
+        .nodes
+        .iter_mut()
+        .find(|n| n.id == "hudControls")
+        .unwrap()
+        .children
+        .iter_mut()
+        .find(|n| n.id == "settingsButton")
+        .unwrap();
+    button.enabled = "false".into();
+    assert!(click(&f).is_none());
 }

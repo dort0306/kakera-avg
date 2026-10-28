@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="effects" pause="false">
+    <panel id="effectsPanel" x="80" y="30" width="1120" height="660" image="ui.panel">
+      <label id="effectsTitle" x="30" y="20" width="900" height="40" text="内置转场与图片效果" font-size="28" color="#F0CA89" />
+      <button id="openSkinDemo" x="470" y="22" width="210" height="38" text="点九 / 图集" event="open-skins" image="ui.button"/>
+      <button id="effectsClose" x="1000" y="22" width="88" height="38" text="返回" event="close" image="ui.button" />
+      <button id="effectsPausePreview" x="810" y="22" width="170" height="38" text="暂停预览" event="fx-pause" image="ui.button" />
+      <image id="effectsPreview" x="30" y="90" width="480" height="270" image="bg.room" fit="contain" />
+      <image id="grayPreview" x="540" y="90" width="250" height="120" image="bg.room" effect="fx.gray" fit="contain" />
+      <label id="grayLabel" x="540" y="212" width="250" height="26" text="灰度" font-size="17" />
+      <image id="sepiaPreview" x="810" y="90" width="250" height="120" image="bg.room" effect="fx.sepia" fit="contain" />
+      <label id="sepiaLabel" x="810" y="212" width="250" height="26" text="棕褐" font-size="17" />
+      <image id="blurPreview" x="540" y="245" width="250" height="120" image="bg.room" effect="fx.blur" fit="contain" />
+      <label id="blurLabel" x="540" y="367" width="250" height="26" text="模糊" font-size="17" />
+      <image id="pixelPreview" x="810" y="245" width="250" height="120" image="bg.room" effect="fx.pixel" fit="contain" />
+      <label id="pixelLabel" x="810" y="367" width="250" height="26" text="像素化" font-size="17" />
+      <button id="fxFade" x="30" y="390" width="145" height="40" text="淡入" event="fx-fade" image="ui.button" />
+      <button id="fxZoom" x="190" y="390" width="145" height="40" text="缩放" event="fx-zoom" image="ui.button" />
+      <button id="fxShake" x="350" y="390" width="145" height="40" text="震动" event="fx-shake" image="ui.button" />
+      <button id="fxFlash" x="30" y="440" width="145" height="40" text="闪白" event="fx-flash" image="ui.button" />
+      <button id="fxSlide" x="190" y="440" width="145" height="40" text="图片滑入" event="fx-slide" image="ui.button" />
+      <button id="fxScene" x="350" y="440" width="145" height="40" text="场景震动" event="fx-scene" image="ui.button" />
+      <label id="fxHint" x="540" y="410" width="540" height="40" text="转场将重新开始；继续可跳过。普通菜单暂停效果。" font-size="18" />
+      <label id="fxDurationLabel" x="540" y="455" width="160" height="28" text="转场毫秒" font-size="18" />
+      <slider id="fxDurationSlider" x="700" y="450" width="380" height="36" value="ui.fxDuration" min="0" max="5000" event="fx-duration" />
+      <button id="fxDissolve" x="30" y="510" width="165" height="38" text="交叉淡化" event="fx-dissolve" image="ui.button" />
+      <button id="fxBlack" x="208" y="510" width="165" height="38" text="黑幕" event="fx-black" image="ui.button" />
+      <button id="fxWhite" x="386" y="510" width="165" height="38" text="白幕" event="fx-white" image="ui.button" />
+      <button id="fxWipeL" x="564" y="510" width="165" height="38" text="向左擦除" event="fx-wipe-left" image="ui.button" />
+      <button id="fxWipeR" x="742" y="510" width="165" height="38" text="向右擦除" event="fx-wipe-right" image="ui.button" />
+      <button id="fxWipeU" x="920" y="510" width="165" height="38" text="向上擦除" event="fx-wipe-up" image="ui.button" />
+      <button id="fxWipeD" x="30" y="560" width="165" height="38" text="向下擦除" event="fx-wipe-down" image="ui.button" />
+      <button id="fxSlideL" x="208" y="560" width="165" height="38" text="向左滑动" event="fx-slide-left" image="ui.button" />
+      <button id="fxSlideR" x="386" y="560" width="165" height="38" text="向右滑动" event="fx-slide-right" image="ui.button" />
+      <button id="fxSlideU" x="564" y="560" width="165" height="38" text="向上滑动" event="fx-slide-up" image="ui.button" />
+      <button id="fxSlideD" x="742" y="560" width="165" height="38" text="向下滑动" event="fx-slide-down" image="ui.button" />
+      <button id="fxDefault" x="920" y="560" width="165" height="38" text="恢复默认" event="fx-default" image="ui.button" />
+    </panel>
+  </screen>
+</ui>

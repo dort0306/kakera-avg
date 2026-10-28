@@ -1,4 +1,4 @@
-# Kakera AVG Rust · v0.8.3
+# Kakera AVG Rust · v0.8.4
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
 
@@ -16,12 +16,16 @@ v0.8.3 新增工程调试 API：外部工具可查询运行状态、设置场景
 
 编辑器仍处于规划阶段，AI 改为用户可配置的通用 Chat Completions 兼容 API，可连接自部署或远程服务，不固定模型。比较后建议优先实现 VS Code 插件，提供“一幕一个 frame”的可视编辑、资源管理和 DAP 适配；详细方案见 [编辑器文档](doc/editor/README.zh-cn.md) 与 [平台比较](doc/editor/09-editor-platform-comparison.zh-cn.md)。
 
+UI XML 支持根级 `<include src="ui/settings.xml" />`，可将状态、画廊和完整页面拆到 `<ui schema="3">` 子文件。路径相对游戏根目录，支持嵌套引入；全局统一校验，拒绝重复/循环与 ID 冲突。KPAK 1/2 打包自动汇总到一个完整 UI 入口（通常 ui.xml），不带子 UI 碎片，不改源工程。demo 已按页面拆分；写法、预算与限制见 [API 第 7.4 节](doc/xml-js-api.zh-cn.md#74-外部-ui-xml-引入与打包合并)，结果见 [UI 拆分验收](doc/ui-split-validation.zh-cn.md)。
+
+按钮支持 `route="open:页面ID"` 与 `route="close"`，简单页面导航无需 JS 回调；与 event 互斥，复用原页面栈及事务校验。见 [API 第 30 节](doc/xml-js-api.zh-cn.md#30-v084-按钮-ui-路由) 和 [v0.8.4 验收](doc/v0.8.4-validation.zh-cn.md)。
+
 ## 当前数据契约
 
 | 对象 | 当前值 |
 | --- | --- |
 | story | schema 8；固定 story.xml，单/多文件均须显式 next |
-| XML UI | schema 3，必需，布局/页面/设置/菜单均由 XML/JS 定义 |
+| XML UI | schema 3，必需；可多文件 include，打包合并，布局与交互仍由 XML/JS 定义 |
 | 手动/自动档 | schema 8；demo content-version=8 |
 | KPAK / profile / read | KPAK 2（流式）与 1（小包兼容）；profile/read 为 1 |
 
@@ -51,7 +55,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.8.3，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.8.4，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -108,7 +112,7 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前策略见 [v0.8.3 落地文档](doc/v0.8.3-implementation-plan.zh-cn.md)，实际结果见 [v0.8.3 验收](doc/v0.8.3-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前策略见 [v0.8.4 落地文档](doc/v0.8.4-implementation-plan.zh-cn.md)，实际结果见 [v0.8.4 验收](doc/v0.8.4-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 

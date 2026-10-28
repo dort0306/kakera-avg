@@ -131,26 +131,33 @@ impl StagedProject {
     }
 
     pub fn for_publication(&mut self) -> Result<usize> {
-        let compiled = crate::story_chain::compile(self)?;
-        let xml = compiled.publication_xml()?;
-        self.files.remove(super::selection::MANIFEST);
-        for path in &compiled.files {
-            if path != "story.xml" {
-                self.files.remove(path);
-                std::fs::remove_file(self._directory.path().join(path))?;
-            }
+        let publication = super::Publication::prepare(self)?;
+        let removed: Vec<_> = self
+            .files
+            .keys()
+            .filter(|p| publication.removes(p))
+            .cloned()
+            .collect();
+        for path in removed {
+            self.files.remove(&path);
+            std::fs::remove_file(self._directory.path().join(path))?;
         }
-        let bytes = xml.as_bytes();
-        std::fs::write(self._directory.path().join("story.xml"), bytes)?;
-        self.files.insert(
-            "story.xml".into(),
-            Entry {
-                length: bytes.len() as u64,
-                hash: Sha256::digest(bytes).into(),
-            },
-        );
+        for (path, text) in [
+            ("story.xml", publication.story.as_str()),
+            (&publication.ui.entry, publication.ui.xml.as_str()),
+        ] {
+            let bytes = text.as_bytes();
+            std::fs::write(self._directory.path().join(path), bytes)?;
+            self.files.insert(
+                path.into(),
+                Entry {
+                    length: bytes.len() as u64,
+                    hash: Sha256::digest(bytes).into(),
+                },
+            );
+        }
         ensure!(self.expanded_bytes() <= MAX_TOTAL, "发布内容超过 1TiB");
-        Ok(compiled.files.len())
+        Ok(publication.chapters.len())
     }
 
     pub fn count(&self) -> usize {

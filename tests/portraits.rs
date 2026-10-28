@@ -189,6 +189,7 @@ fn js_commands_validate_candidate_slot_and_pose_without_mutating_old_state() {
     let commands = logic
         .ui_event(
             &Event {
+                route: None,
                 name: "test-portrait".into(),
                 item: Value::Null,
                 value: Value::Null,

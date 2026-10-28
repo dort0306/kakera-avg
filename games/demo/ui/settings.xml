@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="settings">
+    <panel id="settingsPanel" x="200" y="70" width="880" height="580" image="ui.panel">
+      <label id="settingsTitle" x="30" y="24" width="600" height="40" text="设置" font-size="28" color="#F0CA89" />
+      <button id="settingsClose" x="760" y="22" width="88" height="38" text="返回" route="close" image="ui.button" />
+      <label id="speedLabel" x="30" y="105" width="210" height="32" text="文字速度" />
+      <slider id="speed" x="250" y="105" width="560" height="36" value="settings.text_speed" min="0" max="80" event="text-speed" />
+      <label id="autoDelayLabel" x="30" y="165" width="210" height="32" text="自动播放等待（秒）" />
+      <slider id="autoDelay" x="250" y="165" width="560" height="36" value="settings.auto_delay" min="0.2" max="15" event="auto-delay" />
+      <label id="bgmLabel" x="30" y="280" width="210" height="32" text="背景音乐" />
+      <slider id="bgm" x="250" y="280" width="560" height="36" value="settings.bgm_volume" min="0" max="1" event="bgm-volume" />
+      <label id="voiceLabel" x="30" y="330" width="210" height="32" text="语音" />
+      <slider id="voice" x="250" y="330" width="560" height="36" value="settings.voice_volume" min="0" max="1" event="voice-volume" />
+      <label id="seLabel" x="30" y="380" width="210" height="32" text="音效" />
+      <slider id="se" x="250" y="380" width="560" height="36" value="settings.se_volume" min="0" max="1" event="se-volume" />
+      <label id="videoVolumeLabel" x="30" y="430" width="210" height="32" text="视频音量" />
+      <slider id="videoVolume" x="250" y="430" width="560" height="36" value="settings.video_volume" min="0" max="1" event="video-volume" />
+      <toggle id="muted" x="30" y="225" width="330" height="38" text="总静音" value="settings.muted" event="mute" />
+      <toggle id="autosave" x="400" y="225" width="400" height="38" text="自动保存（轮换十槽）" value="settings.autosave" event="autosave-setting" />
+      <toggle id="skipAll" x="30" y="470" width="640" height="38" text="按住 Ctrl 快进全部（关闭：只快进已读）" value="settings.skip_all" event="skip-all" font-size="18" />
+      <toggle id="fullscreen" x="30" y="510" width="780" height="30" text="全屏显示（关闭后恢复窗口）" value="settings.fullscreen" event="fullscreen" font-size="18"/>
+      <label id="settingsHint" x="30" y="548" width="800" height="26" text="设置独立保存。Ctrl 快进；选项与结尾停止。全屏开关立即生效。" font-size="16" />
+    </panel>
+  </screen>
+</ui>

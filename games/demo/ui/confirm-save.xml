@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="confirm-save">
+    <panel id="confirmShade" width="1280" height="720" color="#000000AA" />
+    <panel id="confirmPanel" x="390" y="230" width="500" height="240" image="ui.panel">
+      <label id="confirmLabel" x="30" y="40" width="440" height="70" bind="ui.confirmText" font-size="24" color="#F0CA89" />
+      <button id="confirmYes" x="42" y="150" width="190" height="44" text="确认覆盖" event="confirm-save" image="ui.button" hover-image="ui.hover" />
+      <button id="confirmNo" x="268" y="150" width="190" height="44" text="取消" event="close" image="ui.button" hover-image="ui.hover" />
+    </panel>
+  </screen>
+</ui>

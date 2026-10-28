@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="cg-view">
+    <panel id="viewerBackground" width="1280" height="720" color="#070D18FF" />
+    <image id="cgFull" width="1280" height="720" image-bind="ui.cgImage" fit="contain" />
+    <panel id="viewerBar" width="1280" height="80" color="#070D18DD">
+      <label id="viewerTitle" x="40" y="22" width="1060" height="38" bind="ui.cgTitle" font-size="26" color="#F0CA89" />
+      <button id="viewerClose" x="1150" y="20" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+    </panel>
+  </screen>
+</ui>

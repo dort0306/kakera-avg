@@ -97,6 +97,7 @@ impl PlayerApp {
         let commands = if custom.definition.enter {
             self.logic.ui_event(
                 &Event {
+                    route: None,
                     name: "game.enter".into(),
                     item: Value::Null,
                     value: Value::Null,
@@ -201,12 +202,16 @@ impl PlayerApp {
             event.name != "game.enter",
             "生命周期事件不能作为用户事件触发"
         );
-        let commands = self.logic.ui_event(
-            &event,
-            &self.session,
-            &custom.state.variables,
-            &custom.data.values,
-        )?;
+        let commands = if let Some(route) = &event.route {
+            vec![route.command()]
+        } else {
+            self.logic.ui_event(
+                &event,
+                &self.session,
+                &custom.state.variables,
+                &custom.data.values,
+            )?
+        };
         let plan = host::prepare(
             &custom.definition,
             &custom.state,

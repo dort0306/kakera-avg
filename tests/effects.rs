@@ -21,7 +21,14 @@ static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
     kakera_avg::story_chain::compile(&source).unwrap().xml
 });
-const UI: &str = include_str!("../games/demo/ui.xml");
+static UI: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let source =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    // These mutation tests operate on one complete UI document, as published.
+    interface::source::compile(&source, Path::new("ui.xml"))
+        .unwrap()
+        .xml
+});
 const JS: &str = include_str!("../games/demo/scripts/ui.js");
 struct Source(BTreeMap<PathBuf, Vec<u8>>);
 impl ContentSource for Source {
@@ -126,7 +133,7 @@ fn animations_settle_and_easing_is_monotonic() {
 }
 #[test]
 fn clock_pause_skip_restore_and_self_loop_are_transient() {
-    let (loaded, _) = load_game(&source(&STORY, UI, JS)).unwrap();
+    let (loaded, _) = load_game(&source(&STORY, &UI, JS)).unwrap();
     let frame = loaded.story.frames["opening"].clone();
     let transition = Transition {
         kind: TransitionKind::Dissolve,
@@ -202,7 +209,7 @@ fn effect_xml_is_strict_and_reference_errors_have_positions() {
         ("id=\"fx.gray\"", "id=\"fx.sepia\""),
     ] {
         assert!(STORY.contains(from));
-        let error = load_game(&source(&STORY.replace(from, to), UI, JS))
+        let error = load_game(&source(&STORY.replace(from, to), &UI, JS))
             .err()
             .unwrap();
         assert!(format!("{error:#}").contains("story.xml:"), "{error:#}");
@@ -217,7 +224,7 @@ fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only(
     let js = format!(
         "{JS}\non.ui('test',ctx=>{{ctx.setUi('status','changed');ctx.animate('missing','shake');}});on.ui('bad-transition',ctx=>ctx.transition('dissolve'));on.ui('good',ctx=>ctx.animate('scene','shake',600,20));on.ui('repeat-target',ctx=>ctx.animate('cgThumbnail','fade-in')); "
     );
-    let (loaded, logic) = load_game(&source(&STORY, UI, &js)).unwrap();
+    let (loaded, logic) = load_game(&source(&STORY, &UI, &js)).unwrap();
     let def = loaded.interface;
     let state = State::new(&def);
     let profile = Profile::new(&loaded.story.id, &def);
@@ -226,6 +233,7 @@ fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only(
         let commands = logic
             .ui_event(
                 &Event {
+                    route: None,
                     name: name.into(),
                     item: Value::Null,
                     value: Value::Null,
@@ -253,12 +261,12 @@ fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only(
             "if (ctx.ui.fxTransition) ctx.transition(ctx.ui.fxTransition, Number(ctx.ui.fxDuration));",
             body,
         );
-        assert!(load_game(&source(&STORY, UI, &js)).is_err(), "{body}");
+        assert!(load_game(&source(&STORY, &UI, &js)).is_err(), "{body}");
     }
 }
 #[test]
 fn effect_preparation_and_mesh_rendering_use_cached_assets_and_fixed_clip() {
-    let source = source(&STORY, UI, JS);
+    let source = source(&STORY, &UI, JS);
     let (loaded, logic) = load_game(&source).unwrap();
     let context = eframe::egui::Context::default();
     let assets = PreparedAssets::load_from(&loaded.story, &source)

@@ -1,6 +1,6 @@
 # KPAK 1 / KPAK 2 资源包规范
 
-适用版本：v0.8.3（容器字节格式沿用 v0.8.1）。实现来源：src/package.rs、src/package/streaming.rs、src/package/staged.rs、src/package/selection.rs。所有数字均为 little-endian，路径为 UTF-8。
+适用版本：v0.8.3（容器字节格式沿用 v0.8.1）。实现来源：src/package.rs、src/package/streaming.rs、src/package/staged.rs、src/package/selection.rs、src/interface/source.rs。所有数字均为 little-endian，路径为 UTF-8。
 
 用户明确要求保留小包 KPAK 1，同时新增流式 KPAK 2。播放器按 magic 后的 version 自动选择，未知版本/flags 拒绝，不回退目录。默认生成 2；--format 1 显式生成 1。该兼容仅限包容器，不恢复旧 story/UI/save；两种包内都须为当前 story 8/UI 3，存档为 save 8。
 
@@ -97,7 +97,7 @@ KPAK 1 面向中小体积 AVG，仍一次性解压；大体积改用下述 KPAK 
 
 普通打开只读取固定头和索引，验证摘要/路径/完整布局/引用/预算；不扫描所有数据块。读取某资源时只校验和解压它所需的块，读到损坏块失败。未访问的损坏块不保证在普通启动发现；播放器 --check 和打包自检显式读取全部唯一块。
 
-KPAK 2 打包先流式复制所选发布源文件到私有磁盘暂存，逐文件记录长度/摘要，建立固定候选。完整验证后，在暂存中合并 next 剧本链，保留所选 UI/JS/资源且不改磁盘工程；以逻辑路径和文件内顺序分 1MiB 块，按 SHA-256 去重，并比较复用块字节以拒绝摘要碰撞。块按首次出现顺序写入临时输出，最后写索引和头。压缩级别 1–22，默认 19，压缩窗口固定不超过 1MiB；相同源字节/级别/工具实现确定性生成，无时间戳。
+KPAK 2 打包先流式复制所选发布源文件到私有磁盘暂存，逐文件记录长度/摘要，建立固定候选。完整验证后，在暂存中合并 next 剧本链及独立的 UI include 图，分别替换 story.xml 与 UI 入口，移除实际章节/子 UI 文件；保留所选 JS/资源且不改磁盘工程；以逻辑路径和文件内顺序分 1MiB 块，按 SHA-256 去重，并比较复用块字节以拒绝摘要碰撞。块按首次出现顺序写入临时输出，最后写索引和头。压缩级别 1–22，默认 19，压缩窗口固定不超过 1MiB；相同源字节/级别/工具实现确定性生成，无时间戳。
 
 输出包完整验证（包括未使用文件的块）、独立故事/资源加载，以及所选源文件指纹、依赖集合、清单与许可证列表的复查全部通过后，以同目录临时文件原子提交；--force 才能覆盖，失败保留旧包并清理自身临时输出。输出必须在源工程之外。暂存和视频后端文件需要足够临时磁盘空间，资源生命周期结束后释放；不逐帧读盘或解压。
 
@@ -116,3 +116,10 @@ KPAK 1 打包保留原内存快照路径及其小包预算。工程运行/热更
 
 
 v0.8.3 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。
+
+
+## UI include 的发布装配
+
+2026-10-28 追加，容器格式不变。KPAK 1 的 Snapshot::for_publication 与 KPAK 2 的 StagedProject::for_publication 共用发布装配：从已验证 story 的 interface.src 找到 UI 入口，展开根级 include，合并 variables/gallery/screens。标准工程包内只剩一个 ui.xml；自定义入口保留原逻辑路径。仅移除实际被展开的子 UI 文件，不按 .xml 扩展名批量删除；JS/素材和显式附加的其他 XML 保留。
+
+UI 装配仍限制 UI 3、128 文件/16 层、源和合并 XML 各 1MiB；不会放宽解码/容器预算。全部引入经 ContentSource 记录为依赖，原始 UI 入口/子文件都属于提交前复查的源指纹；固定候选与合并包各自重新完整加载。任何错误或源变化在输出替换前失败，源工程不改写。完整创作语法与诊断约定见 API 第 7.4 节。

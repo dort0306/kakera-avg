@@ -20,6 +20,31 @@ pub const MAX_TOTAL: usize = 512 * 1024 * 1024;
 const MAX_FILES: usize = 10000;
 const MAX_FILE: usize = 128 * 1024 * 1024;
 
+struct Publication {
+    story: String,
+    chapters: Vec<String>,
+    ui: crate::interface::source::CompiledUi,
+}
+impl Publication {
+    fn prepare(source: &dyn ContentSource) -> Result<Self> {
+        let compiled = crate::story_chain::compile(source)?;
+        let doc = roxmltree::Document::parse(&compiled.xml)?;
+        let interface = crate::loader::single("story.xml", doc.root_element(), "interface")?;
+        let path = crate::loader::required("story.xml", interface, "src")?;
+        let ui = crate::interface::source::compile(source, Path::new(path))?;
+        Ok(Self {
+            story: compiled.publication_xml()?,
+            chapters: compiled.files,
+            ui,
+        })
+    }
+    fn removes(&self, path: &str) -> bool {
+        path == selection::MANIFEST
+            || (path != "story.xml" && self.chapters.iter().any(|p| p == path))
+            || (path != self.ui.entry && self.ui.files.iter().any(|p| p == path))
+    }
+}
+
 #[derive(Clone)]
 pub struct Snapshot {
     data: Arc<Vec<u8>>,
@@ -136,21 +161,19 @@ impl Snapshot {
         }
         hash.finalize().into()
     }
-    /// Publish only the compiled entry XML; retain unrelated UI/content files.
+    /// Flatten story/UI authoring files; retain unrelated content.
     pub fn for_publication(&self) -> Result<(Self, usize)> {
-        let compiled = crate::story_chain::compile(self)?;
-        let xml = compiled.publication_xml()?;
+        let publication = Publication::prepare(self)?;
         let mut data = Vec::new();
         let mut files = BTreeMap::new();
-        let chapters: BTreeSet<_> = compiled.files.iter().map(String::as_str).collect();
         for (path, (offset, len)) in &self.files {
-            if path == selection::MANIFEST
-                || (path != "story.xml" && chapters.contains(path.as_str()))
-            {
+            if publication.removes(path) {
                 continue;
             }
             let bytes = if path == "story.xml" {
-                xml.as_bytes()
+                publication.story.as_bytes()
+            } else if path == &publication.ui.entry {
+                publication.ui.xml.as_bytes()
             } else {
                 &self.data[*offset..offset + len]
             };
@@ -164,7 +187,7 @@ impl Snapshot {
                 data: Arc::new(data),
                 files,
             },
-            compiled.files.len(),
+            publication.chapters.len(),
         ))
     }
     pub fn count(&self) -> usize {

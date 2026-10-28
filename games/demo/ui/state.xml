@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <variables>
+    <string id="windowTitle" initial="午后物语" />
+    <bool id="hudVisible" initial="true" />
+    <bool id="portraitMode" initial="false" />
+    <string id="fxTransition" initial="" />
+    <int id="fxDuration" initial="1500" min="0" max="5000" />
+    <int id="pendingSlot" initial="1" min="1" max="200" />
+    <string id="confirmText" initial="确认覆盖此存档？" />
+    <string id="status" initial="" />
+    <string id="spriteRegion" initial="0,0,64,64" />
+    <string id="cgImage" initial="bg.room" />
+    <string id="cgTitle" initial="午后房间" />
+  </variables>
+  <gallery>
+    <cg id="cg.room" image="bg.room" title="午后房间" unlocked="true" />
+    <cg id="cg.lin" image="portrait.lin" title="一同出发" />
+  </gallery>
+</ui>

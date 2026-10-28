@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="skins">
+    <nine-patch id="skinDemoPanel" x="150" y="90" width="980" height="540" image="ui.dialogue">
+      <label id="skinTitle" x="30" y="24" width="800" height="44" text="点九图与共享图集" font-size="28" color="#F0CA89"/>
+      <button id="skinClose" x="860" y="24" width="88" height="38" text="返回" event="close" image="ui.button"/>
+      <label id="skinExplain" x="30" y="86" width="900" height="60" text="同一张小点九图拉伸到不同大小，固定边框保持清晰。下方图片共用一张图集。" font-size="20"/>
+      <nine-patch id="skinSmall" x="30" y="164" width="260" height="100" image="ui.dialogue"><label id="skinSmallText" x="18" y="30" width="220" height="36" text="小背景" font-size="22"/></nine-patch>
+      <nine-patch id="skinWide" x="320" y="164" width="620" height="100" image="ui.dialogue"><label id="skinWideText" x="18" y="30" width="580" height="36" text="宽背景：边角不做整图拉伸" font-size="22"/></nine-patch>
+      <image id="spriteDynamic" x="30" y="310" width="128" height="128" image="ui.sprites" region-bind="ui.spriteRegion"/>
+      <image id="spriteGreen" x="190" y="310" width="128" height="128" image="ui.sprites" region="64,0,64,64"/>
+      <image id="spriteRed" x="350" y="310" width="128" height="128" image="ui.sprites" region="128,0,64,64"/>
+      <button id="spriteBlueButton" x="530" y="310" width="170" height="40" text="切换蓝色区域" event="sprite-blue" image="ui.button"/>
+      <button id="spriteGreenButton" x="720" y="310" width="220" height="40" text="切换绿色区域" event="sprite-green" image="ui.button"/>
+      <button id="spriteRedButton" x="530" y="370" width="170" height="40" text="切换红色区域" event="sprite-red" image="ui.button"/>
+      <label id="spriteRegionText" x="530" y="434" width="410" height="32" bind="ui.spriteRegion" font-size="18"/>
+      <label id="spriteNote" x="30" y="484" width="660" height="32" text="JS 修改 UI 变量；共用纹理，无新增图片上传。" font-size="19"/>
+      <button id="windowTitleButton" x="720" y="484" width="220" height="32" text="切换窗口标题" event="window-title" image="ui.button" font-size="18"/>
+    </nine-patch>
+  </screen>
+</ui>

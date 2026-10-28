@@ -172,6 +172,7 @@ fn new_js_commands_are_bounded_and_game_enter_cannot_navigate_or_start_autoplay(
     let commands = logic
         .ui_event(
             &Event {
+                route: None,
                 name: "slots-last".into(),
                 item: Value::Null,
                 value: Value::Null,
@@ -335,6 +336,7 @@ fn bundled_live2d_routes_and_tap_callback_preserve_variables_and_replayable_hist
     let commands = logic
         .ui_event(
             &Event {
+                route: None,
                 name: "choose".into(),
                 item: json!({"id":"tap"}),
                 value: Value::Null,

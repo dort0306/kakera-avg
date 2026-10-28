@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod data;
 pub mod host;
 pub mod render;
+pub mod source;
 
 #[derive(Clone, Debug)]
 pub struct Definition {
@@ -87,6 +88,7 @@ pub enum Kind {
 }
 #[derive(Clone, Debug)]
 pub struct Node {
+    pub route: Option<UiRoute>,
     pub location: String,
     pub region: Option<crate::image_layout::Region>,
     pub region_bind: Option<String>,
@@ -112,9 +114,25 @@ pub struct Node {
 }
 #[derive(Clone, Debug)]
 pub struct Event {
+    pub route: Option<UiRoute>,
     pub name: String,
     pub item: Value,
     pub value: Value,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UiRoute {
+    Open(String),
+    Close,
+}
+impl UiRoute {
+    pub fn command(&self) -> host::Command {
+        match self {
+            Self::Open(screen) => host::Command::Open {
+                screen: screen.clone(),
+            },
+            Self::Close => host::Command::Close,
+        }
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub struct Data {
@@ -367,6 +385,7 @@ impl Parser<'_> {
                 "nine-patch" => attrs.extend(["image", "density"]),
                 "label" => attrs.extend(["text", "bind", "font-size"]),
                 "button" => attrs.extend([
+                    "route",
                     "text",
                     "bind",
                     "font-size",
@@ -586,6 +605,24 @@ impl Parser<'_> {
                 ));
             }
             let event = xml.attribute("event").map(str::to_owned);
+            let route = xml
+                .attribute("route")
+                .map(|value| {
+                    if event.is_some() {
+                        return Err(error(self.file, xml, "route 与 event 不能同时设置"));
+                    }
+                    match value {
+                        "close" => Ok(UiRoute::Close),
+                        _ => value
+                            .strip_prefix("open:")
+                            .filter(|id| !id.is_empty() && !id.chars().any(char::is_whitespace))
+                            .map(|id| UiRoute::Open(id.into()))
+                            .ok_or_else(|| {
+                                error(self.file, xml, "route 仅支持 close 或 open:页面ID")
+                            }),
+                    }
+                })
+                .transpose()?;
             if let Some(event) = &event
                 && (!self.handlers.contains(event) || event == "game.enter")
             {
@@ -595,7 +632,9 @@ impl Parser<'_> {
                     format!("UI 事件未注册或为保留事件：{event}"),
                 ));
             }
-            if matches!(kind, Kind::Button | Kind::Slider { .. } | Kind::Toggle) && event.is_none()
+            if matches!(kind, Kind::Button | Kind::Slider { .. } | Kind::Toggle)
+                && event.is_none()
+                && route.is_none()
             {
                 return Err(error(self.file, xml, "交互节点缺少 event"));
             }
@@ -610,6 +649,7 @@ impl Parser<'_> {
                 [255, 255, 255, 255]
             };
             nodes.push(Node {
+                route,
                 location: {
                     let p = xml.document().text_pos_at(xml.range().start);
                     format!("{}:{}:{}", self.file, p.row, p.col)
@@ -797,14 +837,33 @@ pub fn parse(
         }
     }
     let initial = required(file, root, "initial")?.to_owned();
-    ensure!(
-        !screens.is_empty() && screens.len() <= 64,
-        "{file}：屏幕数量必须为 1–64"
-    );
-    ensure!(
-        screens.get(&initial).is_some_and(|s| !s.modal),
-        "{file}：初始屏幕必须存在且非模态"
-    );
+    fn validate_routes(
+        file: &str,
+        parent: XmlNode<'_, '_>,
+        screens: &BTreeMap<String, Screen>,
+    ) -> Result<()> {
+        for node in elements(parent) {
+            if let Some(value) = node.attribute("route")
+                && let Some(target) = value.strip_prefix("open:")
+                && !screens.contains_key(target)
+            {
+                return Err(error(
+                    file,
+                    node,
+                    format!("UI 路由目标页面不存在：{target}"),
+                ));
+            }
+            validate_routes(file, node, screens)?;
+        }
+        Ok(())
+    }
+    validate_routes(file, root, &screens)?;
+    if screens.is_empty() || screens.len() > 64 {
+        return Err(error(file, root, "屏幕数量必须为 1–64"));
+    }
+    if !screens.get(&initial).is_some_and(|s| !s.modal) {
+        return Err(error(file, root, "初始屏幕必须存在且非模态"));
+    }
     let images = story
         .assets
         .iter()

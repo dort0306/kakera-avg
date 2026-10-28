@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="save">
+    <panel id="savePanel" x="110" y="80" width="1060" height="560" image="ui.panel">
+      <label id="saveTitle" x="30" y="24" width="700" height="40" text="保存旅程" font-size="28" color="#F0CA89" />
+      <button id="saveClose" x="940" y="22" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+      <repeat id="saveSlots" x="30" y="94" width="1000" height="410" source="slots" columns="2" item-width="480" item-height="146" gap="18">
+        <panel id="saveCard" width="480" height="146" color="#203449">
+          <label id="saveSlotTitle" x="16" y="10" width="300" height="26" bind="item.title" color="#F0CA89" />
+          <panel id="savePreviewBase" x="16" y="48" width="128" height="72" color="#101C2C" />
+          <image id="saveScreenshot" x="16" y="48" width="128" height="72" image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+          <label id="saveNoScreenshot" x="30" y="72" width="100" height="28" text="无截图" font-size="15" visible="not:item.hasScreenshot" color="#8195A3" />
+          <label id="saveSavedAt" x="160" y="42" width="300" height="24" bind="item.savedAt" font-size="15" color="#9FC8E8" />
+          <label id="savePreview" x="160" y="70" width="300" height="62" bind="item.excerpt" font-size="15" />
+          <button id="saveSlotButton" x="350" y="8" width="110" height="32" text="存入" event="save-slot" image="ui.button" hover-image="ui.hover" font-size="17" />
+        </panel>
+      </repeat>
+      <label id="savePageText" x="30" y="515" width="310" height="30" bind="saves.pageText" font-size="17" />
+      <button id="savePrevPage" x="355" y="510" width="110" height="38" text="上一页" enabled="saves.canPrev" event="slots-prev" image="ui.button" />
+      <button id="saveNextPage" x="475" y="510" width="110" height="38" text="下一页" enabled="saves.canNext" event="slots-next" image="ui.button" />
+      <button id="saveLastPage" x="595" y="510" width="110" height="38" text="末页" event="slots-last" image="ui.button" />
+      <slider id="savePageSlider" x="725" y="510" width="300" height="38" value="saves.page" min="1" max="20" event="slots-page" />
+    </panel>
+  </screen>
+</ui>

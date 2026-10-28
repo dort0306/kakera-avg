@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="autosaves">
+    <panel id="autoLoadPanel" x="110" y="80" width="1060" height="560" image="ui.panel">
+      <label id="autoLoadTitle" x="30" y="24" width="700" height="40" text="最近自动存档" font-size="28" color="#F0CA89" />
+      <button id="autoLoadClose" x="940" y="22" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+      <repeat id="autoLoadSlots" x="30" y="94" width="1000" height="410" source="autosaves" columns="2" item-width="480" item-height="146" gap="18">
+        <panel id="autoLoadCard" width="480" height="146" color="#203449">
+          <label id="autoLoadSlotTitle" x="16" y="10" width="300" height="26" bind="item.title" color="#F0CA89" />
+          <panel id="autoLoadPreviewBase" x="16" y="48" width="128" height="72" color="#101C2C" />
+          <image id="autoLoadScreenshot" x="16" y="48" width="128" height="72" image-bind="item.image" fit="contain" visible="item.hasScreenshot" />
+          <label id="autoLoadNoScreenshot" x="30" y="72" width="100" height="28" text="无截图" font-size="15" visible="not:item.hasScreenshot" color="#8195A3" />
+          <label id="autoLoadSavedAt" x="160" y="42" width="300" height="24" bind="item.savedAt" font-size="15" color="#9FC8E8" />
+          <label id="autoLoadPreview" x="160" y="70" width="300" height="62" bind="item.excerpt" font-size="15" />
+          <button id="autoLoadSlotButton" x="350" y="8" width="110" height="32" text="读取" event="load-auto-slot" enabled="item.loadable" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="17" />
+        </panel>
+      </repeat>
+    </panel>
+  </screen>
+</ui>

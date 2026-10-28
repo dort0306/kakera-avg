@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="gallery">
+    <panel id="galleryPanel" x="120" y="80" width="1040" height="560" image="ui.panel">
+      <label id="galleryTitle" x="30" y="20" width="600" height="40" text="CG 画廊" font-size="28" color="#F0CA89" />
+      <button id="galleryClose" x="920" y="20" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+      <label id="galleryHint" x="30" y="74" width="960" height="30" text="达成一同出发结尾，即可解锁角色 CG；解锁记录独立保存。" font-size="17" />
+      <repeat id="galleryCards" x="30" y="130" width="980" height="380" source="gallery" columns="3" item-width="300" item-height="230" gap="16">
+        <panel id="galleryCard" width="300" height="230" color="#203449">
+          <image id="cgThumbnail" x="10" y="10" width="280" height="164" image-bind="item.image" fit="contain" visible="item.unlocked" />
+          <label id="cgLocked" x="60" y="78" width="220" height="40" text="尚未解锁" visible="not:item.unlocked" font-size="24" color="#8195A3" />
+          <label id="cgTitle" x="12" y="190" width="174" height="30" bind="item.title" />
+          <button id="cgOpen" x="200" y="184" width="88" height="34" text="查看" event="view-cg" enabled="item.unlocked" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="18" />
+        </panel>
+      </repeat>
+    </panel>
+  </screen>
+</ui>

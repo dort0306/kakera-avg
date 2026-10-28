@@ -166,6 +166,7 @@ mod tests {
         let auto = std::fs::read(app.saves.auto_path(1)?)?;
         let slot = SlotId::new(1)?;
         app.custom_event(Event {
+            route: None,
             name: "save".into(),
             item: serde_json::Value::Null,
             value: serde_json::Value::Null,
@@ -193,6 +194,7 @@ mod tests {
         cache.borrow_mut().error = Some("injected readback error".into());
         assert!(
             app.custom_event(Event {
+                route: None,
                 name: "save".into(),
                 item: serde_json::Value::Null,
                 value: serde_json::Value::Null

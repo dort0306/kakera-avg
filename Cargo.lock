@@ -1471,15 +1471,15 @@ dependencies = [
 
 [[package]]
 name = "kakera-avg"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "base64",
  "chrono",
  "directories",
  "eframe",
- "getrandom 0.3.4",
  "egui-winit",
+ "getrandom 0.3.4",
  "image",
  "libloading",
  "notify",

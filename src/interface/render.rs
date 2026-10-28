@@ -391,11 +391,10 @@ impl Renderer<'_> {
         }
     }
     fn emit(&mut self, node: &Node, item: &Value, value: Value) {
-        if self.event.is_none()
-            && let Some(name) = &node.event
-        {
+        if self.event.is_none() && (node.event.is_some() || node.route.is_some()) {
             self.event = Some(Event {
-                name: name.clone(),
+                route: node.route.clone(),
+                name: node.event.clone().unwrap_or_default(),
                 item: item.clone(),
                 value,
             });
@@ -485,6 +484,7 @@ pub fn draw(ui: &mut egui::Ui, input: Input<'_>) -> Option<Event> {
                 && let Some(event) = event
             {
                 renderer.event = Some(Event {
+                    route: None,
                     name: event.clone(),
                     item: Value::Null,
                     value: Value::Null,

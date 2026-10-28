@@ -539,13 +539,8 @@ pub fn load_game(
             bail!("视频场景 {} 的 advance=true 需要 Advance 路由", frame.id);
         }
     }
-    let text = crate::content::text(source, &parsed.interface_path)?;
-    let interface = crate::interface::parse(
-        &text,
-        &parsed.interface_path.to_string_lossy(),
-        &parsed.story,
-        &logic.ui_handlers()?,
-    )?;
+    let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
+    let interface = ui.parse(&parsed.story, &logic.ui_handlers()?)?;
     let loaded = LoadedStory {
         story: parsed.story,
         scripts: parsed.scripts,
@@ -585,6 +580,7 @@ pub fn initial_ui_plan(
         });
         let commands = logic.ui_event(
             &Event {
+                route: None,
                 name: "game.enter".into(),
                 item: serde_json::Value::Null,
                 value: serde_json::Value::Null,

@@ -1,6 +1,6 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.8.3。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-27。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
+适用版本：Kakera AVG Rust v0.8.4。唯一创作与存档契约为 story 8 / UI 3 / save 8，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-28。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -35,6 +35,7 @@
 27. [缺省场景 ID 与作者别名](#27-v082-缺省场景-id-与作者别名)
 28. [可配置窗口标题](#28-可配置窗口标题)
 29. [编辑器调试与发布清单](#29-v083-编辑器调试与发布清单)
+30. [按钮 UI 路由](#30-v084-按钮-ui-路由)
 
 ## 1. 版本与职责
 
@@ -441,7 +442,7 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 
 宽高必须构成 16:9；任一数值不能超过 8192。画布在窗口可用区域内居中、等比缩放并留黑边，坐标不是物理屏幕像素。一般保留 1280×720。
 
-根元素只接受可选的一组 variables、一组 gallery，以及 1–64 个 screen，不允许任意其他分组。
+每个源文件根元素只接受至多一组 variables、一组 gallery、screen 与 include。展开后全局须有 1–64 个 screen；变量/画廊分组可跨文件合并，不允许其他任意分组。引入规则见第 7.4 节。
 
 ### 7.2 screen 与页面栈
 
@@ -472,6 +473,65 @@ when 省略时视为 true；为 false 的选项隐藏，伪造选择也被拒绝
 
 gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示、按钮和大图由 repeat/image 等节点组合。默认解锁与 profile 中的解锁取并集；当前没有 lock/resetGallery API。
 
+### 7.4 外部 UI XML 引入与打包合并
+
+2026-10-28 追加，应用版本维持 v0.8.3、UI schema 3。UI 入口仍由 story.xml 的 interface.src 指定，通常为 ui.xml。入口可在根级使用多个 include：
+
+```xml
+<!-- ui.xml：全局画布、首页和标题只由入口配置 -->
+<ui schema="3" width="1280" height="720" initial="hud" title-bind="ui.windowTitle">
+  <include src="ui/state.xml" />
+  <include src="ui/hud.xml" />
+  <include src="ui/settings.xml" />
+</ui>
+```
+
+```xml
+<!-- ui/state.xml -->
+<ui schema="3">
+  <variables><string id="windowTitle" initial="我的游戏" /></variables>
+</ui>
+```
+
+```xml
+<!-- ui/hud.xml -->
+<ui schema="3">
+  <screen id="hud" modal="false" pause="false">
+    <scene id="scene" width="1280" height="720" />
+  </screen>
+</ui>
+```
+
+```xml
+<!-- ui/settings.xml：子文件仍可继续引入其他完整 UI 文件 -->
+<ui schema="3">
+  <screen id="settings">
+    <button id="closeSettings" width="120" height="40" text="返回" event="close" />
+  </screen>
+</ui>
+```
+
+上述 close 事件仍需在已加载的 JS 中注册，例如 `on.ui("close", ctx => ctx.close())`。事件、绑定、UI 变量、资源和页面引用沿用全局契约，不为每份 XML 新建局部作用域。
+
+| 规则 | 行为 |
+| --- | --- |
+| include 属性 | 只接受非空 src，不接受其他属性、子节点或普通文本 |
+| 路径 | 相对游戏根目录，**不相对当前 UI 文件**；最大 1024 UTF-8 字节，必须为 .xml；沿用相对路径/真实边界和发布链接检查 |
+| 子文件根 | 必须 `<ui schema="3">`，只能有 schema 属性；width/height/initial/title/title-bind 只允许入口声明 |
+| 拆分单位 | 根级 variables、gallery、完整 screen，以及根级 include；不支持 screen/panel 内 include、控件模板或任意文本拼接 |
+| 顺序与引用 | 按 include 声明顺序深度优先展开，再合并数据分组并全局验证；允许引用后面文件中的变量或页面 |
+| 冲突 | 同文件重复 variables/gallery、跨文件同表重复 ID、循环/重复/大小写重复引入均报错；没有后者覆盖前者 |
+| 预算 | 最多 128 文件/16 层，入口为第 1 层；源 XML 累计与合并 XML 各最多 1MiB；原有全局页面/控件/变量/CG/节点深度预算不放宽 |
+| 诊断 | XML/语义错误、控件及标题运行期校验保留原文件行列；合并后的内部坐标不冒充作者坐标 |
+| 工程模式 | 通过 ContentSource 读取全部引入；子文件修改照常建立完整热更候选，坏编辑保留旧内容 |
+| KPAK 1/2 | 自动合并为不含 include 的完整 UI 入口，并仅移除实际展开的 UI 子文件；不改源工程，不额外修改 JS |
+
+标准入口的包内结果为单个 ui.xml；若 interface.src 为 ui/root.xml，则包内完整 UI 仍保存在 ui/root.xml，避免覆盖无关的同名根文件。其他显式附加 XML 按原发布清单保留。无 include 的单文件 UI 原字节保持；这种装配不改变 UI 3、story/save 或 KPAK 版本，也不是旧格式兼容层。
+
+宿主工具使用 `interface::source::compile(source, entry)` 获取完整 XML、源文件列表和编译期映射，再用 `CompiledUi::parse(story, handlers)` 获得带原始位置的 Definition。低层 `interface::parse(text, file, ...)` 只解析已完整装配的文本，不自行访问文件。
+
+可运行拆分示例见 games/demo/ui.xml 与 games/demo/ui/。策略和真实检查范围见 [UI 拆分策略](ui-split-implementation-plan.zh-cn.md) 与 [验收记录](ui-split-validation.zh-cn.md)。
+
 ## 8. UI 节点与属性
 
 ### 8.1 通用布局属性
@@ -500,7 +560,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
 | `image` | `image/image-bind/fit/effect/region/region-bind` | 否 |
 | `nine-patch` | `image/density` | 是，子节点使用标记内容区，见第 26 节 |
 | `label` | `text/bind/font-size` | 否 |
-| `button` | `text/bind/font-size/event/image/hover-image/disabled-image/radius/region/region-bind` | 否 |
+| `button` | `text/bind/font-size/event/route/image/hover-image/disabled-image/radius/region/region-bind` | 否 |
 | `slider` | `value/min/max/event` | 否 |
 | `toggle` | `text/value/event/font-size` | 否 |
 | `repeat` | `source/columns/item-width/item-height/gap` | 是，作为每一项模板 |
@@ -549,7 +609,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
         event="open-save" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" />
 ```
 
-`event` 必填，必须注册对应 on.ui；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
+`event` 与 `route` 必须二选一：event 须注册对应 on.ui，route 直接执行页面导航（第 30 节）；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
 
 悬停优先使用 hover-image，禁用优先使用 disabled-image；缺省回退到普通 image，无图则填色。禁用背景额外变暗，且不发事件。color 控制背景/图片 tint，当前按钮文字固定白色居中；不能用 color 单独改按钮文字颜色。radius 只作用于无图背景。若需复杂按钮字效，推荐把文字画入美术图片。
 
@@ -930,7 +990,7 @@ JS 使用项目锁定的 rquickjs/QuickJS 系列运行时，不是 Node.js 或�
 | JS 堆/栈 | 16MiB / 256KiB |
 | 一次剧情回调更新 | 128 项 set/add |
 | 一次 UI 回调命令 | 32 条 |
-| UI XML | 1MiB |
+| UI XML | 源文件累计及合并后各 1MiB；最多 128 文件/16 层引入 |
 | UI 页面数/页面栈 | 1–64 / 最多 8 层 |
 | UI 节点数/嵌套深度 | 全部 screen 总计 1024 / 8 层，screen 子节点为第 1 层 |
 | CG | 256 项 |
@@ -977,7 +1037,8 @@ v0.8 只接受 story 8 / UI 3 / save 8。旧 story 1–7、UI 1–2、存档 1�
 | 变量声明与类型校验 | [variables.rs](../src/loader/variables.rs) |
 | on/ctx、类型传输与只读快照 | [bridge.js](../src/script/bridge.js) |
 | QuickJS 加载、注册/目标验证及预算 | [script.rs](../src/script.rs) |
-| UI 节点/绑定白名单、默认值 | [interface.rs](../src/interface.rs) |
+| UI 节点/绑定白名单、按钮 route、默认值 | [interface.rs](../src/interface.rs) |
+| UI include 装配、预算、源位置映射 | [source.rs](../src/interface/source.rs) |
 | 数据集与 game 字段 | [data.rs](../src/interface/data.rs) |
 | 节点实际绘制、事件输出 | [render.rs](../src/interface/render.rs) |
 | 命令验证、页面栈、UI 状态、CG | [host.rs](../src/interface/host.rs) |
@@ -1429,7 +1490,7 @@ cargo run --locked --bin kakera-pack -- games/demo target/game.kpak --force --le
 | `--cubism-core <DLL>` | 本次打包校验使用的宿主 Core |
 | `--no-live2d` | 仅改变本次校验方式，不删除模型或在包中记录永久禁用标志 |
 
-工具退出 0 表示成功、1 表示失败；没有 `--help` 选项，不带参数打印用法并失败退出。不支持播放器的 --renderer/--save-dir/--check/--no-audio。用 --no-live2d 生成的包正常播放时仍需要 Core，或播放器再次显式禁用。打包先将 next 链上的剧本合并为包内 story.xml，并移除链上其余源 XML；UI/JS 不合并，源工程不改写。v0.8.3 先记录引擎真实读取的依赖，并附带约定许可证与显式 include 文件；不再扫描收集其余普通文件。未引用的设计稿/AI 权重/编辑器元数据默认不入包。严格清单与候选一致性规则见第 29 节。
+工具退出 0 表示成功、1 表示失败；没有 `--help` 选项，不带参数打印用法并失败退出。不支持播放器的 --renderer/--save-dir/--check/--no-audio。用 --no-live2d 生成的包正常播放时仍需要 Core，或播放器再次显式禁用。打包先将 next 链上的剧本合并为包内 story.xml，并移除链上其余源 XML；JS 不合并；UI 的根级 include 另行展开为单个完整入口并移除实际子文件，源工程不改写。v0.8.3 先记录引擎真实读取的依赖，并附带约定许可证与显式 include 文件；不再扫描收集其余普通文件。未引用的设计稿/AI 权重/编辑器元数据默认不入包。严格清单与候选一致性规则见第 29 节。
 
 在所有 frame.id 均显式固定时，同样的所选工程字节、同一压缩级别与同一工具实现产生相同包字节，不写时间戳。逻辑路径排序，KPAK 1 完全相同文件共享块并整体 solid 压缩，KPAK 2 以固定 1MiB 原文块跨文件去重并独立压缩；不加密，不有损转码素材。MP4/PNG 已经压缩，二次收益有限；级别 22 可能耗时/内存更多。KPAK 1 整体解压到内存；KPAK 2 只常驻索引并按需读取/验证块。工程和 KPAK 2 打包使用磁盘暂存，不全量存于 RAM；需要临时磁盘空间。播放器仍预先准备已声明的解码资源；本版没有场景级解码惰性加载或网络流。
 
@@ -1584,7 +1645,7 @@ on.end("chapter.ending");
 
 kakera-pack 验证源链后，在只读快照中将合并文档替换为 story.xml，移除链上其余源剧本 XML，再编码/自检并独立加载包内故事。源工程磁盘文件不改写。包内合并后的根仍是 story schema 8，只有一个 `<next end="true"/>`；不依赖原章节。
 
-UI XML、JS、模型 JSON 与素材不参与此合并，保留原逻辑路径。链外普通 XML 只有作为依赖或显式 include 才收集，不会通过“删除全部 XML”的方式误删 UI。文件链元数据不改变 KPAK 1/2 头或存档 schema；合并、校验或写入失败仍保留旧输出包。
+UI XML 不并入 story.xml：其根级 include 通过独立装配合并到原 UI 入口，并移除实际子 UI 文件（第 7.4 节）。JS、模型 JSON 与素材保留原逻辑路径。链外普通 XML 只有作为依赖或显式 include 才收集，不会通过“删除全部 XML”的方式误删 UI。文件链元数据不改变 KPAK 1/2 头或存档 schema；合并、校验或写入失败仍保留旧输出包。
 
 更多命令与部署方式见 [工程/发布与打包指南](project-release-pack-guide.zh-cn.md)，当前实现与验证见 [落地策略](v0.8.3-implementation-plan.zh-cn.md) 和 [验收记录](v0.8.3-validation.zh-cn.md)。
 
@@ -1935,3 +1996,19 @@ kakera-pack 两种格式均以真实 Bundle 加载所读文件构建依赖闭包
 ### 29.3 编辑器与 AI 边界
 
 编辑器采用用户配置的 Chat Completions 兼容 AI API，允许自部署/远程服务，模型 ID 不固定。凭据使用秘密存储，远程发送范围需向作者展示；AI 只输出候选 XML/JS 和资源关联，由确定性校验与 diff 接受流程落盘。本版仅交付播放器/打包器宿主支撑，未实现编辑器、AI 客户端或 VS Code DAP 适配器。方案、接口和平台结论见 [编辑器文档](editor/README.zh-cn.md)。
+
+
+## 30. v0.8.4 按钮 UI 路由
+
+按钮可直接声明 `route="open:settings"` 打开页面，或 `route="close"` 关闭当前顶层页面，无需注册仅用于导航的 JS 回调：
+
+```xml
+<button id="settingsButton" width="120" height="40" text="设置" route="open:settings" />
+<button id="backButton" width="120" height="40" text="返回" route="close" />
+```
+
+route 仅允许 button 使用，必须与 event 二选一；空值、未知动作、缺失目标、空白目标或与 event 同时设置均拒绝。目标是 screen ID，不是剧情 frame 或文件路径。跨 include 文件的页面在完整 UI 合并后统一校验，错误保留作者文件行列。
+
+open 沿用页面 modal：true 压栈并暂停（依 pause），false 替换根页面栈。close 只能关闭顶层页，不能关闭唯一根页；重复模态和超过八层仍拒绝，旧 UI 状态保留。隐藏/禁用按钮、下层页面、提示与调试暂停仍遵循原输入阻挡规则，每次更新最多一个意图。
+
+路由产生类型化 UI 事件，经既有 host::prepare 事务验证后提交，不执行 JS，不开放剧情跳转或 IO。需要赋值、确认等复合逻辑时继续使用 event + on.ui/ctx.open/close。UI 3/story 8/save 8、KPAK 1/2 不变，两种包保留 route 属性。demo 的设置入口和设置页返回已采用直接路由。完整结果见 [v0.8.4 验收](v0.8.4-validation.zh-cn.md)。

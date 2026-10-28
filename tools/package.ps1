@@ -1,5 +1,5 @@
 param(
-    [string]$Output = 'target/package/kakera-avg-v0.8.3',
+    [string]$Output = 'target/package/kakera-avg-v0.8.4',
     [string]$Project = 'games/demo',
     [ValidateRange(1,22)][int]$CompressionLevel = 19,
     [ValidateSet(1,2)][int]$Format = 2
@@ -23,6 +23,8 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $Output 'doc') | Out-Null
     Get-ChildItem -LiteralPath doc -File | Where-Object { $_.Extension -in '.md','.json' } | Copy-Item -Destination (Join-Path $Output 'doc')
     Copy-Item -LiteralPath doc/archive -Destination (Join-Path $Output 'doc/archive') -Recurse
-    Copy-Item -LiteralPath doc/editor -Destination (Join-Path $Output 'doc/editor') -Recurse
+    if (Test-Path -LiteralPath doc/editor) {
+        Copy-Item -LiteralPath doc/editor -Destination (Join-Path $Output 'doc/editor') -Recurse
+    }
     Write-Output "Release package: $((Resolve-Path -LiteralPath $Output).Path)"
 } finally { Pop-Location }
