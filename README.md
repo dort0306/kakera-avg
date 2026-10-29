@@ -1,6 +1,10 @@
-# Kakera AVG Rust · v0.9.1
+# Kakera AVG Rust · v0.10.0
+
+文档规划：[动态图片、可配置快捷键与三角 HSV 接手入口](doc/ui-extensibility-roadmap.zh-cn.md)。v0.10.0 已落地三个工作包：同一 CG 查看页切换已声明图片、玩家可配置快捷键与独立偏好、内置三角 HSV 色盘及玩家配色持久化；接口、预算和限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，实际结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
+
+独立复验发现的三个 HSV 输入/焦点问题已修复：先确定本帧控件输入归属再仲裁剧情；隐藏、禁用或裁剪后清理焦点并等待松键；Tab/Shift+Tab 可在色盘子区与其他控件间导航。修复后 252 项测试通过、2 项忽略，原生窗口已复验键盘调色；DPI 等剩余未验范围见 [独立验收报告](doc/ui-extensibility-independent-review.zh-cn.md)。数据格式和启动方式不变。
 
 窗口支持固定 **16:9 客户区缩放**，拖动窗口边/角不产生比例黑边；设置页可切换无边框全屏，关闭后恢复进入前窗口大小和位置。全屏开关用 XML toggle 和 `ctx.setting("fullscreen", bool)`，默认窗口化，独立设置跨进程保存。非 16:9 显示器全屏仍保持等比画面并留边；不拉伸或裁掉 UI。
 
@@ -61,7 +65,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.9.1，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.10.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -103,7 +107,7 @@ KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见
 
 每句是独立完整 Frame；纯 Controller 通过隔离 QuickJS 计划验证并原子提交变量/目标/历史。按 Unicode 字素逐字，继续先跳转场、再补全、再推进；选项不默认选择。支持 Ctrl 只读/全部快进、自动播放、历史、CG、图片效果和立绘动作。菜单、提示、失焦和截图等待正确仲裁。
 
-200 手动槽每页十个，自动槽十个独立轮换。剧情槽存位置、变量和历史检查点，加载完整重放；保存时间与 320×180 PNG 缩略图在同一 JSON 原子替换。settings.json/profile.json/read.json/ui-audio.json 独立于槽位，不随读档回退，排除出包与监控。幕与页面交接使用固定隐藏 flow-checkpoint.json（schema 1，最多 2MiB），不显示在槽位页、不占普通自动槽、不受自动保存开关影响，成功返回后写 inactive 墓碑。已读最多 100000 条，文件 2MiB，超限不破坏旧文件；快进不开放 JS 已读查询。
+200 手动槽每页十个，自动槽十个独立轮换。剧情槽存位置、变量和历史检查点，加载完整重放；保存时间与 320×180 PNG 缩略图在同一 JSON 原子替换。settings.json/profile.json/read.json/ui-audio.json/keybindings.json/ui-colors.json 独立于槽位，不随读档回退，排除出包与监控。幕与页面交接使用固定隐藏 flow-checkpoint.json（schema 1，最多 2MiB），不显示在槽位页、不占普通自动槽、不受自动保存开关影响，成功返回后写 inactive 墓碑。已读最多 100000 条，文件 2MiB，超限不破坏旧文件；快进不开放 JS 已读查询。
 
 Windows 原生 D3D11 负责窗口、滤镜与 Live2D 网格/蒙版合成，GPU 结果直接注册原生纹理；CPU fallback 保留，窗口仍由 D3D11/WARP 呈现。视频使用 Windows Media Foundation，Core 参数/形变仍为 CPU。GPU 失败报告并回退，设备失效最多一次 WARP 重建。
 
@@ -134,3 +138,7 @@ UI 唤起剧情：控件 on.ui 或自动演出 screenClose 中用 `ctx.resume("�
 CG 的自动检查与实际窗口结果见 [CG 验收记录](doc/cg-resources-validation.zh-cn.md)。
 
 多起始幕已完成 D3D11/CPU 真实窗口复验：双路线选择、第 200 槽跨进程加载、变量/历史、自动档恢复及 UI 视频返回通过，并修复主菜单切 HUD 曾被误判为交接而暂停台词的问题。当前完整回归 189 项通过；设备音频和听感未验收，详见 [GUI 复验记录](doc/multiple-entries-validation.zh-cn.md#gui-复验与修复2026-10-29)。
+
+自定义确认弹窗直接使用 XML 模态 screen：标题可省略，正文/按钮文字可绑定，遮罩与面板通过 RGBA 设置颜色和透明度，图片/点九背景及按钮皮肤由作者配置。demo 主菜单和 HUD 的“退出游戏”展示有标题确认，“重新开始”展示无标题确认；取消后回到原页面。`ctx.quit()` 可由普通 UI 事件关闭游戏窗口，走正常退出补写与资源清理，不强制杀进程；确认流程由 XML/JS 决定。详见 [API](doc/xml-js-api.zh-cn.md#自定义确认弹窗与退出游戏)、[计划](doc/confirmation-quit-implementation-plan.zh-cn.md) 与 [验收](doc/confirmation-quit-validation.zh-cn.md)。story 8/UI 3/save 9/content 11/KPAK 1/2 不变。
+
+v0.10.0 完成 UI 扩展性三项：同一 `cg-view`/`cgFull` 查看页在已声明图片间切换，并支持上一张/下一张、工具栏隐藏与背景恢复；玩家可为前进、快进、演出跳过绑定单键/组合并写入独立 `keybindings.json`，捕获、冲突、整批交换、原子失败回滚和释放屏障均有覆盖；新增三角 HSV `color-picker`、`color-bind`、作者 `palette` 与玩家 `ui-colors.json`，demo 设置页提供“快捷键…”与“配色…”编辑页。接口与限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/content-version 11 不变；两个新偏好文件排除监控、打包和发布复制。

@@ -52,6 +52,14 @@ impl PlayerApp {
             self.renderer.clone(),
         )?;
         let mut warnings = Vec::new();
+        let colors = self.custom.state.colors.clone();
+        anyhow::ensure!(
+            colors
+                .overrides
+                .keys()
+                .all(|id| loaded.interface.palette.contains_key(id)),
+            "热更新删除了玩家已覆盖的配色槽位，请先恢复默认配色或重启"
+        );
         let custom = CustomUi::new(
             loaded.interface,
             &loaded.story,
@@ -59,11 +67,16 @@ impl PlayerApp {
             &logic,
             &mut warnings,
         );
+        let mut custom = custom;
+        custom.state.keybindings = self.custom.state.keybindings;
+        custom.state.colors = colors;
+        custom.state.refresh(&custom.definition)?;
         let cpu_assets = runtime.images.clone();
         let mut candidate = Self {
+            quit_requested: false,
             ui_media: super::ui_media::UiMedia::new(self.ui_media.prefs.clone()),
             debug: None,
-            capture: self.capture.clone(),
+            capture: None,
             revision: self.revision.wrapping_add(1),
             painted: (self.revision, false),
             pending_auto: None,
@@ -80,7 +93,13 @@ impl PlayerApp {
             live2d,
             auto_play: Default::default(),
             skip: Default::default(),
-            ctrl_held: self.ctrl_held,
+            fast_forward_held_last: false,
+            input_barrier: true,
+            held_keys: Default::default(),
+            shortcut_capture: None,
+            shortcut_scope: None,
+            pickers: Default::default(),
+            ui_generation: self.ui_generation.wrapping_add(1),
             effects: Default::default(),
             story: loaded.story,
             session,

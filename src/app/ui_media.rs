@@ -137,7 +137,12 @@ impl PlayerApp {
             self.auto_play.set(false);
         }
     }
-    pub(super) fn tick_ui_media(&mut self, ctx: &egui::Context, focused: bool) -> Result<bool> {
+    pub(super) fn tick_ui_media(
+        &mut self,
+        ctx: &egui::Context,
+        focused: bool,
+        skip_key: bool,
+    ) -> Result<bool> {
         let top = self.custom.state.stack.last().cloned();
         if self.ui_media.scope != top {
             if self.ui_media.video() {
@@ -178,7 +183,7 @@ impl PlayerApp {
         let sequence = self.custom.definition.media.sequences[&running.id].clone();
         let skip = !paused
             && sequence.skippable
-            && ctx.input(|i| i.pointer.primary_clicked() || i.key_pressed(egui::Key::Space));
+            && (skip_key || ctx.input(|i| i.pointer.primary_clicked()));
         if skip {
             for step in &sequence.steps {
                 if let Step::Fade { target, to, .. } = step {
@@ -256,6 +261,9 @@ impl PlayerApp {
             }
         }
         if running.index == sequence.steps.len() {
+            // Leaving a sequence requires a fresh press; a key still held for the skip
+            // must not immediately cascade into story advance/fast-forward.
+            self.input_barrier = true;
             let mut plan = host::prepare(
                 &self.custom.definition,
                 &self.custom.state,
@@ -391,7 +399,7 @@ mod tests {
                 ..Default::default()
             },
             |ctx| {
-                result = app.tick_ui_media(ctx, true);
+                result = app.tick_ui_media(ctx, true, true);
             },
         );
         result
@@ -402,27 +410,27 @@ mod tests {
         let before = app.session.clone();
         let ctx = app.context.clone();
         app.custom.state.stack.push("menu".into());
-        assert!(app.tick_ui_media(&ctx, true)?);
+        assert!(app.tick_ui_media(&ctx, true, false)?);
         assert!(app.ui_media.active());
         assert_eq!(app.ui_media.alpha["title"], 0.);
         elapse(&mut app, 0.5);
-        app.tick_ui_media(&ctx, true)?;
+        app.tick_ui_media(&ctx, true, false)?;
         assert!((app.ui_media.alpha["title"] - 0.5).abs() < 0.05);
         let alpha = app.ui_media.alpha["title"];
         elapse(&mut app, 3.);
-        app.tick_ui_media(&ctx, false)?;
+        app.tick_ui_media(&ctx, false, false)?;
         assert_eq!(app.ui_media.alpha["title"], alpha);
         assert!(space(&mut app)?);
         assert!(!app.ui_media.active());
         assert_eq!(app.effects.ui_alpha["title"], 1.);
-        assert!(!app.tick_ui_media(&ctx, true)?);
+        assert!(!app.tick_ui_media(&ctx, true, false)?);
         assert_eq!(app.session, before);
         app.custom_event(event("leave"))?;
         assert!(app.save_current(SlotId::new(1)?).is_err());
         space(&mut app)?;
         assert_eq!(app.custom.state.stack, vec!["hud"]);
         assert!(!app.ui_media.active());
-        app.tick_ui_media(&ctx, true)?;
+        app.tick_ui_media(&ctx, true, false)?;
         assert!(app.effects.ui_alpha.is_empty());
         assert_eq!(app.session, before);
         Ok(())
@@ -453,14 +461,14 @@ mod tests {
         app.ui_media.scope = Some("menu".into());
         app.custom.state.stack.push("menu".into());
         app.custom_event(event("movie"))?;
-        app.tick_ui_media(&ctx, true)?;
+        app.tick_ui_media(&ctx, true, false)?;
         assert!(app.ui_media.video());
         space(&mut app)?;
         assert!(!app.ui_media.active());
         assert!(!app.ui_media.video());
         assert_eq!(app.custom.state.stack, vec!["hud"]);
         assert_eq!(app.session, before);
-        assert!(!app.tick_ui_media(&ctx, true)?);
+        assert!(!app.tick_ui_media(&ctx, true, false)?);
         Ok(())
     }
 }

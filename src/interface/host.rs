@@ -20,23 +20,42 @@ pub struct State {
     pub slot_page: u16,
     pub stack: Vec<String>,
     pub variables: Variables,
+    /// Committed player shortcut mapping; separate from story slots and settings.json.
+    pub keybindings: crate::shortcuts::Keybindings,
+    /// Player overrides for author-declared palette slots (sparse by design).
+    pub colors: crate::interface::palette::Colors,
+    /// Resolved palette values used by `colors.<slot>` bindings and `ctx.colors`.
+    pub resolved_colors: BTreeMap<String, crate::color::Rgba>,
+    /// Prepared color for each `color-bind` node (never re-parsed while drawing).
+    pub color_binds: BTreeMap<String, crate::color::Rgba>,
 }
 impl State {
-    pub fn new(def: &Definition) -> Self {
+    pub fn try_new(def: &Definition) -> Result<Self> {
         let variables = def.initial_variables();
         let mut state = Self {
-            window_title: def
-                .window_title
-                .resolve(&variables)
-                .expect("validated initial window title")
-                .to_owned(),
+            window_title: def.window_title.resolve(&variables)?.to_owned(),
             regions: BTreeMap::new(),
             slot_page: 1,
             stack: vec![def.initial.clone()],
             variables,
+            keybindings: crate::shortcuts::Keybindings::defaults(),
+            colors: crate::interface::palette::Colors::default(),
+            resolved_colors: BTreeMap::new(),
+            color_binds: BTreeMap::new(),
         };
-        state.regions = resolved_regions(def, &state).unwrap_or_default();
-        state
+        state.refresh(def)?;
+        Ok(state)
+    }
+    pub fn new(def: &Definition) -> Self {
+        Self::try_new(def).expect("validated initial UI state")
+    }
+    /// Rebuilds every derived cache after variable, palette or definition changes.
+    pub fn refresh(&mut self, def: &Definition) -> Result<()> {
+        validate_images(def, self)?;
+        self.resolved_colors = self.colors.resolve(&def.palette)?;
+        self.color_binds = resolved_color_binds(def, self)?;
+        self.regions = resolved_regions(def, self)?;
+        Ok(())
     }
     pub fn paused(&self, def: &Definition) -> bool {
         self.stack.iter().any(|id| def.screens[id].pause)
@@ -162,10 +181,26 @@ pub enum Command {
         screen: String,
     },
     Close,
+    Quit {},
     SetUi {
         name: String,
         value: UiValue,
     },
+    CaptureShortcut {
+        action: String,
+        result_event: String,
+    },
+    CancelShortcutCapture {},
+    Keybinding {
+        action: String,
+        binding: Option<String>,
+    },
+    ResetKeybindings {},
+    ColorPreference {
+        slot: String,
+        value: Option<String>,
+    },
+    ResetColors {},
     Save {
         slot: u16,
         overwrite: bool,
@@ -193,6 +228,7 @@ pub enum Command {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
+    Quit,
     UiAudio,
     Present,
     Resume(Option<String>),
@@ -205,6 +241,13 @@ pub enum Operation {
     Choose(String),
     Settings,
     Profile,
+    Keybindings,
+    Colors,
+}
+#[derive(Clone)]
+pub struct CaptureRequest {
+    pub action: crate::shortcuts::Action,
+    pub result_event: String,
 }
 pub struct Plan {
     pub command_count: usize,
@@ -219,6 +262,8 @@ pub struct Plan {
     pub profile: Profile,
     pub operation: Operation,
     pub message: Option<String>,
+    pub capture: Option<CaptureRequest>,
+    pub cancel_capture: bool,
 }
 fn operation(current: &mut Operation, next: Operation) -> Result<()> {
     let aggregate = matches!(
@@ -226,6 +271,8 @@ fn operation(current: &mut Operation, next: Operation) -> Result<()> {
         (Operation::Settings, Operation::Settings)
             | (Operation::Profile, Operation::Profile)
             | (Operation::UiAudio, Operation::UiAudio)
+            | (Operation::Keybindings, Operation::Keybindings)
+            | (Operation::Colors, Operation::Colors)
     );
     ensure!(
         matches!(current, Operation::None) || aggregate,
@@ -256,7 +303,13 @@ pub fn prepare(
         profile: profile.clone(),
         operation: Operation::None,
         message: None,
+        capture: None,
+        cancel_capture: false,
     };
+    let mut keybinding_modified = BTreeSet::new();
+    let mut keybinding_reset = false;
+    let mut color_modified = BTreeSet::new();
+    let mut color_reset = false;
     for command in commands {
         if entering {
             ensure!(
@@ -431,6 +484,7 @@ pub fn prepare(
                 ensure!(plan.state.stack.len() > 1, "不能关闭唯一根屏幕");
                 plan.state.stack.pop();
             }
+            Command::Quit {} => operation(&mut plan.operation, Operation::Quit)?,
             Command::SetUi { name, value } => {
                 let decl = def
                     .variables
@@ -439,6 +493,79 @@ pub fn prepare(
                 let value = value.value()?;
                 rules::validate_value(decl, &value).map_err(anyhow::Error::msg)?;
                 plan.state.variables.insert(name, value);
+            }
+            Command::CaptureShortcut {
+                action,
+                result_event,
+            } => {
+                ensure!(!entering, "game.enter 不能启动快捷键捕获");
+                let action = crate::shortcuts::Action::from_id(&action)
+                    .ok_or_else(|| anyhow::anyhow!("未知快捷键动作：{action}"))?;
+                ensure!(
+                    def.ui_handlers.contains(&result_event),
+                    "快捷键捕获结果事件未注册：{result_event}"
+                );
+                ensure!(
+                    plan.capture.is_none() && !plan.cancel_capture,
+                    "一次 UI 事件只能有一个捕获请求"
+                );
+                plan.capture = Some(CaptureRequest {
+                    action,
+                    result_event,
+                });
+            }
+            Command::CancelShortcutCapture {} => {
+                ensure!(!entering, "game.enter 不能取消快捷键捕获");
+                ensure!(!plan.cancel_capture, "重复取消快捷键捕获");
+                plan.cancel_capture = true;
+            }
+            Command::Keybinding { action, binding } => {
+                ensure!(!entering, "game.enter 不能修改快捷键");
+                ensure!(!keybinding_reset, "恢复默认不能与单项修改同批");
+                let action = crate::shortcuts::Action::from_id(&action)
+                    .ok_or_else(|| anyhow::anyhow!("未知快捷键动作：{action}"))?;
+                ensure!(
+                    keybinding_modified.insert(action),
+                    "同一批重复修改快捷键：{}",
+                    action.id()
+                );
+                let binding = binding
+                    .map(|text| crate::shortcuts::Binding::parse(&text))
+                    .transpose()
+                    .map_err(anyhow::Error::msg)?;
+                plan.state.keybindings.set(action, binding);
+                operation(&mut plan.operation, Operation::Keybindings)?;
+            }
+            Command::ResetKeybindings {} => {
+                ensure!(!entering, "game.enter 不能恢复默认快捷键");
+                ensure!(keybinding_modified.is_empty(), "恢复默认不能与单项修改同批");
+                ensure!(!keybinding_reset, "重复恢复默认快捷键");
+                keybinding_reset = true;
+                plan.state.keybindings = crate::shortcuts::Keybindings::defaults();
+                operation(&mut plan.operation, Operation::Keybindings)?;
+            }
+            Command::ColorPreference { slot, value } => {
+                ensure!(!entering, "game.enter 不能修改配色偏好");
+                ensure!(def.palette.contains_key(&slot), "未知配色槽位：{slot}");
+                ensure!(!color_reset, "恢复默认配色不能与单项修改同批");
+                ensure!(
+                    color_modified.insert(slot.clone()),
+                    "同一批重复修改配色槽位：{slot}"
+                );
+                let value = value
+                    .map(|text| crate::color::Rgba::parse(&text))
+                    .transpose()
+                    .map_err(|reason| anyhow::anyhow!("槽位 {slot}：{reason}"))?;
+                plan.state.colors.set(&slot, value);
+                operation(&mut plan.operation, Operation::Colors)?;
+            }
+            Command::ResetColors {} => {
+                ensure!(!entering, "game.enter 不能恢复默认配色");
+                ensure!(color_modified.is_empty(), "恢复默认配色不能与单项修改同批");
+                ensure!(!color_reset, "重复恢复默认配色");
+                color_reset = true;
+                plan.state.colors = crate::interface::palette::Colors::default();
+                operation(&mut plan.operation, Operation::Colors)?;
             }
             Command::Save { slot, overwrite } => operation(
                 &mut plan.operation,
@@ -498,24 +625,70 @@ pub fn prepare(
             }
         }
     }
-    validate_images(def, &plan.state)?;
-    plan.state.regions = resolved_regions(def, &plan.state)?;
+    if matches!(plan.operation, Operation::Keybindings) {
+        ensure!(
+            !keybinding_modified.is_empty() || keybinding_reset,
+            "快捷键事务缺少修改"
+        );
+        plan.state
+            .keybindings
+            .validate()
+            .map_err(anyhow::Error::msg)?;
+    } else {
+        ensure!(
+            keybinding_modified.is_empty() && !keybinding_reset,
+            "快捷键修改事务状态错误"
+        );
+    }
+    if matches!(plan.operation, Operation::Colors) {
+        ensure!(
+            !color_modified.is_empty() || color_reset,
+            "配色事务缺少修改"
+        );
+    } else {
+        ensure!(
+            color_modified.is_empty() && !color_reset,
+            "配色修改事务状态错误"
+        );
+    }
+    ensure!(
+        !(plan.capture.is_some() && plan.cancel_capture),
+        "不能同时启动和取消快捷键捕获"
+    );
+    if plan.capture.is_some() || plan.cancel_capture {
+        ensure!(
+            matches!(plan.operation, Operation::None)
+                && plan.ui_actions.is_empty()
+                && plan.animations.is_empty()
+                && plan.portraits.is_empty()
+                && plan.live2d.is_empty()
+                && plan.auto_play.is_none()
+                && plan.transition.is_none()
+                && plan.profile == *profile,
+            "快捷键捕获不能混合持久 IO、演出或其他剧情操作"
+        );
+    }
+    plan.state.refresh(def)?;
     plan.state.window_title = def.window_title.resolve(&plan.state.variables)?.to_owned();
     Ok(plan)
 }
 pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
     fn walk(def: &Definition, state: &State, nodes: &[super::Node]) -> Result<()> {
         for node in nodes {
-            if let Some(id) = node
-                .image_bind
-                .as_deref()
-                .and_then(|path| path.strip_prefix("ui."))
-            {
-                let Some(VariableValue::String(image)) = state.variables.get(id) else {
-                    anyhow::bail!("UI 图片变量类型错误")
-                };
-                ensure!(def.images.contains(image), "UI 图片变量引用不存在：{image}");
-            }
+            let check = || -> Result<()> {
+                if let Some(id) = node
+                    .image_bind
+                    .as_deref()
+                    .and_then(|path| path.strip_prefix("ui."))
+                {
+                    let Some(VariableValue::String(image)) = state.variables.get(id) else {
+                        anyhow::bail!("UI 图片变量类型错误")
+                    };
+                    ensure!(def.images.contains(image), "UI 图片变量引用不存在：{image}");
+                }
+                Ok(())
+            };
+            check().map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
             walk(def, state, &node.children)?;
         }
         Ok(())
@@ -525,6 +698,65 @@ pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
     }
     resolved_regions(def, state)?;
     Ok(())
+}
+
+fn resolved_color_binds(
+    def: &Definition,
+    state: &State,
+) -> Result<BTreeMap<String, crate::color::Rgba>> {
+    fn walk(
+        state: &State,
+        nodes: &[super::Node],
+        output: &mut BTreeMap<String, crate::color::Rgba>,
+    ) -> Result<()> {
+        for node in nodes {
+            let check = |output: &mut BTreeMap<String, crate::color::Rgba>| -> Result<()> {
+                if let Some(path) = &node.color_bind {
+                    let color = if let Some(id) = path.strip_prefix("ui.") {
+                        match state.variables.get(id) {
+                            Some(VariableValue::String(text)) => {
+                                crate::color::Rgba::parse(text).map_err(anyhow::Error::msg)?
+                            }
+                            _ => anyhow::bail!("color-bind 的 UI 变量类型错误"),
+                        }
+                    } else if let Some(id) = path.strip_prefix("colors.") {
+                        *state
+                            .resolved_colors
+                            .get(id)
+                            .ok_or_else(|| anyhow::anyhow!("未知配色槽位：{id}"))?
+                    } else {
+                        anyhow::bail!("color-bind 需要 ui 字符串或 colors 槽位")
+                    };
+                    output.insert(node.id.clone(), color);
+                }
+                if matches!(node.kind, super::Kind::ColorPicker { .. }) {
+                    let path = node
+                        .bind
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("color-picker 缺少 value 绑定"))?;
+                    let id = path
+                        .strip_prefix("ui.")
+                        .ok_or_else(|| anyhow::anyhow!("color-picker 需要 ui 字符串"))?;
+                    match state.variables.get(id) {
+                        Some(VariableValue::String(text)) => {
+                            crate::color::Rgba::parse(text).map_err(anyhow::Error::msg)?;
+                        }
+                        _ => anyhow::bail!("color-picker 的值类型错误"),
+                    }
+                }
+                Ok(())
+            };
+            check(output)
+                .map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
+            walk(state, &node.children, output)?;
+        }
+        Ok(())
+    }
+    let mut output = BTreeMap::new();
+    for screen in def.screens.values() {
+        walk(state, &screen.nodes, &mut output)?;
+    }
+    Ok(output)
 }
 
 fn resolved_regions(

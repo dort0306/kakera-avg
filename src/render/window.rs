@@ -292,7 +292,7 @@ impl Host {
         }
         event_loop.exit();
     }
-    fn redraw(&mut self) -> Result<()> {
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let window = self.window.as_ref().context("window")?;
         if window.inner_size().width == 0 || window.inner_size().height == 0 {
             if let Some(app) = &mut self.app {
@@ -304,6 +304,11 @@ impl Host {
         let raw = input.take_egui_input(window);
         let app = self.app.as_mut().context("app")?;
         let output = self.ctx.run(raw, |ctx| app.update_ui(ctx));
+        if app.quit_requested() {
+            app.shutdown();
+            event_loop.exit();
+            return Ok(());
+        }
         input.handle_platform_output(window, output.platform_output.clone());
         self.painter
             .as_mut()
@@ -398,7 +403,7 @@ impl ApplicationHandler for Host {
                 .painter
                 .as_mut()
                 .map_or(Ok(()), |p| p.resize([size.width, size.height])),
-            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::RedrawRequested => self.redraw(event_loop),
             _ => Ok(()),
         };
         if let Err(e) = result

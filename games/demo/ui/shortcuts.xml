@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="shortcuts">
+    <panel id="shortcutsPanel" x="100" y="50" width="1080" height="620" image="ui.panel">
+      <label id="shortcutsTitle" x="30" y="24" width="700" height="40" text="玩家快捷键" font-size="28" color="#F0CA89" />
+      <button id="shortcutsClose" x="960" y="22" width="88" height="38" text="返回" route="close" image="ui.button" />
+      <label id="shortcutsHelp" x="30" y="70" width="1010" height="28" text="点“更改”后按下新组合；Escape 取消捕获。草稿只有“应用”后才写入独立偏好文件。" font-size="16" />
+      <label id="shortcutAdvanceLabelText" x="30" y="120" width="120" height="30" text="前进 / 补全" font-size="20" />
+      <label id="shortcutAdvanceCurrent" x="160" y="120" width="200" height="30" bind="shortcuts.advanceLabel" font-size="19" color="#F0CA89" />
+      <label id="shortcutAdvanceDraftText" x="380" y="120" width="220" height="30" bind="ui.shortcutAdvanceDraft" font-size="19" color="#B9C6D2" />
+      <button id="shortcutAdvanceCapture" x="620" y="112" width="110" height="40" text="更改" event="shortcut-capture-advance" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <button id="shortcutAdvanceClear" x="740" y="112" width="110" height="40" text="清空" event="shortcut-clear-advance" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <label id="shortcutFastLabelText" x="30" y="190" width="120" height="30" text="按住快进" font-size="20" />
+      <label id="shortcutFastCurrent" x="160" y="190" width="200" height="30" bind="shortcuts.fastForwardLabel" font-size="19" color="#F0CA89" />
+      <label id="shortcutFastDraftText" x="380" y="190" width="220" height="30" bind="ui.shortcutFastForwardDraft" font-size="19" color="#B9C6D2" />
+      <button id="shortcutFastCapture" x="620" y="182" width="110" height="40" text="更改" event="shortcut-capture-fast" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <button id="shortcutFastClear" x="740" y="182" width="110" height="40" text="清空" event="shortcut-clear-fast" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <label id="shortcutSkipLabelText" x="30" y="260" width="120" height="30" text="跳过演出" font-size="20" />
+      <label id="shortcutSkipCurrent" x="160" y="260" width="200" height="30" bind="shortcuts.skipSequenceLabel" font-size="19" color="#F0CA89" />
+      <label id="shortcutSkipDraftText" x="380" y="260" width="220" height="30" bind="ui.shortcutSkipDraft" font-size="19" color="#B9C6D2" />
+      <button id="shortcutSkipCapture" x="620" y="252" width="110" height="40" text="更改" event="shortcut-capture-skip" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <button id="shortcutSkipClear" x="740" y="252" width="110" height="40" text="清空" event="shortcut-clear-skip" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <label id="shortcutStatus" x="30" y="330" width="1010" height="28" bind="ui.shortcutStatus" font-size="18" color="#F0CA89" />
+      <label id="shortcutCaptureText" x="30" y="370" width="1010" height="28" bind="shortcuts.captureText" visible="shortcuts.captureActive" font-size="18" color="#B9C6D2" />
+      <button id="shortcutApply" x="30" y="430" width="130" height="44" text="应用" event="shortcut-apply" image="ui.button" hover-image="ui.hover" />
+      <button id="shortcutReset" x="180" y="430" width="150" height="44" text="恢复默认" event="shortcut-reset" image="ui.button" hover-image="ui.hover" />
+      <button id="shortcutCancel" x="350" y="430" width="130" height="44" text="取消" event="shortcut-cancel" image="ui.button" hover-image="ui.hover" />
+      <label id="shortcutNote" x="30" y="500" width="1010" height="50" text="键盘动作只在正常剧情或可跳过演出中生效。选项与结局不会被快进代选；全部键盘动作禁用后仍可用鼠标继续。" font-size="16" color="#8195A3" />
+    </panel>
+  </screen>
+</ui>

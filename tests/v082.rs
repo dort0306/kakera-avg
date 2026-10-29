@@ -319,6 +319,7 @@ fn regions_share_one_texture_and_switch_uv_without_uploading_images() -> Result<
                     interface::render::draw(
                         ui,
                         interface::render::Input {
+                            pickers: &mut Default::default(),
                             effects: &effects,
                             definition: &def,
                             state,

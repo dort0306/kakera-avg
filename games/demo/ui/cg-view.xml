@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui schema="3">
-  <screen id="cg-view">
-    <panel id="viewerBackground" width="1280" height="720" color="#070D18FF" />
+  <screen id="cg-view" background-click="cg-background">
+    <panel id="viewerBackground" width="1280" height="720" color="#000000FF" />
     <image id="cgFull" width="1280" height="720" image-bind="ui.cgImage" fit="contain" />
-    <panel id="viewerBar" width="1280" height="80" color="#070D18DD">
-      <label id="viewerTitle" x="40" y="22" width="1060" height="38" bind="ui.cgTitle" font-size="26" color="#F0CA89" />
-      <button id="viewerClose" x="1150" y="20" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
+    <panel id="viewerBar" width="1280" height="88" color="#070D18EE" visible="ui.cgToolbar">
+      <label id="viewerTitle" x="40" y="14" width="760" height="34" bind="ui.cgTitle" font-size="26" color="#F0CA89" />
+      <label id="viewerCounter" x="40" y="48" width="300" height="24" bind="ui.cgCounter" font-size="16" color="#B9C6D2" />
+      <button id="viewerPrev" x="840" y="24" width="96" height="40" text="上一张" event="cg-prev" enabled="ui.cgPrevOk" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="18" />
+      <button id="viewerNext" x="946" y="24" width="96" height="40" text="下一张" event="cg-next" enabled="ui.cgNextOk" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" font-size="18" />
+      <button id="viewerHide" x="1052" y="24" width="88" height="40" text="隐藏" event="cg-hide-toolbar" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <button id="viewerClose" x="1150" y="24" width="88" height="40" text="返回" event="close" image="ui.button" hover-image="ui.hover" font-size="18" />
+      <label id="viewerHint" x="840" y="62" width="398" height="18" text="点击舞台背景也可显示/关闭工具栏" font-size="13" color="#8195A3" />
     </panel>
+    <label id="viewerHiddenHint" x="40" y="680" width="600" height="24" text="工具栏已隐藏 · 点击背景恢复" visible="not:ui.cgToolbar" font-size="16" color="#8195A3" />
   </screen>
 </ui>

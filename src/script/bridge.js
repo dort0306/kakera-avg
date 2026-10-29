@@ -100,7 +100,7 @@
     const snapshot = readonly(request.snapshot);
     const ctx = freeze({
       game: snapshot.game, settings: snapshot.settings, saves: snapshot.saves,
-      vars: context(request, false).ctx.vars,
+      shortcuts: snapshot.shortcuts, colors: snapshot.colors, vars: context(request, false).ctx.vars,
       ui: context({ variables: request.uiVariables }, false).ctx.vars,
       item: readonly(request.item), value: readonly(request.value),
       present(screen) { emit({type:"present",screen}); },
@@ -121,6 +121,21 @@
       },
       save(slot, overwrite = false) { emit({ type: "save", slot, overwrite }); },
       load(slot) { emit({ type: "load", slot }); },
+      quit() { emit({ type: "quit" }); },
+      captureShortcut(action, resultEvent) {
+        emit({ type: "capture_shortcut", action, result_event: resultEvent });
+      },
+      cancelShortcutCapture() { emit({ type: "cancel_shortcut_capture" }); },
+      keybinding(action, binding) {
+        if (binding !== null && typeof binding !== "string") fail("快捷键绑定必须为字符串或 null");
+        emit({ type: "keybinding", action, binding });
+      },
+      resetKeybindings() { emit({ type: "reset_keybindings" }); },
+      colorPreference(slot, rgbaOrNull) {
+        if (rgbaOrNull !== null && typeof rgbaOrNull !== "string") fail("配色值必须为字符串或 null");
+        emit({ type: "color_preference", slot, value: rgbaOrNull });
+      },
+      resetColors() { emit({ type: "reset_colors" }); },
       restart(frame) { emit({ type: "restart", frame: frame === undefined ? null : String(frame) }); },
       advance() { emit({ type: "advance" }); },
       choose(option) { emit({ type: "choose", option }); },

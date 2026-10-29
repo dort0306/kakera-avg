@@ -181,7 +181,14 @@ impl Assembly<'_> {
             root,
             "ui",
             if depth == 1 { ATTRS } else { &["schema"] },
-            &["variables", "gallery", "screen", "include", "ui-media"],
+            &[
+                "variables",
+                "gallery",
+                "palette",
+                "screen",
+                "include",
+                "ui-media",
+            ],
             false,
         )?;
         if loader::required(&file, root, "schema")? != "3" {
@@ -219,6 +226,8 @@ impl Assembly<'_> {
                             &["int", "bool", "string"]
                         } else if group == "ui-media" {
                             &["sound", "sequence"]
+                        } else if group == "palette" {
+                            &["color"]
                         } else {
                             &["cg"]
                         },

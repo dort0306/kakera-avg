@@ -1,6 +1,6 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.9.0。唯一创作与存档契约为 story 8 / UI 3 / save 9，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.8 新增固定 16:9 窗口缩放和全屏设置，并删除旧格式解析器、flow 规则、内置兼容菜单与旧档导入。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-28。v0.8.2 新增源 .9.png 专用标签、图集 region/region-bind，以及发布时 UUID 与稳定 frame.name 映射；后续追加可配置窗口标题（第 28 节）。
+适用版本：Kakera AVG Rust v0.10.0。唯一创作与存档契约为 story 8 / UI 3 / save 9，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.10.0 在 UI 3 中新增可配置快捷键、三角 HSV 控件与配色偏好；旧播放器不认识这些扩展时严格拒绝。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-30。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -38,6 +38,9 @@
 30. [按钮 UI 路由](#30-v084-按钮-ui-路由)
 31. [UI 演出、过场视频与角色音效](#31-ui-演出过场视频与角色音效)
 32. [v0.9.0 幕与页面生命周期、隐藏交接槽](#32-v090-幕与页面生命周期隐藏交接槽)
+33. [v0.10.0 动态图片查看组合](#33-v0100-动态图片查看组合)
+34. [v0.10.0 玩家快捷键](#34-v0100-玩家快捷键)
+35. [v0.10.0 三角 HSV 与玩家配色](#35-v0100-三角-hsv-与玩家配色)
 
 ## 1. 版本与职责
 
@@ -2358,3 +2361,217 @@ on.ui("load-story", ctx => { ctx.open("hud"); ctx.load(ctx.item.slot); });
 剧情已开始后，`ctx.resume(frame?)` 继续沿用既有隐藏续接语义；`ctx.restart(frame)` 重新初始化变量/历史，适合从主菜单切换全新故事线。运行中无参 restart 只允许单入口游戏，多入口必须传参。隐藏路线是否显示、何时解锁由已有 XML visible/绑定与 JS 决定，声明入口本身不代表在菜单公开展示。
 
 当前 demo 为 content-version=11；应用 v0.9.1、story 8/UI 3/save 9/profile 1/KPAK 1/2 不变。新增完整演示位于 games/demo/ui/title.xml 和 UI 脚本；验证结果见 [多起始幕验收](multiple-entries-validation.zh-cn.md)。
+
+## 自定义确认弹窗与退出游戏
+
+确认弹窗复用普通 XML 模态页，不是固定样式的系统 MessageBox，也没有额外的 dialog 标签或 ctx.confirm 接口。可直接参考 [共享确认页](../games/demo/ui/confirmation.xml)、[UI 状态](../games/demo/ui/state.xml) 和 [事件脚本](../games/demo/scripts/ui.js)。demo 的主菜单/HUD“退出游戏”使用有标题弹窗，“重新开始”使用无标题弹窗。
+
+```xml
+<!-- 放在 UI 3 根内；标题不需要时可直接删除该 label。 -->
+<screen id="ask-exit" modal="true" pause="true">
+  <panel id="askShade" width="1280" height="720" color="#000000A0" />
+  <panel id="askPanel" x="340" y="210" width="600" height="300" color="#18232AF2" radius="16">
+    <label id="askTitle" x="36" y="26" width="528" height="42" text="退出游戏" font-size="28" color="#F0CA89" />
+    <label id="askText" x="36" y="92" width="528" height="84" text="确定退出游戏？" font-size="23" color="#F5F1E8FF" />
+    <button id="askYes" x="36" y="210" width="248" height="52" text="退出" event="quit-game" color="#405B7FFF" font-size="22" radius="8" />
+    <button id="askNo" x="316" y="210" width="248" height="52" text="取消" route="close" color="#43576FCC" font-size="22" radius="8" />
+  </panel>
+</screen>
+```
+
+调用按钮可用 `route="open:ask-exit"`，或 event 回调 `ctx.open("ask-exit")`。弹窗正文/标题/按钮文字可改为 bind；标题用 UI bool 绑定 visible，JS 在打开前通过 ctx.setUi 一次赋值。demo 的 askConfirmation 是作者 JS 函数，使用固定动作分支，不执行动态 JS 字符串。
+
+背景可用 panel/image/nine-patch 和已声明资源 ID，色值的最后两位为 alpha（00 透明、FF 不透明）；正文/标题可自定义颜色、字号、布局，按钮可配置普通/悬停/禁用皮肤、颜色、圆角和字号。button 的 color 控制按钮底色或图片 tint，默认按钮文字为白色；需要单独定制按钮文字颜色时，使用空文字 button 与同位置的有色 label 组合。没有逐帧样式脚本或任意路径读取。
+
+```javascript
+on.ui("quit-game", ctx => ctx.quit());
+```
+
+`ctx.quit()` 无参数，请求关闭当前游戏窗口，等价于系统关闭按钮。作者可以直接调用，也可以先经过上述确认页；引擎不会额外弹出固定确认窗口。命令只允许普通 on.ui 交互，不允许剧情回调、game.enter 或 frame/screen 生命周期自动关闭。整批绑定/页面回调/命令及媒体验证失败时不退出、不部分提交；同批不能混入保存、读档、设置、CG 写入或剧情推进，UI 演出/音效仍遵守原有互斥规则。
+
+退出走正常宿主关闭和 shutdown：补写已读与设置，尝试完成已有待写自动档，然后释放音频/媒体/渲染资源；不会隐式保存一个新的手动槽，也不强制终止进程。退出窗口不等于剧情离幕，因此不触发 frameExit/screenClose；active 隐藏交接槽保留，下一次启动仍按原机制恢复。无新增 Model/存档字段或文件格式。
+
+## 33. v0.10.0 动态图片查看组合
+
+本需求不需要新的 Rust 图片 API，复用已有的 `image-bind`、UI string、`ctx.setUi`、页面栈和静态纹理缓存。推荐结构：
+
+```xml
+<screen id="cg-view" background-click="cg-background">
+  <panel id="viewerBackground" width="1280" height="720" color="#000000FF" />
+  <image id="cgFull" width="1280" height="720" image-bind="ui.cgImage" fit="contain" />
+  <panel id="viewerBar" width="1280" height="88" color="#070D18EE" visible="ui.cgToolbar">
+    <!-- 标题、计数、上一张/下一张、隐藏、返回 -->
+  </panel>
+</screen>
+```
+
+```javascript
+on.ui("view-cg", ctx => {
+  if (!ctx.item.unlocked) return;          // 不能只依赖按钮 disabled
+  ctx.setUi("cgImage", ctx.item.image);    // 必须是已声明 image/CG 资源 ID
+  ctx.setUi("cgTitle", ctx.item.title);
+  ctx.open("cg-view");
+});
+on.ui("cg-next", ctx => {
+  // 作者维护稳定收藏 ID -> 资源/标题表；不要假设存在 ctx.gallery。
+  ctx.setUi("cgImage", table[index + 1].image);
+});
+```
+
+规则：
+
+- 一个查看页只使用一个固定 ID 的 image 控件；切换 CG 只改 UI 变量，不在 JS 中拼接 XML，也不为每张图复制 screen。
+- 图片来源是已声明资源 ID，不是文件路径、URL、Base64 或纹理名；未声明、空值、路径、错误类型整批拒绝并保留旧页面。
+- 同一资源可用于多个 gallery 收藏项；“当前收藏 ID”与资源 ID 分开，导航和记忆位置用收藏项 ID。未解锁项可由作者 JS 拒绝，禁用按钮无事件。
+- 初始 `image-bind` 也须有效；没有图片时用 `visible="false"`，不要用空字符串表示隐藏。
+- `fit="contain"` 保持整图可见，白色/透明留边由作者黑色或背景面板填充；`cover`/`stretch` 只能由作者明确选择。
+- 工具栏隐藏用 UI bool，恢复用页面 `background-click`；第一次背景点击只恢复工具栏。返回只关闭当前页，不推进/补全剧情、不修改已读、CG 或 Session。
+- 图像来自启动/候选准备的静态缓存；翻页不读盘、不解码、不重新上传纹理。图集 `region`/`region-bind` 仍按最终图像校验边界。
+- KPAK 1/2 继续收集声明的资源和 UI 依赖；JS 表中的字符串不会让打包器自动发现文件，必须先声明资源。
+- demo：gallery 打开同一 `cg-view`/`cgFull`，可切换“午后房间”“凛的立绘”“透明方图”；专用 CG 与普通 image 共用同一查看页。
+
+## 34. v0.10.0 玩家快捷键
+
+### 动作与默认值
+
+| 动作 ID | 默认绑定 | 触发 | 有效上下文 |
+| --- | --- | --- | --- |
+| `advance` | `Space` | 单次按下边沿，忽略系统 repeat | 正常顶层剧情；跳过转场→补全→推进，每次至多一步 |
+| `fast_forward` | `Ctrl`（按住） | 按住，约 40ms 一步 | 正常剧情且已读或 `skip_all`；选项/结尾停止，不代选 |
+| `skip_sequence` | `Space` | 单次按下边沿，忽略 repeat | 可跳过的 UI 演出/视频；只被演出消费 |
+
+绑定为规范 ASCII 字符串或 `null`（禁用键盘动作）。鼠标/按钮/取消与“恢复默认”始终保留。高级动作、宏、多段序列、任意按键流或系统热键注册均不支持。
+
+键位主键 token：`Space`、`Enter`、`Tab`、`Backspace`、`Delete`、`Insert`、`Home`、`End`、`PageUp`、`PageDown`、`ArrowLeft`、`ArrowRight`、`ArrowUp`、`ArrowDown`、`KeyA`…`KeyZ`、`Digit0`…`Digit9`、`F1`…`F12`、`Minus`、`Equal`、`BracketLeft`、`BracketRight`、`Backslash`、`Semicolon`、`Quote`、`Backquote`、`Comma`、`Period`、`Slash`、`Numpad0`…`Numpad9`、`NumpadAdd`、`NumpadSubtract`、`NumpadMultiply`、`NumpadDivide`、`NumpadDecimal`、`NumpadEnter`。修饰键只有 `Ctrl`、`Alt`、`Shift`；保存时按 Ctrl、Alt、Shift 固定排序。
+
+拒绝：Escape（保留给捕获取消）、Windows/Meta、Ctrl+Alt（含再加 Shift）、Alt+F4、Alt+Tab、Alt+Escape、Alt+Space、Ctrl+Escape、Ctrl+Shift+Escape、重复/未知 token、空白、裸 `+`、超 64 字节或多段组合。只有 `fast_forward` 可以绑定单个修饰键；其他动作禁止纯修饰键。
+
+### 冲突
+
+整张候选映射一起验证，不在写入过程中逐个覆盖：
+
+- `advance` 与 `fast_forward` 不能使用同一触发；`fast_forward` 是单个修饰键（如 Ctrl）而 `advance` 使用带该修饰键的组合（如 Ctrl+KeyK）时按“按住前缀”拒绝，并提示先改快进键。
+- `advance` 与 `skip_sequence` 使用 Space 合法，因为剧情与 UI 演出上下文互斥。
+- 同批交换两个动作的绑定整体成功；任一非法则全部回滚。`null` 只禁用该动作。
+
+### UI 命令与快照
+
+| API | 行为 |
+| --- | --- |
+| `ctx.captureShortcut(action, resultEvent)` | 开始一次瞬时捕获；`action` 必须为稳定动作 ID，`resultEvent` 必须是已注册普通 `on.ui`，禁止生命周期事件 |
+| `ctx.cancelShortcutCapture()` | 取消当前捕获，不写偏好 |
+| `ctx.keybinding(action, bindingOrNull)` | 修改候选绑定；同一批最多三个动作，整批验证/原子写后生效 |
+| `ctx.resetKeybindings()` | 单独恢复三个默认绑定并原子保存，不能与单项修改同批 |
+| `ctx.shortcuts` | 已提交只读快照：`bindings.advance/fast_forward/skip_sequence`、`advanceLabel`、`fastForwardLabel`、`skipSequenceLabel`、`captureActive`、`captureText` |
+
+XML 可绑定 `shortcuts.advanceLabel`、`shortcuts.fastForwardLabel`、`shortcuts.skipSequenceLabel`、`shortcuts.captureText`（文本）、`shortcuts.captureActive`（bool）以及 `shortcuts.bindings.*`（规范文本）。显示 Label 不参与解析或存储。
+
+### 捕获生命周期
+
+1. 点击“更改”等普通 UI 按钮启动捕获；启动点击和当帧残留键先全部释放。
+2. 武装后收集一个支持的组合；纯修饰键只在释放后确认（仅快进）。
+3. 组合全部释放后，在下一个可提交边界派发一次普通 UI 事件：`ctx.item.action` 为动作 ID，`ctx.value` 为规范绑定字符串。
+4. Escape 在任意阶段取消；失焦、换页、关闭页面、热更、普通读档/重开、再次捕获都会清掉旧候选，不把结果送到新页面。
+5. 捕获结果事件不会自动写文件；作者用 UI string 保存草稿，点“应用”才调用 `ctx.keybinding`。清空绑定是显式按钮，不把第一次 Backspace 偷当删除。
+6. 捕获进行时，普通剧情键、自动播放、UI 演出跳过和其他控件编辑不处理同一键；鼠标取消按钮可工作，其他鼠标事件被消费而不会同时触发原剧情。
+7. 每次至多一个活动捕获和一个待投递结果；不注册全局键盘监听，不记录窗口外输入。
+
+### 偏好文件
+
+固定路径为当前存档目录的 `keybindings.json`，schema 1：
+
+```json
+{
+  "schema_version": 1,
+  "story_id": "kakera-demo",
+  "bindings": {
+    "advance": "Enter",
+    "fast_forward": "Ctrl",
+    "skip_sequence": null
+  }
+}
+```
+
+必须恰有 `advance`/`fast_forward`/`skip_sequence` 三个字段，值为规范字符串或 `null`；未知字段、重复 JSON 键、缺字段、错 story、非法/冲突绑定、超过 16KiB 一律拒绝。缺文件使用默认；坏文件保留原字节、提示一次并使用默认，不自动覆盖或迁移。保存使用同目录临时文件原子替换；写失败保留旧文件、旧映射和当前 UI。该文件不进入剧情槽、隐藏交接、自动档、工程监控或 KPAK；大小写变体同样排除。
+
+### 输入所有权
+
+宿主按以下顺序形成每帧唯一消费结果：失焦/提示/调试门控 → 快捷键捕获 → 文本/控件编辑 → UI 演出 → 顶层 UI 事件 → 单次剧情按键 → 按住快进 → 自动播放。低层不重复消费同一物理输入。失焦、捕获结束/取消、键位应用、热更、读档/重开和演出退出后要求相关键释放再武装；自动截图等短暂等待只暂停节拍，不要求每步松键。
+
+输入优先使用物理键；字符文本/IME 不反推键位。当前 Windows egui-winit 桥无法区分部分小键盘键与主行键（如 Numpad0/Digit0、NumpadEnter/Enter），`NumpadAdd` 可识别；这些 token 在配置中仍合法，但捕获时可能保存对应的主行 token。该限制若需消除，需另加宿主原始键通道，不在本版宣称。
+
+## 35. v0.10.0 三角 HSV 与玩家配色
+
+### 颜色值
+
+- 对外规范值为未预乘 sRGB RGBA：`#RRGGBBAA`，九个 ASCII 字符、十六进制大写。
+- 作者静态初值/绑定输入可写 `#RRGGBB` 或 `#RRGGBBAA`（大小写均可）；六位补 `FF`。非法、空值、路径、CSS 名称、浮点对象一律拒绝，不默认为黑色。
+- HSV 针对编码后的 sRGB 通道（字节/255），H∈[0,360)，S/V/A∈[0,1]；不是线性光 HSV，也不是 HSL。360 度归零；量化按 `round(clamp(x,0,1)×255)`。
+- `alpha=0` 的非零 RGB 必须保留；不经过预乘 Color32 存储。
+
+### 三角色盘
+
+```xml
+<color-picker id="backgroundPicker" x="40" y="110" width="256" height="320"
+              value="ui.dialogueBgDraft" event="color-bg" alpha="true" />
+```
+
+| 属性 | 规则 |
+| --- | --- |
+| `id/x/y/width/height` | 沿用逻辑舞台坐标；建议 256×320，至少 128×224 |
+| `value` | 必需，只能绑定 `ui.<string>`；初始值也必须是合法颜色 |
+| `event` | 必需，已注册普通 `on.ui` |
+| `alpha` | 可选 bool，默认 true；false 隐藏 alpha 编辑条但保留输入颜色原有 alpha |
+| `visible/enabled` | 现有 bool 绑定；禁用区仍阻挡舞台背景输入 |
+
+控件不是容器，不接受子节点、图片、region、route、color 或未知属性；不能放在 repeat 中。整个 UI 至多 8 个 color-picker。色相环包围固定方向 SV 三角：三角 H 顶点为当前纯色、W 为白、B 为黑；三角方向不随色相旋转。环拖动只改 H，三角拖动使用欧氏最近边/顶点投影后求重心权重，alpha 条夹在 [0,1]。一次按下锁定子区域直到释放。
+
+拖动只产生候选颜色，不直接改变量。控件派发一个事件：`ctx.item` 为空，`ctx.value` 为规范九字符颜色。作者在回调里决定接受/拒绝，并调用 `ctx.setUi` 更新 value 绑定。JS 错误或整批其他命令失败时颜色/页面/IO 都不部分提交；标记回到已提交值，抓取结束。同一帧多个移动只产生一个事件；外部 setUi、打开页、读档、热恢复和改布局不会自动回发事件。
+
+键盘：点击控件或从前后控件用 Tab/Shift+Tab 取得编辑焦点。Tab/Shift+Tab 在环、三角、alpha（若启用）与前后控件间移动；环左右调整 H（默认 1°、Shift 10°），三角左右调整 S、上下调整 V（默认 0.01、Shift 0.1），alpha 左右调整 A。Escape 结束本次编辑。控件拥有焦点时阻挡普通剧情键。首次点击当前颜色、预览区或禁用控件，即使没有颜色变化事件，也先消耗本帧输入，再仲裁剧情前进、按住快进和自动播放。隐藏、禁用、父容器隐藏或裁剪使控件失效时清理焦点/抓取；离开编辑后须释放旧按键再触发剧情，不回放编辑期间的按键。
+
+### color-bind
+
+`color-bind` 复用 `ctx.setUi`，不是新的绘图或路径接口。支持 panel、image、nine-patch、label、button、toggle；与静态 `color` 互斥。绑定源只能是 `ui.<string>` 或已声明的 `colors.<槽位ID>`。
+
+- panel/image 作用 tint；nine-patch 作用到全部分段顶点；label 作用文本颜色（`game.text` 仍保留不可见后缀）；button 只控制背景/图片 tint，默认白字不被同色覆盖；toggle 作用勾选框文字。
+- 不支持 scene 整体着色、repeat 容器着色、slider 样式、任意 JS 表达式、纹理像素或路径。
+- 准备阶段解析所有绑定并缓存 RGBA；初始值、隐藏节点、setUi 最终批次、偏好变化和热更候选都重新验证；坏值整批拒绝，绘制不逐帧解析十六进制或重建纹理。
+- 图集 region/region-bind 与 color-bind 可组合；滤镜仍按整图缓存。
+
+### palette 与玩家偏好
+
+```xml
+<palette>
+  <color id="dialogue_background" initial="#10253BFF" />
+  <color id="dialogue_text" initial="#F4EAD8FF" />
+</palette>
+```
+
+槽位 ID 为 `[a-z][a-z0-9_]{0,63}`，不含点，最多 32 个；全部 UI 装配后全局唯一，可在 include 中前向引用并保留原位置诊断。`palette` 不进入剧情变量/CG ID；初始值可被玩家覆盖。
+
+编辑页打开时把已提交 `ctx.colors` 复制到 UI 草稿；预览用 `color-bind` 指向草稿，正式 HUD 指向 `colors` 槽位。取消只关闭页面，不写文件；应用通过 `ctx.colorPreference` 提交。
+
+| API | 行为 |
+| --- | --- |
+| `ctx.colors` | 已提交配色的只读快照，键只能是声明槽位，值为规范颜色 |
+| `ctx.colorPreference(slot, rgbaOrNull)` | 保存一个槽位覆盖；`null` 删除该覆盖、恢复作者默认，不删除文件 |
+| `ctx.resetColors()` | 单独恢复全部作者默认，原子写空覆盖表；不能与逐项修改同批 |
+
+固定文件为当前存档目录的 `ui-colors.json`：
+
+```json
+{
+  "schema_version": 1,
+  "story_id": "kakera-demo",
+  "overrides": {
+    "dialogue_background": "#FF2630FF"
+  }
+}
+```
+
+`overrides` 按设计是稀疏表；缺槽位使用作者默认。文件缺顶层字段、未知/重复槽位、非规范颜色、错 story/schema 或超过 16KiB 全部拒绝。缺文件使用默认；坏文件保留原字节并提示一次后使用默认，不自动重写。应用使用同目录临时文件原子替换，失败保留旧文件/已提交配色/UI/草稿；不得与 settings、快捷键、profile、剧情或退出混写。普通/自动/隐藏剧情槽和重开都不回滚已提交覆盖。热更新若删除仍被覆盖的槽位，报告不兼容并保留旧状态，不静默丢玩家配色。
+
+该文件独立于剧情槽、隐藏交接、自动档和 settings.json；不进入工程监控或 KPAK，大小写变体同样排除。控件指针、浮点 HSV、焦点和抓取子区是瞬时状态，不写入任何偏好或存档。
+
+demo：设置页“配色…”打开 `colors` 页，左侧面板色支持 alpha、右侧文字色禁用 alpha；预览只绑定草稿，`games/demo/ui/hud.xml` 的对话点九图和台词 label 绑定 `colors.dialogue_background`/`colors.dialogue_text`。

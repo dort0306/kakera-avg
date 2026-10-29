@@ -184,3 +184,11 @@ UI 唤起剧情复用 ctx.resume(frame?)：on.ui 与自动 screenClose 使用同
 ## 多起始幕
 
 依据 doc/multiple-entries-implementation-plan.zh-cn.md、doc/multiple-entries-validation.zh-cn.md。story.entry 为一个或多个空白分隔 ID/name，严格拒绝重复/未知目标。启动仅显示 initial UI；首次 resume/restart 必须显式选择声明起始幕或载入玩家档，不运行默认幕生命周期/音频/自动档/已读。首次选择创建初始变量及单条历史，不沿用 inactive 隐藏进度；active 交接仍完整恢复。运行中 resume 保持续接，restart(frame) 重置，多个入口无参 restart 拒绝。菜单、隐藏路线显示/解锁仍优先 XML/JS。demo content-version=11，其他格式不变；验证两种包、别名、单次进入、回滚及热更/渲染重建不自动进入。
+
+## 确认弹窗与退出
+
+依据 doc/confirmation-quit-implementation-plan.zh-cn.md 与 doc/confirmation-quit-validation.zh-cn.md。确认弹窗优先用既有 XML 模态 screen/绑定/皮肤/RGBA 及 JS，标题可省略，不增加固定原生弹窗或动态 eval。ctx.quit() 仅普通 UI 事件可用，整批校验成功后请求宿主正常关闭；不能混合剧情/持久 IO，生命周期不能自动退出。复用 shutdown，不强制终止进程，不触发幕/页面退出回调，不消耗活动隐藏交接。Model/存档与容器格式不变，实际 GUI 确认/取消/退出及退出补写要单独验收。
+
+## v0.10.0 UI 扩展性
+
+依据 doc/ui-extensibility-roadmap.zh-cn.md、三个工作包实现/验收方案与 doc/ui-extensibility-validation.zh-cn.md。A 只复用 image-bind/UI string/ctx.setUi，同一查看页切换已声明资源；不新增图片路径/IO API。B 新增纯 shortcuts 模块、宿主输入所有权、捕获状态机和独立 keybindings.json；鼠标继续/取消/恢复默认保留，快进按住语义取代固定 Ctrl，UI 跳过使用独立动作。C 新增 color-picker/color-bind/palette、纯 color 几何与独立 ui-colors.json；控件只提交候选颜色，业务由 on.ui 事务决定，指针/HSV/焦点不入档。两个偏好文件严格 schema 1/story_id、16KiB、原子覆盖、坏文件保留、排除监控/打包/发布；不得与 settings/profile/剧情/退出同批混写。捕获/拖拽/键位应用/热更/读档/失焦后要求释放屏障；UI 生命周期仍禁写偏好。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2 与 demo content-version=11 不变；Numpad 区分限制见 API 第 34 节。

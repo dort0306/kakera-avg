@@ -106,14 +106,14 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 ## 用户数据和限制
 
---save-dir 直接使用指定目录，不额外附 story_id。工程与发布默认同 story_id 会共享数据，验收建议隔离。当前手动 slot-1..200.json、自动 auto-1..10.json 为 save 9，加载完整重放历史与变量（含显式 resume_to 返回边）；旧格式或内容版本不匹配明确拒绝。设置、CG、已读、UI 音效分别在 settings.json/profile.json/read.json/ui-audio.json，不被槽覆盖；幕与页面交接使用固定隐藏 flow-checkpoint.json（不进入玩家槽位页和普通自动槽，不受 autosave 开关影响），成功返回写 inactive 墓碑。settings 必须完整包含当前字段，无缺字段迁移。screenshot 字段必需，可 null（工具快照）。
+--save-dir 直接使用指定目录，不额外附 story_id。工程与发布默认同 story_id 会共享数据，验收建议隔离。当前手动 slot-1..200.json、自动 auto-1..10.json 为 save 9，加载完整重放历史与变量（含显式 resume_to 返回边）；旧格式或内容版本不匹配明确拒绝。设置、CG、已读、UI 音效、玩家键位与配色分别在 settings.json/profile.json/read.json/ui-audio.json/keybindings.json/ui-colors.json，不被槽覆盖；幕与页面交接使用固定隐藏 flow-checkpoint.json（不进入玩家槽位页和普通自动槽，不受 autosave 开关影响），成功返回写 inactive 墓碑。settings 必须完整包含当前字段，无缺字段迁移。screenshot 字段必需，可 null（工具快照）。
 
-用户 JSON（settings.json/profile.json/read.json/ui-audio.json/slot-*/auto-*/flow-checkpoint.json）、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
+用户 JSON（settings.json/profile.json/read.json/ui-audio.json/keybindings.json/ui-colors.json/slot-*/auto-*/flow-checkpoint.json，含大小写变体）、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
 
 数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.9.0 验收](v0.9.0-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
 
 
-v0.8.4 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。
+v0.8.4 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、keybindings.json、ui-colors.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。v0.10.0 起键位/配色偏好同样只保存在玩家 --save-dir，不属于发布内容。
 
 按钮 route="open:页面ID"/"close" 在两种包中保留，不需要额外打包开关；UI 拆分后目标仍全局校验，详见 API 第 30 节。
 
@@ -130,3 +130,7 @@ UI 根 ui-media 可跨 include 拆分；两格式仍汇总为单 UI 入口。音
 ## 多故事线入口
 
 story.xml 可声明 `entry="opening secret-entry"`，入口可跨章节、使用 ID/name；两种包都完整保留，不按入口裁剪其他路线。ui.xml initial 应指向作者主菜单，由按钮显式 `ctx.restart("opening")` 或首次 `ctx.resume("opening")`，也可以读取手动/自动槽。启动不会自动选择第一个入口；多入口重开必须传目标。隐藏路线按钮和解锁条件仅用 XML/JS；入口声明不会自动生成菜单。demo content-version=11，旧 demo 剧情槽拒绝，共享 CG 保留。见 [多起始幕 API](xml-js-api.zh-cn.md#多起始幕与首次-ui-选择)。
+
+## 确认弹窗与正常退出
+
+确认页是普通 UI 3 模态 screen，发布时随 include 合并。demo 的 confirmation 页、可选标题与提示/按钮文字由 XML/JS 定义，RGBA alpha 控制遮罩/面板透明度；不要用系统提示窗口替代可定制游戏界面。退出按钮事件使用 ctx.quit()，可先经过确认页；无参、无路径或进程参数，播放器正常关闭并补写设置/已读。发布包无需新增原生插件或弹窗资源格式，字体和已有皮肤照常打包。两种容器与内容/存档版本不变。示例及限制见 [API](xml-js-api.zh-cn.md#自定义确认弹窗与退出游戏)。

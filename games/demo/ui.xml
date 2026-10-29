@@ -8,7 +8,10 @@
   <include src="ui/save.xml" />
   <include src="ui/load.xml" />
   <include src="ui/confirm-save.xml" />
+  <include src="ui/confirmation.xml" />
   <include src="ui/settings.xml" />
+  <include src="ui/shortcuts.xml" />
+  <include src="ui/colors.xml" />
   <include src="ui/history.xml" />
   <include src="ui/gallery.xml" />
   <include src="ui/cg-view.xml" />

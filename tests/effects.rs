@@ -326,6 +326,7 @@ fn effect_preparation_and_mesh_rendering_use_cached_assets_and_fixed_clip() {
                         interface::render::draw(
                             ui,
                             interface::render::Input {
+                                pickers: &mut Default::default(),
                                 effects: &player,
                                 definition: &def,
                                 state: &state,

@@ -12,10 +12,13 @@ use crate::{
 use eframe::egui;
 use std::time::{Duration, Instant};
 mod capture;
+mod colors;
 mod custom;
 mod debug;
 mod development;
+mod input;
 mod lifecycle;
+mod shortcuts;
 mod skip;
 mod ui_media;
 use custom::CustomUi;
@@ -33,6 +36,7 @@ pub struct RuntimeAssets {
     pub live2d: crate::live2d::PreparedLive2D,
 }
 pub struct PlayerApp {
+    quit_requested: bool,
     ui_media: ui_media::UiMedia,
     debug: Option<DebugSession>,
     capture: Option<crate::capture::Shared>,
@@ -53,8 +57,14 @@ pub struct PlayerApp {
 
     auto_play: presentation::AutoPlay,
     skip: presentation::FastForward,
-    // Track raw Ctrl across pauses so its release interval never counts as auto wait.
-    ctrl_held: bool,
+    // Mapped fast-forward hold from the player's committed keybindings.
+    fast_forward_held_last: bool,
+    input_barrier: bool,
+    held_keys: std::collections::BTreeSet<crate::shortcuts::Key>,
+    shortcut_capture: Option<input::Capture>,
+    shortcut_scope: Option<shortcuts::Scope>,
+    pickers: crate::interface::render::PickerState,
+    ui_generation: u64,
     effects: crate::effects::Player,
     story: Story,
     session: Session,
@@ -74,6 +84,10 @@ pub struct PlayerApp {
 }
 
 impl PlayerApp {
+    pub fn quit_requested(&self) -> bool {
+        self.quit_requested
+    }
+
     pub fn window_title(&self) -> &str {
         &self.custom.state.window_title
     }
@@ -120,6 +134,16 @@ impl PlayerApp {
             &logic,
             &mut warnings,
         );
+        let keybindings = Self::load_shortcut_bindings(&saves, &loaded.story.id, &mut warnings);
+        let mut custom = custom;
+        custom.state.keybindings = keybindings;
+        Self::load_colors(
+            &saves,
+            &loaded.story.id,
+            &custom.definition,
+            &mut custom.state,
+            &mut warnings,
+        );
         let read = Self::load_read_history(&saves, &loaded.story.id, &mut warnings);
         let prefs_path = saves.directory().join("ui-audio.json");
         let prefs = if prefs_path.exists() {
@@ -137,6 +161,7 @@ impl PlayerApp {
             Some(warnings.join("\n"))
         };
         let mut app = Self {
+            quit_requested: false,
             ui_media: ui_media::UiMedia::new(prefs),
             debug: None,
             capture: None,
@@ -156,7 +181,13 @@ impl PlayerApp {
             live2d: Default::default(),
             auto_play: Default::default(),
             skip: Default::default(),
-            ctrl_held: false,
+            fast_forward_held_last: false,
+            input_barrier: false,
+            held_keys: Default::default(),
+            shortcut_capture: None,
+            shortcut_scope: None,
+            pickers: Default::default(),
+            ui_generation: 0,
             effects: Default::default(),
             story: loaded.story,
             session,
@@ -347,6 +378,7 @@ impl PlayerApp {
         self.typewriter = Typewriter::new(&frame.text, restored || self.settings.text_speed == 0.0);
         self.clock = PresentationClock::new(Instant::now());
         self.audio.enter(&frame.audio, force_audio);
+        self.pickers = Default::default();
         self.commit_ui(plan, false);
         self.apply_ui_media(prepared_ui);
         if restored {
@@ -425,7 +457,9 @@ impl PlayerApp {
         self.finish_autosave();
         let debug_input = self.poll_debug();
         let debug_paused = self.debug_paused();
-        let capture_busy = self.pending_auto.is_some();
+        let focused = ctx.input(|input| input.focused);
+        let input_frame = self.collect_input(ctx);
+        let capture_busy = self.pending_auto.is_some() || self.shortcut_capture_active();
         let reloaded = !capture_busy
             && !debug_input
             && !self.debug_paused()
@@ -442,11 +476,22 @@ impl PlayerApp {
                 self.message = Some(format!("初始页面生命周期：{e:#}"));
             }
         }
-        let focused = ctx.input(|input| input.focused);
         if let Some(error) = self.audio.poll_error() {
             self.message = Some(error);
         }
-        let ui_input = match self.tick_ui_media(ctx, focused) {
+        // A completed capture delivers exactly one ordinary UI event before drawing.
+        if !reloaded
+            && let Some(event) = self.tick_shortcut_capture(&input_frame)
+            && let Err(error) = self.custom_event(event)
+        {
+            self.message = Some(format!("快捷键捕获结果失败：{error:#}"));
+        }
+        let capture_active = self.shortcut_capture_active();
+        let ui_input = match self.tick_ui_media(
+            ctx,
+            focused,
+            input_frame.skip_sequence_pressed && !capture_active,
+        ) {
             Ok(value) => value,
             Err(error) => {
                 if self.ui_media.video() {
@@ -458,16 +503,12 @@ impl PlayerApp {
                 true
             }
         };
-        let paused = self.blocked() || ui_input || !focused;
+        let paused = self.blocked() || ui_input || !focused || capture_active;
         let now = Instant::now();
         let elapsed = self.clock.elapsed(now, paused);
-        // Holding Ctrl fast-forwards; pause, host prompts and videos suspend the hold.
-        let ctrl = ctx.input(|input| input.modifiers.ctrl);
-        let ctrl_released = std::mem::replace(&mut self.ctrl_held, ctrl) && !ctrl;
-        let story_input =
-            !paused && !capture_busy && self.custom.state.keyboard(&self.custom.definition);
-        let skip_held = ctrl && story_input;
-        let skip = self.skip.tick(elapsed.as_secs_f32(), skip_held) && self.may_fast_forward();
+        // Keep the read-only skip decision at the frame boundary: text becoming
+        // fully displayed below must not make an unread line skippable this tick.
+        let may_fast_forward = self.may_fast_forward();
         let transitioning = self.effects.active();
         self.effects.tick(elapsed.as_secs_f32());
         if let Err(error) = self
@@ -490,6 +531,7 @@ impl PlayerApp {
             self.revision,
             !self.blocked() && self.custom.state.stack.len() == 1,
         );
+        self.refresh_shortcut_data();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
@@ -552,37 +594,46 @@ impl PlayerApp {
                                 ""
                             },
                             blocked: self.message.is_some()
-                                || capture_busy
+                                || self.pending_auto.is_some()
                                 || debug_paused
                                 || debug_input
                                 || ui_input
                                 || self.ui_media.active(),
+                            pickers: &mut self.pickers,
                         },
                     )
                     .map(UiIntent::Custom);
-                    if intent.is_none()
-                        && !capture_busy
-                        && self.message.is_none()
-                        && !debug_paused
-                        && !debug_input
-                        && !ui_input
-                        && !self.ui_media.active()
-                        && self.effects.has_entered
-                        && custom.state.keyboard(&custom.definition)
-                        && ctx.input(|i| i.key_pressed(egui::Key::Space))
-                    {
-                        intent = Some(UiIntent::Play(controller::Intent::Advance));
-                    }
                 }
                 self.draw_ui_video(ui);
             });
+        // Drawing determines this frame's editing ownership, even when clicking
+        // a picker does not change its value and therefore emits no UI event.
+        if self.pickers.take_release_request() {
+            self.input_barrier = true;
+        }
+        let story_input = !paused
+            && !capture_busy
+            && !self.input_barrier
+            && self.custom.state.keyboard(&self.custom.definition)
+            && !ctx.wants_keyboard_input()
+            && !self.pickers.owns_input()
+            && ctx.memory(|memory| memory.focused().is_none());
+        let skip_held = input_frame.fast_forward_held && story_input;
+        let skip = self.skip.tick(elapsed.as_secs_f32(), skip_held) && may_fast_forward;
+        if intent.is_none() && story_input && input_frame.advance_pressed {
+            intent = Some(UiIntent::Play(controller::Intent::Advance));
+        }
+        // A click that produced no UI event still cancels capture without leaking to the story.
+        if intent.is_none() && self.shortcut_capture_active() && input_frame.pointer_clicked {
+            self.cancel_shortcut_capture();
+        }
         let route = &self.story.routes[&self.session.frame_id];
         let advance_route = matches!(route, crate::model::Route::Advance);
         let auto_advance = self.auto_play.tick(
             elapsed.as_secs_f32(),
             story_input
-                && !ctrl
-                && !ctrl_released
+                && !input_frame.fast_forward_held
+                && !input_frame.fast_forward_released
                 && self.typewriter.complete()
                 && !self.effects.active()
                 && self.audio.voice_finished(),
@@ -659,6 +710,9 @@ impl eframe::App for PlayerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let previous_title = self.window_title().to_owned();
         self.update_ui(ctx);
+        if self.quit_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         if previous_title != self.window_title() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title().to_owned()));
         }

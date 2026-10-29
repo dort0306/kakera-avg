@@ -146,6 +146,14 @@ impl PlayerApp {
         }
         if self.custom.state.stack != plan.state.stack {
             self.effects.pages_changed();
+            self.input_barrier = true;
+            self.cancel_shortcut_capture();
+            self.pickers = Default::default();
+            self.context.memory_mut(|memory| {
+                if let Some(id) = memory.focused() {
+                    memory.surrender_focus(id);
+                }
+            });
         }
         for (target, animation) in plan.animations {
             self.effects.animate(target, animation);
@@ -207,6 +215,7 @@ impl PlayerApp {
                 .lists
                 .insert("autosaves".into(), custom.autosaves.clone());
         }
+        self.refresh_shortcut_data();
         if refresh_slots {
             self.sync_save_previews();
         }
@@ -249,6 +258,28 @@ impl PlayerApp {
             false,
         )?;
         let plan = self.page_lifecycle(plan, &self.session, None)?;
+        let refresh = plan.state.stack != custom.state.stack
+            || plan.state.slot_page != custom.state.slot_page;
+        // While a capture waits for its key, ordinary UI clicks must not act on the game.
+        // A cancel/restart command from the author's UI is the only allowed callback.
+        if self.shortcut_capture_active() && plan.capture.is_some() {
+            self.cancel_shortcut_capture();
+        }
+        if self.shortcut_capture_active() && !plan.cancel_capture {
+            self.cancel_shortcut_capture();
+            self.pickers = Default::default();
+            return Ok(());
+        }
+        if plan.cancel_capture {
+            self.commit_ui(plan, false);
+            self.cancel_shortcut_capture();
+            return Ok(());
+        }
+        if let Some(request) = plan.capture.clone() {
+            self.commit_ui(plan, false);
+            self.start_shortcut_capture(request)?;
+            return Ok(());
+        }
         ensure!(
             self.effects.has_entered
                 || (!matches!(
@@ -266,7 +297,7 @@ impl PlayerApp {
             return self.commit_page_plan(plan);
         }
         ensure!(
-            self.handoff.is_none() || matches!(plan.operation, Operation::None),
+            self.handoff.is_none() || matches!(plan.operation, Operation::None | Operation::Quit),
             "交接期间禁止普通剧情/持久 IO 操作"
         );
         let validate_current = || {
@@ -292,9 +323,9 @@ impl PlayerApp {
             return self.commit_page_plan(plan);
         }
         let ui_prepared = self.prepare_ui_media(&plan)?;
-        let refresh = plan.state.stack != custom.state.stack
-            || plan.state.slot_page != custom.state.slot_page;
+        let rebound = matches!(plan.operation, Operation::Keybindings);
         match &plan.operation {
+            Operation::Quit => {}
             Operation::Save(slot, overwrite) => {
                 ensure!(
                     *overwrite || !self.saves.slot_path(*slot).exists(),
@@ -303,14 +334,17 @@ impl PlayerApp {
                 self.save_current(*slot)?;
             }
             Operation::Load(slot) => {
+                self.input_barrier = true;
                 let session = self.saves.load_with(*slot, &self.story, &self.logic)?;
                 return self.enter_planned(session, true, true, Some(plan));
             }
             Operation::LoadAuto(slot) => {
+                self.input_barrier = true;
                 let session = self.saves.load_auto(*slot, &self.story, &self.logic)?;
                 return self.enter_planned(session, true, true, Some(plan));
             }
             Operation::Restart(target) => {
+                self.input_barrier = true;
                 let target = target.as_deref().or_else(|| {
                     (self.story.entries.len() == 1).then_some(self.story.entry.as_str())
                 });
@@ -362,9 +396,22 @@ impl PlayerApp {
                 }
             }
             Operation::Settings => plan.settings.save(&self.saves.settings_path())?,
+            Operation::Keybindings => {
+                let file = crate::shortcuts::KeybindingsFile {
+                    schema_version: 1,
+                    story_id: self.story.id.clone(),
+                    bindings: plan.state.keybindings,
+                };
+                crate::save::atomic_json_limited(
+                    &self.saves.directory().join("keybindings.json"),
+                    &file,
+                    16 * 1024,
+                )?;
+            }
             Operation::Profile => plan
                 .profile
                 .save(&self.saves.directory().join("profile.json"))?,
+            Operation::Colors => self.write_colors(&plan.state.colors)?,
             Operation::UiAudio => {
                 ui_prepared
                     .prefs
@@ -374,9 +421,20 @@ impl PlayerApp {
             Operation::None => {}
         }
         let saved = matches!(plan.operation, Operation::Save(..));
-        self.persist_page_plan(&plan)?;
+        let quitting = matches!(plan.operation, Operation::Quit);
+        if !quitting {
+            self.persist_page_plan(&plan)?;
+        }
         self.commit_ui(plan, refresh || saved);
         self.apply_ui_media(ui_prepared);
+        if rebound {
+            self.input_barrier = true;
+            self.context.request_repaint();
+        }
+        if quitting {
+            self.quit_requested = true;
+            self.context.request_repaint();
+        }
         Ok(())
     }
 }

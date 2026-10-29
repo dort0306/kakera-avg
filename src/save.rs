@@ -314,22 +314,32 @@ impl SaveStore {
 }
 
 pub(crate) fn read_json_bytes(path: &Path) -> Result<Vec<u8>> {
+    let data = read_bytes_limited(path, MAX_JSON_BYTES)?;
+    Ok(data)
+}
+
+pub(crate) fn read_bytes_limited(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = std::fs::File::open(path).with_context(|| format!("读取 {}", path.display()))?;
     let mut data = Vec::new();
-    file.take(MAX_JSON_BYTES + 1).read_to_end(&mut data)?;
+    file.take(limit + 1).read_to_end(&mut data)?;
     ensure!(
-        data.len() as u64 <= MAX_JSON_BYTES,
-        "JSON 文件超过 2MiB：{}",
+        data.len() as u64 <= limit,
+        "文件超过 {limit} 字节：{}",
         path.display()
     );
     Ok(data)
 }
 
 pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    atomic_json_limited(path, value, MAX_JSON_BYTES)
+}
+
+pub(crate) fn atomic_json_limited(path: &Path, value: &impl Serialize, limit: u64) -> Result<()> {
     let data = serde_json::to_vec_pretty(value)?;
     ensure!(
-        data.len() as u64 <= MAX_JSON_BYTES,
-        "JSON 内容超过 2MiB，未改写旧文件"
+        data.len() as u64 <= limit,
+        "JSON 内容超过 {} 字节，未改写旧文件",
+        limit
     );
     let parent = path.parent().context("保存路径缺少父目录")?;
     std::fs::create_dir_all(parent).with_context(|| format!("创建目录 {}", parent.display()))?;

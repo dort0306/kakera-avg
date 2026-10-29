@@ -10,9 +10,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod data;
 pub mod host;
+pub mod palette;
 pub mod presentation;
 pub mod render;
 pub mod source;
+
+#[derive(Clone, Debug)]
+pub struct PaletteSlot {
+    pub initial: crate::color::Rgba,
+    pub location: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct Definition {
@@ -23,10 +30,13 @@ pub struct Definition {
     pub initial: String,
     pub variables: BTreeMap<String, VariableDecl>,
     pub gallery: BTreeMap<String, Cg>,
+    pub palette: BTreeMap<String, PaletteSlot>,
     pub screens: BTreeMap<String, Screen>,
     pub images: BTreeSet<String>,
     pub nine_patches: BTreeSet<String>,
     pub image_sizes: BTreeMap<String, [u32; 2]>,
+    /// Registered ordinary `on.ui` handlers; lifecycle events are not user events.
+    pub ui_handlers: BTreeSet<String>,
     pub enter: bool,
 }
 #[derive(Clone, Debug)]
@@ -89,6 +99,9 @@ pub enum Kind {
         cell: [f32; 2],
         gap: f32,
     },
+    ColorPicker {
+        alpha: bool,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct Node {
@@ -97,6 +110,7 @@ pub struct Node {
     pub location: String,
     pub region: Option<crate::image_layout::Region>,
     pub region_bind: Option<String>,
+    pub color_bind: Option<String>,
     pub density: f32,
     pub effect: crate::model::effects::ImageEffect,
     pub id: String,
@@ -358,6 +372,19 @@ fn binding(
             _ => None,
         };
     }
+    if let Some(id) = path.strip_prefix("shortcuts.") {
+        return match id {
+            "advanceLabel"
+            | "fastForwardLabel"
+            | "skipSequenceLabel"
+            | "captureText"
+            | "bindings.advance"
+            | "bindings.fast_forward"
+            | "bindings.skip_sequence" => Some(ValueKind::Text),
+            "captureActive" => Some(ValueKind::Bool),
+            _ => None,
+        };
+    }
     let source = source.map(|s| if s == "autosaves" { "slots" } else { s });
     let field = path.strip_prefix("item.")?;
     match (source?, field) {
@@ -378,8 +405,10 @@ struct Parser<'a> {
     file: &'a str,
     story: &'a Story,
     vars: &'a BTreeMap<String, VariableDecl>,
+    palette: &'a BTreeMap<String, PaletteSlot>,
     ids: BTreeSet<String>,
     count: usize,
+    pickers: usize,
     handlers: &'a BTreeSet<String>,
 }
 impl Parser<'_> {
@@ -410,6 +439,7 @@ impl Parser<'_> {
                     "effect",
                     "region",
                     "region-bind",
+                    "color-bind",
                 ]),
                 "image" => attrs.extend([
                     "image",
@@ -418,9 +448,10 @@ impl Parser<'_> {
                     "effect",
                     "region",
                     "region-bind",
+                    "color-bind",
                 ]),
-                "nine-patch" => attrs.extend(["image", "density"]),
-                "label" => attrs.extend(["text", "bind", "font-size"]),
+                "nine-patch" => attrs.extend(["image", "density", "color-bind"]),
+                "label" => attrs.extend(["text", "bind", "font-size", "color-bind"]),
                 "button" => attrs.extend([
                     "route",
                     "sound",
@@ -434,10 +465,12 @@ impl Parser<'_> {
                     "region",
                     "region-bind",
                     "radius",
+                    "color-bind",
                 ]),
                 "slider" => attrs.extend(["value", "min", "max", "event"]),
-                "toggle" => attrs.extend(["text", "value", "event", "font-size"]),
+                "toggle" => attrs.extend(["text", "value", "event", "font-size", "color-bind"]),
                 "repeat" => attrs.extend(["source", "columns", "item-width", "item-height", "gap"]),
+                "color-picker" => attrs.extend(["value", "event", "alpha"]),
                 _ => return Err(error(self.file, xml, format!("未知 UI 节点：{tag}"))),
             }
             check(
@@ -456,6 +489,7 @@ impl Parser<'_> {
                         "slider",
                         "toggle",
                         "repeat",
+                        "color-picker",
                     ]
                 } else {
                     &[]
@@ -484,6 +518,29 @@ impl Parser<'_> {
                 "label" => Kind::Label,
                 "button" => Kind::Button,
                 "toggle" => Kind::Toggle,
+                "color-picker" => {
+                    self.pickers += 1;
+                    if self.pickers > 8 {
+                        return Err(error(self.file, xml, "color-picker 最多 8 个"));
+                    }
+                    if source.is_some() {
+                        return Err(error(self.file, xml, "color-picker 不能放在 repeat 中"));
+                    }
+                    if xml.attribute("color").is_some() {
+                        return Err(error(self.file, xml, "color-picker 不接受 color 属性"));
+                    }
+                    let alpha = boolean(self.file, xml, "alpha", true)?;
+                    let width = rect[2];
+                    let height = rect[3];
+                    if width < 128.0 || height < 224.0 {
+                        return Err(error(
+                            self.file,
+                            xml,
+                            "color-picker 至少 128×224（色盘直径至少 128）",
+                        ));
+                    }
+                    Kind::ColorPicker { alpha }
+                }
                 "slider" => {
                     let min = number(self.file, xml, "min", None)?;
                     let max = number(self.file, xml, "max", None)?;
@@ -597,6 +654,29 @@ impl Parser<'_> {
                     "region 需要静态资源或 UI 图片绑定，不用于 item.image 运行时预览",
                 ));
             }
+            let color_bind = xml.attribute("color-bind").map(str::to_owned);
+            if color_bind.is_some() && xml.attribute("color").is_some() {
+                return Err(error(self.file, xml, "color 与 color-bind 不能同时设置"));
+            }
+            if let Some(path) = &color_bind {
+                let valid = if let Some(id) = path.strip_prefix("ui.") {
+                    matches!(
+                        self.vars.get(id).map(|decl| &decl.initial),
+                        Some(VariableValue::String(_))
+                    )
+                } else if let Some(id) = path.strip_prefix("colors.") {
+                    self.palette.contains_key(id)
+                } else {
+                    false
+                };
+                if !valid {
+                    return Err(error(
+                        self.file,
+                        xml,
+                        "color-bind 需要 ui 字符串或已声明的 colors 槽位",
+                    ));
+                }
+            }
             let density = number(self.file, xml, "density", Some(1.0))?;
             if !(0.125..=8.0).contains(&density) {
                 return Err(error(self.file, xml, "density 必须在 0.125–8"));
@@ -621,6 +701,9 @@ impl Parser<'_> {
                 let valid = match kind {
                     Kind::Slider { .. } => actual == Some(ValueKind::Number),
                     Kind::Toggle => actual == Some(ValueKind::Bool),
+                    Kind::ColorPicker { .. } => {
+                        actual == Some(ValueKind::Text) && path.starts_with("ui.")
+                    }
                     _ => actual.is_some(),
                 };
                 if !valid {
@@ -629,6 +712,19 @@ impl Parser<'_> {
             }
             if matches!(kind, Kind::Slider { .. } | Kind::Toggle) && bind.is_none() {
                 return Err(error(self.file, xml, "slider/toggle 需要 value 绑定"));
+            }
+            if let Kind::ColorPicker { .. } = kind {
+                let path = bind
+                    .as_deref()
+                    .ok_or_else(|| error(self.file, xml, "color-picker 需要 value 绑定"))?;
+                let name = path.strip_prefix("ui.").unwrap_or_default();
+                let initial = match self.vars.get(name).map(|decl| &decl.initial) {
+                    Some(VariableValue::String(value)) => value,
+                    _ => return Err(error(self.file, xml, "color-picker 需要 ui 字符串变量")),
+                };
+                crate::color::Rgba::parse(initial).map_err(|reason| {
+                    error(self.file, xml, format!("color-picker 初值非法：{reason}"))
+                })?;
             }
             if let Some(path) = &image_bind
                 && (binding(path, self.vars, source) != Some(ValueKind::Text)
@@ -678,6 +774,9 @@ impl Parser<'_> {
             {
                 return Err(error(self.file, xml, "交互节点缺少 event"));
             }
+            if matches!(kind, Kind::ColorPicker { .. }) && event.is_none() {
+                return Err(error(self.file, xml, "color-picker 需要 event"));
+            }
             let children = if container {
                 self.nodes(xml, depth + 1, child_source)?
             } else {
@@ -697,6 +796,7 @@ impl Parser<'_> {
                 },
                 region,
                 region_bind,
+                color_bind,
                 density,
                 effect: crate::loader::effect_xml::reference(
                     self.file,
@@ -748,7 +848,7 @@ pub fn parse(
             "title",
             "title-bind",
         ],
-        &["variables", "gallery", "screen", "ui-media"],
+        &["variables", "gallery", "palette", "screen", "ui-media"],
         false,
     )?;
     if required(file, root, "schema")? != "3" {
@@ -762,6 +862,45 @@ pub fn parse(
         return Err(error(file, root, "UI 画布需要至少 640×360 的 16:9 尺寸"));
     }
     let variables = crate::loader::variables::variables_in(root, file)?;
+    let mut palette = BTreeMap::new();
+    if elements(root).any(|node| node.has_tag_name("palette")) {
+        let group = single(file, root, "palette")?;
+        check(file, group, "palette", &[], &["color"], false)?;
+        for item in elements(group) {
+            check(file, item, "color", &["id", "initial"], &[], false)?;
+            let id = required(file, item, "id")?.to_owned();
+            let mut chars = id.chars();
+            let valid = id.len() <= 64
+                && chars.next().is_some_and(|ch| ch.is_ascii_lowercase())
+                && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_');
+            if !valid {
+                return Err(error(file, item, "配色槽位 ID 必须为 [a-z][a-z0-9_]{0,63}"));
+            }
+            let initial_text = required(file, item, "initial")?;
+            let initial = crate::color::Rgba::parse(initial_text)
+                .map_err(|reason| error(file, item, format!("配色初值非法：{reason}")))?;
+            let position = doc.text_pos_at(item.range().start);
+            if palette
+                .insert(
+                    id.clone(),
+                    PaletteSlot {
+                        initial,
+                        location: format!("{}:{}:{}", file, position.row, position.col),
+                    },
+                )
+                .is_some()
+            {
+                return Err(error(file, item, format!("重复配色槽位：{id}")));
+            }
+        }
+        if palette.len() > palette::MAX_SLOTS {
+            return Err(error(
+                file,
+                group,
+                format!("配色槽位超过 {} 个", palette::MAX_SLOTS),
+            ));
+        }
+    }
     if root.has_attribute("title") && root.has_attribute("title-bind") {
         return Err(error(file, root, "title 与 title-bind 不能同时设置"));
     }
@@ -823,8 +962,10 @@ pub fn parse(
         file,
         story,
         vars: &variables,
+        palette: &palette,
         ids: BTreeSet::new(),
         count: 0,
+        pickers: 0,
         handlers,
     };
     for (id, asset) in &story.assets {
@@ -872,6 +1013,7 @@ pub fn parse(
                 "slider",
                 "toggle",
                 "repeat",
+                "color-picker",
             ],
             false,
         )?;
@@ -1015,6 +1157,7 @@ pub fn parse(
         initial,
         variables,
         gallery,
+        palette,
         screens,
         images,
         nine_patches: story
@@ -1024,6 +1167,21 @@ pub fn parse(
             .map(|(id, _)| id.clone())
             .collect(),
         image_sizes: BTreeMap::new(),
+        ui_handlers: handlers
+            .iter()
+            .filter(|event| {
+                *event != "game.enter"
+                    && ![
+                        "frame.enter:",
+                        "frame.exit:",
+                        "screen.open:",
+                        "screen.close:",
+                    ]
+                    .iter()
+                    .any(|prefix| event.starts_with(prefix))
+            })
+            .cloned()
+            .collect(),
         enter: handlers.contains("game.enter"),
     };
     for event in definition.events() {
@@ -1046,6 +1204,6 @@ pub fn parse(
     definition
         .window_title
         .resolve(&definition.initial_variables())?;
-    host::validate_images(&definition, &host::State::new(&definition))?;
+    host::State::try_new(&definition)?;
     Ok(definition)
 }

@@ -8,14 +8,38 @@
     <int id="fxDuration" initial="1500" min="0" max="5000" />
     <int id="pendingSlot" initial="1" min="1" max="200" />
     <string id="confirmText" initial="确认覆盖此存档？" />
+    <string id="dialogTitle" initial="" />
+    <bool id="dialogHasTitle" initial="false" />
+    <string id="dialogMessage" initial="" />
+    <string id="dialogAcceptText" initial="确认" />
+    <string id="dialogCancelText" initial="取消" />
+    <string id="dialogAction" initial="" />
     <string id="status" initial="" />
     <string id="spriteRegion" initial="0,0,64,64" />
     <string id="cgImage" initial="bg.room" />
     <string id="cgTitle" initial="午后房间" />
+    <string id="cgCurrent" initial="cg.room" />
+    <string id="cgCounter" initial="1 / 3" />
+    <bool id="cgToolbar" initial="true" />
+    <bool id="cgPrevOk" initial="false" />
+    <bool id="cgNextOk" initial="true" />
+    <string id="shortcutAdvanceDraft" initial="" />
+    <string id="shortcutFastForwardDraft" initial="" />
+    <string id="shortcutSkipDraft" initial="" />
+    <string id="shortcutStatus" initial="" />
+    <string id="dialogueBgDraft" initial="#10253BFF" />
+    <string id="dialogueTextDraft" initial="#F4EAD8FF" />
+    <string id="colorStatus" initial="" />
   </variables>
+  <palette>
+    <color id="dialogue_background" initial="#10253BFF" />
+    <color id="dialogue_text" initial="#F4EAD8FF" />
+  </palette>
   <gallery>
     <cg id="cg.ending" image="cg.ending" title="结尾 CG" />
     <cg id="cg.room" image="bg.room" title="午后房间" unlocked="true" />
+    <cg id="cg.portrait" image="portrait.lin" title="凛的立绘" unlocked="true" />
+    <cg id="cg.square" image="cg.square" title="透明方图" unlocked="true" />
     <cg id="cg.lin" image="portrait.lin" title="一同出发" />
   </gallery>
 </ui>

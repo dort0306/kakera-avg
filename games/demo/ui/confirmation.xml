@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <!-- This is an author-defined modal page, with no native dialog or fixed layout. -->
+  <screen id="confirmation" modal="true" pause="true">
+    <panel id="dialogShade" width="1280" height="720" color="#000000B8" />
+    <panel id="dialogPanel" x="340" y="210" width="600" height="300" color="#18232AF2" radius="16">
+      <label id="dialogTitleLabel" x="36" y="26" width="528" height="42" bind="ui.dialogTitle" visible="ui.dialogHasTitle" font-size="28" color="#F0CA89" />
+      <label id="dialogMessageLabel" x="36" y="92" width="528" height="84" bind="ui.dialogMessage" font-size="23" color="#F5F1E8FF" />
+      <button id="dialogAccept" x="36" y="210" width="248" height="52" bind="ui.dialogAcceptText" event="dialog-accept" image="ui.button" hover-image="ui.hover" font-size="22" radius="8" />
+      <button id="dialogCancel" x="316" y="210" width="248" height="52" bind="ui.dialogCancelText" route="close" color="#43576FCC" font-size="22" radius="8" />
+    </panel>
+  </screen>
+</ui>

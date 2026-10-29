@@ -12,6 +12,7 @@
     <video id="video.intro" src="assets/video/intro.mp4" />
     <video id="video.credits" src="assets/video/credits.mp4" />
     <cg id="cg.ending" src="assets/bg/room.png" />
+    <cg id="cg.square" src="assets/cg/square.png" />
     <image id="bg.room" src="assets/bg/room.png" />
     <image id="portrait.lin" src="assets/characters/lin.png" />
     <nine-patch id="ui.dialogue" src="assets/ui/dialogue.9.png" />

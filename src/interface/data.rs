@@ -89,6 +89,26 @@ impl Data {
             .filter(|id| profile.unlocked.contains(*id))
             .count();
         data.values["cg"] = json!({"total":total,"unlocked":unlocked,"progress":format!("已解锁 {unlocked} / {total}")});
+        let keybindings = &state.keybindings;
+        data.values["shortcuts"] = json!({
+            "bindings": {
+                "advance": keybindings.advance.map(|binding| binding.canonical()),
+                "fast_forward": keybindings.fast_forward.map(|binding| binding.canonical()),
+                "skip_sequence": keybindings.skip_sequence.map(|binding| binding.canonical()),
+            },
+            "advanceLabel": keybindings.display(crate::shortcuts::Action::Advance),
+            "fastForwardLabel": keybindings.display(crate::shortcuts::Action::FastForward),
+            "skipSequenceLabel": keybindings.display(crate::shortcuts::Action::SkipSequence),
+            "captureActive": false,
+            "captureText": "",
+        });
+        data.values["colors"] = json!(
+            state
+                .resolved_colors
+                .iter()
+                .map(|(id, color)| (id.clone(), color.format()))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        );
         data.values["saves"] = json!({"page":state.slot_page,"pages":crate::save::PAGE_COUNT,
             "pageText":format!("第 {} / {} 页 · 200 手动槽",state.slot_page,crate::save::PAGE_COUNT),
             "canPrev":state.slot_page>1,"canNext":state.slot_page<crate::save::PAGE_COUNT});

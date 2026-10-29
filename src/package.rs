@@ -61,23 +61,26 @@ impl ContentSource for Snapshot {
     }
 }
 pub(crate) fn excluded(name: &str, directory: bool) -> bool {
+    let lower = name.to_ascii_lowercase();
     (directory
         && matches!(
-            name,
+            lower.as_str(),
             ".git" | ".idea" | ".vscode" | "target" | "saves" | "node_modules"
         ))
         || name.ends_with(".tmp")
         || name.ends_with('~')
         || matches!(
-            name,
+            lower.as_str(),
             "settings.json"
                 | "profile.json"
                 | "save.json"
                 | "read.json"
                 | "ui-audio.json"
                 | "flow-checkpoint.json"
+                | "keybindings.json"
+                | "ui-colors.json"
         )
-        || (name.ends_with(".json") && (name.starts_with("slot-") || name.starts_with("auto-")))
+        || (lower.ends_with(".json") && (lower.starts_with("slot-") || lower.starts_with("auto-")))
 }
 pub fn files(root: &Path) -> Result<Vec<PathBuf>> {
     files_with_limit(root, MAX_FILES)

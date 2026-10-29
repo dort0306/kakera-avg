@@ -141,7 +141,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 16);
+    assert_eq!(f.definition.screens.len(), 19);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));
@@ -638,6 +638,7 @@ fn render_frame(
                     event = interface::render::draw(
                         ui,
                         interface::render::Input {
+                            pickers: &mut Default::default(),
                             effects: &Default::default(),
                             definition: &f.definition,
                             state: &f.state,
@@ -699,6 +700,101 @@ fn click(
         }],
     )
 }
+#[test]
+fn custom_confirmation_has_optional_title_styles_and_blocks_underlying_controls() {
+    let mut f = fixture();
+    let ctx = eframe::egui::Context::default();
+    let directory =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    let assets = kakera_avg::assets::PreparedAssets::load_from(&f.story, &directory)
+        .unwrap()
+        .install(&ctx);
+    let session = f.story.start();
+    let opened = plan(&f, commands(&f, "request-quit", Value::Null, Value::Null)).unwrap();
+    assert_eq!(opened.state.stack, ["hud", "confirmation"]);
+    assert_eq!(opened.operation, Operation::None);
+    assert!(opened.state.paused(&f.definition));
+    assert_eq!(
+        opened.state.variables["dialogTitle"],
+        V::String("退出游戏".into())
+    );
+    assert_eq!(opened.state.variables["dialogHasTitle"], V::Bool(true));
+    let nodes = &f.definition.screens["confirmation"].nodes;
+    assert_eq!(nodes[0].color, [0, 0, 0, 184]);
+    assert_eq!(nodes[1].color, [24, 35, 42, 242]);
+    f.state = opened.state;
+    let data = snapshot(&f, &session, true);
+    assert!(click(&ctx, &f, &assets, &session, &data, 940., 39.).is_none());
+    let accept = click(&ctx, &f, &assets, &session, &data, 500., 446.).unwrap();
+    assert_eq!(accept.name, "dialog-accept");
+    assert_eq!(
+        plan(&f, commands(&f, &accept.name, Value::Null, Value::Null))
+            .unwrap()
+            .operation,
+        Operation::Quit
+    );
+    let cancel = click(&ctx, &f, &assets, &session, &data, 780., 446.).unwrap();
+    assert_eq!(cancel.route, Some(interface::UiRoute::Close));
+    f.state = plan(&f, vec![Command::Close]).unwrap().state;
+    assert_eq!(f.state.stack, ["hud"]);
+    let restart = plan(&f, commands(&f, "restart", Value::Null, Value::Null)).unwrap();
+    assert_eq!(restart.state.variables["dialogHasTitle"], V::Bool(false));
+    f.state = restart.state;
+    let confirmed = plan(&f, commands(&f, "dialog-accept", Value::Null, Value::Null)).unwrap();
+    assert_eq!(confirmed.state.stack, ["title"]);
+    assert_eq!(confirmed.operation, Operation::None);
+}
+
+#[test]
+fn quit_command_is_strict_and_cannot_mix_with_io_or_game_enter() {
+    let f = fixture();
+    assert_eq!(
+        plan(&f, vec![Command::Quit {}]).unwrap().operation,
+        Operation::Quit
+    );
+    for other in [
+        Command::Advance,
+        Command::Load { slot: 1 },
+        Command::Save {
+            slot: 1,
+            overwrite: false,
+        },
+        Command::Setting {
+            name: "muted".into(),
+            value: json!(true),
+        },
+    ] {
+        assert!(plan(&f, vec![Command::Quit {}, other.clone()]).is_err());
+        assert!(plan(&f, vec![other, Command::Quit {}]).is_err());
+    }
+    assert!(plan(&f, vec![Command::Quit {}, Command::Quit {}]).is_err());
+    assert!(
+        host::prepare(
+            &f.definition,
+            &f.state,
+            &f.settings,
+            &f.profile,
+            vec![Command::Quit {}],
+            true
+        )
+        .is_err()
+    );
+    assert!(serde_json::from_str::<Command>(r#"{"type":"quit","path":"arbitrary"}"#).is_err());
+    assert!(
+        plan(
+            &f,
+            vec![
+                Command::Quit {},
+                Command::SetUi {
+                    name: "missing".into(),
+                    value: UiValue::Bool(true)
+                }
+            ]
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn renderer_uses_xml_hitboxes_and_repeat_items_without_running_callbacks() {
     let mut f = fixture();

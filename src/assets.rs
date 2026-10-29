@@ -25,7 +25,8 @@ impl PreparedAssets {
         for id in &def.nine_patches {
             ensure!(self.patches.contains_key(id), "点九图未准备：{id}");
         }
-        crate::interface::host::validate_images(def, &crate::interface::host::State::new(def))
+        crate::interface::host::State::try_new(def)?;
+        Ok(())
     }
     pub fn validate_text(&self, text: &str) -> Result<()> {
         let faces: Vec<_> = self

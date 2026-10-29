@@ -19,8 +19,10 @@
       <toggle id="muted" x="30" y="225" width="330" height="38" text="总静音" value="settings.muted" event="mute" />
       <toggle id="autosave" x="400" y="225" width="400" height="38" text="自动保存（轮换十槽）" value="settings.autosave" event="autosave-setting" />
       <toggle id="skipAll" x="30" y="470" width="640" height="38" text="按住 Ctrl 快进全部（关闭：只快进已读）" value="settings.skip_all" event="skip-all" font-size="18" />
-      <toggle id="fullscreen" x="30" y="510" width="780" height="30" text="全屏显示（关闭后恢复窗口）" value="settings.fullscreen" event="fullscreen" font-size="18"/>
-      <label id="settingsHint" x="30" y="548" width="800" height="26" text="设置独立保存。Ctrl 快进；选项与结尾停止。全屏开关立即生效。" font-size="16" />
+      <toggle id="fullscreen" x="30" y="510" width="780" height="38" text="全屏显示（关闭后恢复窗口）" value="settings.fullscreen" event="fullscreen" font-size="18"/>
+      <button id="openShortcuts" x="620" y="548" width="110" height="30" text="快捷键…" route="open:shortcuts" font-size="15" />
+      <button id="openColors" x="740" y="548" width="100" height="30" text="配色…" route="open:colors" font-size="15" />
+      <label id="settingsHint" x="30" y="548" width="570" height="30" text="设置独立保存。默认空格前进/跳过演出、Ctrl 快进；选项与结尾停止。" font-size="16" />
     </panel>
   </screen>
 </ui>

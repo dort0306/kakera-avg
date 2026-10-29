@@ -788,7 +788,7 @@ mod tests {
                 ..Default::default()
             },
             |ctx| {
-                result = app.tick_ui_media(ctx, true);
+                result = app.tick_ui_media(ctx, true, true);
             },
         );
         result
@@ -822,7 +822,7 @@ mod tests {
             .map_err(anyhow::Error::msg)?;
         let committed = app.session.clone();
         let ctx = app.context.clone();
-        assert!(!app.tick_ui_media(&ctx, true)?);
+        assert!(!app.tick_ui_media(&ctx, true, false)?);
         assert_eq!(app.session, committed);
         let slot: Checkpoint =
             serde_json::from_slice(&std::fs::read(saves.path().join("flow-checkpoint.json"))?)?;
@@ -1259,6 +1259,97 @@ mod tests {
         assert!(saves.path().join("flow-checkpoint.json").is_file());
         Ok(())
     }
+    #[test]
+    fn quit_is_committed_only_after_validation_and_preserves_active_checkpoint() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            &(standard("'b'")
+                + "on.ui('quit',ctx=>ctx.quit());on.ui('bad-quit',ctx=>{ctx.setUi('trace','changed');ctx.quit();ctx.setUi('missing',true);});on.ui('mixed-quit',ctx=>{ctx.quit();ctx.advance();});on.ui('media-quit',ctx=>{ctx.quit();ctx.sequence('cut');});"),
+        )?;
+        let event = |name: &str| interface::Event {
+            sound: None,
+            route: None,
+            name: name.into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        };
+        let mut app = load_ui(root.path(), saves.path())?;
+        let before = app.session.clone();
+        let state = app.custom.state.clone();
+        for name in ["bad-quit", "mixed-quit", "media-quit"] {
+            assert!(app.custom_event(event(name)).is_err());
+            assert!(!app.quit_requested());
+            assert_eq!(app.session, before);
+            assert_eq!(app.custom.state, state);
+        }
+        app.custom_event(event("quit"))?;
+        assert!(app.quit_requested());
+        assert!(!app.effects.has_entered);
+        assert!(!saves.path().join("flow-checkpoint.json").exists());
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        let hidden = saves.path().join("flow-checkpoint.json");
+        let bytes = std::fs::read(&hidden)?;
+        let session = app.session.clone();
+        app.custom_event(event("quit"))?;
+        assert!(app.quit_requested());
+        assert!(app.handoff.is_some());
+        assert_eq!(app.session, session);
+        app.shutdown();
+        assert_eq!(std::fs::read(hidden)?, bytes);
+        let restored = load_ui(root.path(), saves.path())?;
+        assert!(!restored.quit_requested());
+        assert!(restored.handoff.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn frame_and_screen_lifecycles_cannot_quit_the_host() -> Result<()> {
+        for extra in [
+            "on.frameExit('a',ctx=>ctx.quit());",
+            "on.frameEnter('c',ctx=>ctx.quit());",
+        ] {
+            let root = tempfile::tempdir()?;
+            let saves = tempfile::tempdir()?;
+            write_game(root.path(), extra)?;
+            if extra.contains("frameEnter") {
+                let path = root.path().join("story.js");
+                std::fs::write(
+                    &path,
+                    std::fs::read_to_string(&path)?.replace("return 'b';", "return 'c';"),
+                )?;
+            }
+            let mut app = load(root.path(), saves.path())?;
+            let before = app.session.clone();
+            assert!(advance(&mut app).is_err());
+            assert!(!app.quit_requested());
+            assert_eq!(app.session, before);
+        }
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.ui('open',ctx=>ctx.open('movie'));on.screenOpen('movie',ctx=>ctx.quit());",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        let state = app.custom.state.clone();
+        assert!(
+            app.custom_event(interface::Event {
+                sound: None,
+                route: None,
+                name: "open".into(),
+                item: serde_json::Value::Null,
+                value: serde_json::Value::Null
+            })
+            .is_err()
+        );
+        assert_eq!(app.custom.state, state);
+        assert!(!app.quit_requested());
+        Ok(())
+    }
+
     #[test]
     fn title_to_hud_navigation_is_not_a_story_handoff_and_hooks_run_once() -> Result<()> {
         for movie in [false, true] {
