@@ -173,7 +173,9 @@ pub enum Command {
     Load {
         slot: u16,
     },
-    Restart,
+    Restart {
+        frame: Option<String>,
+    },
     Advance,
     Choose {
         option: String,
@@ -198,7 +200,7 @@ pub enum Operation {
     Save(SlotId, bool),
     Load(SlotId),
     LoadAuto(u16),
-    Restart,
+    Restart(Option<String>),
     Advance,
     Choose(String),
     Settings,
@@ -445,7 +447,9 @@ pub fn prepare(
             Command::Load { slot } => {
                 operation(&mut plan.operation, Operation::Load(SlotId::new(slot)?))?
             }
-            Command::Restart => operation(&mut plan.operation, Operation::Restart)?,
+            Command::Restart { frame } => {
+                operation(&mut plan.operation, Operation::Restart(frame))?
+            }
             Command::Advance => operation(&mut plan.operation, Operation::Advance)?,
             Command::Choose { option } => {
                 operation(&mut plan.operation, Operation::Choose(option))?

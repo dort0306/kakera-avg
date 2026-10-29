@@ -118,7 +118,7 @@ fn autosaves_rotate_independently_and_corruption_or_failed_writes_preserve_old_d
 fn current_snapshot_rejects_old_schema_and_keeps_variables_history_and_manual_slot_200() {
     let (documented, documented_logic) = game();
     let snapshot: Snapshot =
-        serde_json::from_str(include_str!("../doc/v0.9.0-save.example.json")).unwrap();
+        serde_json::from_str(include_str!("../doc/cg-save.example.json")).unwrap();
     assert_eq!(
         snapshot
             .restore_with(&documented.story, &documented_logic)

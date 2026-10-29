@@ -28,6 +28,7 @@ static UI: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     interface::source::compile(&source, Path::new("ui.xml"))
         .unwrap()
         .xml
+        .replace("initial=\"title\"", "initial=\"hud\"")
 });
 const UI_JS: &str = include_str!("../games/demo/scripts/ui.js");
 struct Memory(BTreeMap<PathBuf, Vec<u8>>);
@@ -140,7 +141,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 15);
+    assert_eq!(f.definition.screens.len(), 16);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));

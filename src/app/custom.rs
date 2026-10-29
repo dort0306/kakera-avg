@@ -199,6 +199,9 @@ impl PlayerApp {
                 settings: &self.settings,
                 complete: self.typewriter.complete(),
             });
+            if !self.effects.has_entered {
+                custom.data.awaiting_start();
+            }
             custom
                 .data
                 .lists
@@ -246,6 +249,19 @@ impl PlayerApp {
             false,
         )?;
         let plan = self.page_lifecycle(plan, &self.session, None)?;
+        ensure!(
+            self.effects.has_entered
+                || (!matches!(
+                    plan.operation,
+                    Operation::Save(..)
+                        | Operation::Advance
+                        | Operation::Choose(_)
+                        | Operation::Restart(None)
+                ) && plan.auto_play.is_none()
+                    && plan.portraits.is_empty()
+                    && plan.live2d.is_empty()),
+            "请先从 UI 显式选择起始幕或载入存档"
+        );
         if matches!(plan.operation, Operation::Present | Operation::Resume(_)) {
             return self.commit_page_plan(plan);
         }
@@ -266,7 +282,7 @@ impl PlayerApp {
             plan.operation,
             Operation::Load(_)
                 | Operation::LoadAuto(_)
-                | Operation::Restart
+                | Operation::Restart(_)
                 | Operation::Advance
                 | Operation::Choose(_)
         ) {
@@ -294,8 +310,17 @@ impl PlayerApp {
                 let session = self.saves.load_auto(*slot, &self.story, &self.logic)?;
                 return self.enter_planned(session, true, true, Some(plan));
             }
-            Operation::Restart => {
-                return self.enter_planned(self.story.start(), false, true, Some(plan));
+            Operation::Restart(target) => {
+                let target = target.as_deref().or_else(|| {
+                    (self.story.entries.len() == 1).then_some(self.story.entry.as_str())
+                });
+                let session = self
+                    .story
+                    .start_at(
+                        target.ok_or_else(|| anyhow::anyhow!("多起始幕游戏必须显式选择起始幕"))?,
+                    )
+                    .map_err(anyhow::Error::msg)?;
+                return self.enter_planned(session, false, true, Some(plan));
             }
             Operation::Advance | Operation::Choose(_) => {
                 self.auto_play.set(false);
@@ -328,6 +353,7 @@ impl PlayerApp {
                         )?;
                         if !result.entered {
                             validate_current()?;
+                            return self.exit_terminal(Some(plan));
                         }
                         if result.entered {
                             return self.enter_planned(result.session, false, false, Some(plan));

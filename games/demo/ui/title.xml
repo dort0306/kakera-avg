@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="title" modal="false" pause="true">
+    <image id="titleBackground" image="bg.room" width="1280" height="720" />
+    <panel id="titlePanel" x="390" y="130" width="500" height="490" color="#18232AEF">
+      <label id="titleHeading" x="50" y="35" width="400" height="60" text="午后物语" font-size="36" />
+      <label id="titleHint" x="50" y="100" width="400" height="50" text="选择故事起点，或载入已有旅程" />
+      <button id="startMain" x="65" y="170" width="370" height="55" text="从午后开始" event="start-main" />
+      <button id="startOther" x="65" y="240" width="370" height="55" text="另一条故事线" event="start-other" />
+      <button id="titleLoad" x="65" y="310" width="370" height="55" text="载入存档" route="open:load" />
+      <button id="titleSettings" x="65" y="380" width="370" height="55" text="设置" route="open:settings" />
+    </panel>
+  </screen>
+</ui>

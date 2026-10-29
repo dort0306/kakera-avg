@@ -235,7 +235,7 @@ on.ui("mute", ctx => ctx.setting("muted", ctx.value));
 | `schema` | 是 | 唯一格式写 `8`；所有章节一致 |
 | `id` | 是 | 故事 ID；ASCII 字母、数字、`.`、`-`、`_`，不能为 `.` 或 `..`；用于隔离存档 |
 | `content-version` | 是 | 1–4294967295 的整数；不兼容内容更新时显式提升 |
-| `entry` | 是 | 已存在的场景 ID 或稳定 name 别名 |
+| `entry` | 是 | 空白分隔的一个或多个起始幕 ID/name；重复（含别名重复）或未知目标拒绝；无默认自动进入 |
 
 schema 8 入口必须声明 `interface` 和工程根属性；后续章节只声明 schema。每个文件的同类分组至多一组；合并后必须有 `scripts`、`assets`、`characters`、`visuals`、`frames`，`variables`、`effects` 可省略。人物和视觉预设组可为空。每份文件恰好一个 next，规则见第 21 节。元素分组不靠书写顺序解析；JS 按文件链及各 scripts 内的顺序执行。
 
@@ -779,7 +779,7 @@ on.ui("increment", ctx => {
 | --- | --- | --- |
 | `ctx.advance()` | 无 | 未完成时仅补全；完成后走纯控制器。choice/end 不默认跳转 |
 | `ctx.choose(optionId)` | string | 未完成时忽略；完成后验证当前场景、选项存在及条件，非法/隐藏选项报错 |
-| `ctx.restart()` | 无 | 返回故事入口、恢复剧情变量初值并重置历史；重建音频，重新逐字 |
+| `ctx.restart(frame?)` | 已声明起始幕 ID/name | 恢复剧情变量初值并重置历史；首次或多起始幕必须显式传参；运行中的单入口可省略 |
 
 这些方法没有可用的同步返回值；读取 ctx.game 仍是事件开始时的旧场景。没有 `jump/setFrame`，也不能从 UI ctx 直接修改剧情变量；v0.9.0 的 `ctx.resume(frameId)` 是受隐藏交接事务约束的显式 UI 返回命令，见第 32 节。与剧情相关的更新应放 on.advance/choice。
 
@@ -2253,7 +2253,7 @@ on.screenClose("opening-movie", ctx => ctx.resume("opening"));
 
 present 保存当前剧情及 UI 交接点，再按页面 modal 规则打开页面；已经有活动交接时禁止嵌套 present。普通 open 仍用于设置、画廊等页面；从幕生命周期打开页面、或通过 UI 事件启动含视频的 sequence 时，宿主也会建立隐藏交接槽。
 
-resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，以当前 Session 建立一次隐藏返回事务。省略目标时回到待续点；指定目标时记录显式 UI 返回，变量按同样的类型/范围规则保留。未显式切页时恢复原页面栈；若从独立主菜单进入 hud，可在回调中先 `ctx.open("hud")` 再 `ctx.resume("opening")`。hud 必须为非模态根页面。
+resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，读取并完整验证磁盘隐藏槽（包括已完成的 inactive 状态）。省略目标时恢复其 continuation；没有隐藏槽时必须显式指定起始幕。剧情已开始后指定目标以隐藏 continuation 为基础，记录显式 UI 返回并保留变量。首次尚未进入剧情时必须显式指定已声明起始幕（或载入手动/自动档），以该幕、初始变量和一条历史建立新会话，不使用 inactive 隐藏槽。指定目标与自动关闭回调的无参 resume 合并时保留指定目标，两个不同显式目标则拒绝整批操作。未显式切页时恢复原页面栈；若从独立主菜单进入 hud，可在回调中先 `ctx.open("hud")` 再 `ctx.resume("opening")`。hud 必须为非模态根页面。
 
 离幕时打开 UI 会保留旧幕和未提交的续接点；进入幕时打开 UI 则将该幕与 UI 一起原子提交，并暂停该幕。返回同一已进入幕只恢复显示，不再次调用 game.enter/frameEnter，避免无条件循环播放。返回不同幕才执行新的进入回调。
 
@@ -2272,7 +2272,7 @@ resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，以�
 
 写入使用同目录临时文件和平台原子覆盖，整个 JSON 上限 2MiB。候选条件/脚本/页面/媒体准备和预算检查完成后才写入，成功后才改变呈现与 Session。写入失败保留旧隐藏槽、旧 UI 和剧情，不执行页面结束动作；超出预算也拒绝交接。成功返回写 active=false 墓碑，启动时不会把已完成交接再播放一次；随后普通自动保存仍按自己的规则工作。
 
-启动发现 active 隐藏槽时，先校验故事/内容版本、两份历史、变量、页面栈和资源引用，再恢复 UI；frameEnter/Exit 不重放，screenOpen 会再次执行，演出从零开始。screenOpen 建议只写幂等 UI 初始化与播放命令，不用追加计数模拟业务进度。坏槽或旧内容版本提示后保留文件，从当前工程入口正常显示，不悄悄导入旧格式。正常退出时不把活动隐藏槽标为已消耗，所以视频中关闭程序后重启仍可继续交接。
+启动发现 active 隐藏槽时，先校验故事/内容版本、两份历史、变量、页面栈和资源引用，再恢复 UI；frameEnter/Exit 不重放，screenOpen 会再次执行，演出从零开始。screenOpen 建议只写幂等 UI 初始化与播放命令，不用追加计数模拟业务进度。坏槽或旧内容版本提示后保留文件，显示初始 XML UI 等待显式选择，不悄悄导入旧格式。正常退出时不把活动隐藏槽标为已消耗，所以视频中关闭程序后重启仍可继续交接。
 
 活动交接暂停底层剧情，禁止普通存读档/重开/设置及其他持久 IO，普通 UI 返回流程除外；UI 视频的失焦/提示/调试暂停仍有效。热更替换延后到交接结束。flow-checkpoint.json 排除出监控与两种资源包，发布时不复制玩家数据。
 
@@ -2284,7 +2284,7 @@ resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，以�
 {"frame_id":"question","choice_id":null,"resume_to":"opening"}
 ```
 
-这是历史条目的结构示意，不是完整存档；当前完整示例见 [save 9 示例](v0.9.0-save.example.json)。save 8 及缺少 resume_to 的输入拒绝，旧存档文件不会被自动迁移或删除。视频从 frame 移到 UI、路由或生命周期改变时，作者须提升 content-version；demo 已从 8 提升为 9。
+这是历史条目的结构示意，不是完整存档；当前完整示例见 [save 9 / content 11 示例](cg-save.example.json)。save 8 及缺少 resume_to 的输入拒绝，旧存档文件不会被自动迁移或删除。视频从 frame 移到 UI、路由或生命周期改变时，作者须提升 content-version；demo 已从 8 提升为 9。
 
 ### 32.6 排错
 
@@ -2298,3 +2298,63 @@ resume 可在普通 on.ui 或 screenClose 使用；没有活动交接时，以�
 | 返回幕不存在/变量报错 | frame 参数使用有效 ID/name；检查正常路由变量更新及待续目标条件，失败保留隐藏槽 |
 | 重启又播放视频 | 活动交接按设计从头重播；成功返回后 active=false，不应重复恢复 |
 | 旧存档拒绝 | v0.9.0 仅 save 9；保留旧文件供历史版本使用，当前版本不迁移 |
+
+## v0.9.1 末幕 frameExit 修正
+
+末幕文字完成后，手动继续执行一次 frameExit；补全操作不执行。注册了末幕 frameExit 时 game.canAdvance 保留继续入口，成功退出后关闭。Ctrl 与自动播放仍在结尾停止。UI 交接恢复同一末幕不重放进入/退出；加载普通剧情槽或重开后可再次退出。隐藏槽 source 与 continuation 相同且 exited=true/entered=false 仅允许用于 End 路由。
+
+### UI 显式唤起剧情与隐藏续接（v0.9.1 增量）
+
+控件通过 on.ui 使用相同命令，自动演出通过 screenClose 使用相同命令，无需新增 XML 格式：
+
+```javascript
+on.ui("start-story", ctx => { ctx.open("hud"); ctx.resume("opening"); });
+on.ui("hidden-story", ctx => { ctx.open("hud"); ctx.resume("secret-entry"); });
+on.ui("continue-story", ctx => { ctx.open("hud"); ctx.resume(); });
+on.screenClose("opening-movie", ctx => ctx.resume("opening"));
+```
+
+目标必须为已存在的 ID/name（示例 secret-entry 需要作者定义）。剧情已经开始后，显式选幕沿用隐藏槽的变量与历史，不等于清空变量的 restart；仅目标不同才增加 resume_to 边。首次尚未开始剧情则必须选已声明起始幕，建立初始变量和单条历史（详见末尾多起始幕章节）。所有进入回调和媒体验证成功后，将实际起始幕/变量/历史同步到隐藏 source/continuation，随后提交剧情。无下一交接时写 inactive，下一次无参 resume 仍可显式读取其 continuation；inactive 不会在启动时自动恢复。坏槽、坏目标、冲突目标或原子写失败保留旧剧情/UI/文件。
+
+## 专用 CG 资源与共享解锁
+
+```xml
+<!-- story.xml 的 assets：作者手工指定稳定标记 -->
+<cg id="cg.promise" src="assets/cg/promise.png" />
+<!-- visuals：cg 不可与 background 或 portrait 混用 -->
+<visual id="promise.full" cg="cg.promise" />
+<!-- frames -->
+<frame id="promise" visual="promise.full"><text>约定的那一天。</text></frame>
+```
+
+资源会自动加入画廊。若需要标题，在 UI 的 gallery 中声明 `<cg id="cg.promise" image="cg.promise" title="约定"/>`，标记必须与专用资源相同。默认未解锁，可配置 unlocked 初值。普通 image 仍可作为作者手工配置的画廊收藏项；总数按画廊唯一 ID 统计。
+
+```javascript
+// 合并到作者现有 game.enter 回调，不能重复注册。
+on.ui("game.enter", ctx => {
+  if (ctx.game.cgId) ctx.unlock(ctx.game.cgId);
+});
+```
+
+`game.cgId` 是当前专用 CG 的作者标记，普通画面为空字符串。解锁时机由作者 JS 决定，不是加载资源即解锁。共享 profile.json（schema 1/story_id）保存标记集合，同 CG 多次出现只计一次；普通/自动/隐藏存档不保存集合，读旧槽或重新开始不撤销解锁。历史验证不执行解锁回调。
+
+UI 可绑定 `cg.total`、`cg.unlocked`（number）与 `cg.progress`（string，如“已解锁 1 / 3”）。例如 `<label id="cgCount" width="400" height="40" bind="cg.progress"/>`。CG 与普通图片复用解码、预算、缓存和 GPU 绘制，不逐帧读盘。默认 demo 的示例图复用既有房间素材，不声称新增绘制 CG 插画。
+
+## 多起始幕与首次 UI 选择
+
+story 8 的 `entry` 支持空白分隔列表，例如 `entry="main.opening secret.opening"`。每项必须是已存在场景的 ID/name，同幕重复（包括 ID 和别名重复）拒绝并报告源位置。所有入口参与初始条件、game.enter 计划及媒体命令验证；KPAK 1/2 保留列表及名字映射。单项也是相同契约，没有自动进入的默认项。
+
+```javascript
+// ui.xml initial 指向作者主菜单；hud 为非模态根页面。
+on.ui("start-main", ctx => { ctx.open("hud"); ctx.restart("main.opening"); });
+on.ui("start-secret", ctx => { ctx.open("hud"); ctx.restart("secret.opening"); });
+on.ui("load-story", ctx => { ctx.open("hud"); ctx.load(ctx.item.slot); });
+```
+
+启动先打开 initial UI，不执行剧情进入、音频、自动档或已读记录。调试 status 的 game_started 为 false，frame_id/frame_name 为 null、history_length 为 0；选择或载入成功后恢复正常剧情状态。首次 `ctx.resume(frame)` 和 `ctx.restart(frame)` 都必须显式选择声明的入口，建立初始变量及仅含该幕的一条历史；不会加入“默认幕→选择幕”的 resume_to。首次无参 resume/restart、推进、选项、保存及自动播放拒绝。UI 可先播放 sequence，screenClose 也能显式 resume 起始幕；尚无剧情时 UI 演出不建立虚构的剧情隐藏槽。
+
+已有有效 active 隐藏槽表示之前已选择并交接，仍按第 32 节完整恢复；inactive 槽不自动开始剧情，也不影响首次显式新开。普通手动/自动槽可以从任意有效存档位置进入，保留变量及历史，不受起始幕集合限制。
+
+剧情已开始后，`ctx.resume(frame?)` 继续沿用既有隐藏续接语义；`ctx.restart(frame)` 重新初始化变量/历史，适合从主菜单切换全新故事线。运行中无参 restart 只允许单入口游戏，多入口必须传参。隐藏路线是否显示、何时解锁由已有 XML visible/绑定与 JS 决定，声明入口本身不代表在菜单公开展示。
+
+当前 demo 为 content-version=11；应用 v0.9.1、story 8/UI 3/save 9/profile 1/KPAK 1/2 不变。新增完整演示位于 games/demo/ui/title.xml 和 UI 脚本；验证结果见 [多起始幕验收](multiple-entries-validation.zh-cn.md)。

@@ -95,6 +95,7 @@ pub const MAX_HISTORY: usize = 1000;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssetKind {
     Image,
+    Cg,
     NinePatch,
     Font,
     Audio,
@@ -185,6 +186,7 @@ pub struct Story {
     pub id: String,
     pub content_version: u32,
     pub entry: String,
+    pub entries: Vec<String>,
     pub assets: BTreeMap<String, Asset>,
     pub characters: BTreeMap<String, String>,
     pub frames: BTreeMap<String, Frame>,
@@ -234,10 +236,19 @@ impl Story {
             .or_else(|| self.frame_names.get(reference).map(String::as_str))
     }
     pub fn start(&self) -> Session {
-        let mut session = Session::at(self.entry.clone());
+        self.start_at(&self.entry).expect("validated entry")
+    }
+
+    /// Start a fresh story at an explicitly declared entry (ID or author alias).
+    pub fn start_at(&self, reference: &str) -> Result<Session, String> {
+        let id = self.resolve_frame(reference).ok_or("起始幕不存在")?;
+        if !self.entries.iter().any(|entry| entry == id) {
+            return Err("目标未声明为起始幕".into());
+        }
+        let mut session = Session::at(id);
         session.variables = self.initial_variables();
         session.history_base_variables = session.variables.clone();
-        session
+        Ok(session)
     }
 
     pub fn initial_variables(&self) -> Variables {

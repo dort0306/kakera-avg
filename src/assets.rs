@@ -74,7 +74,7 @@ impl PreparedAssets {
             let context = || format!("资源 {id}：{}", asset.path.display());
             match asset.kind {
                 AssetKind::Audio | AssetKind::Video | AssetKind::Live2D => {}
-                AssetKind::Image | AssetKind::NinePatch => {
+                AssetKind::Image | AssetKind::Cg | AssetKind::NinePatch => {
                     let bytes = read(&asset.path).with_context(context)?;
                     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
                         .with_guessed_format()

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 可运行样例；素材与许可证见 assets/licenses。 -->
-<story schema="8" id="kakera-demo" content-version="9" entry="opening">
+<story schema="8" id="kakera-demo" content-version="11" entry="opening alternate.opening">
   <interface src="ui.xml" />
   <scripts>
     <script src="scripts/endings.js" />
@@ -11,6 +11,7 @@
     <live2d id="haru" src="assets/live2d/Haru/Haru.model3.json" />
     <video id="video.intro" src="assets/video/intro.mp4" />
     <video id="video.credits" src="assets/video/credits.mp4" />
+    <cg id="cg.ending" src="assets/bg/room.png" />
     <image id="bg.room" src="assets/bg/room.png" />
     <image id="portrait.lin" src="assets/characters/lin.png" />
     <nine-patch id="ui.dialogue" src="assets/ui/dialogue.9.png" />

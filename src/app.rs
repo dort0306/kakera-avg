@@ -48,6 +48,7 @@ pub struct PlayerApp {
     prepared_live2d: crate::live2d::PreparedLive2D,
     handoff: Option<lifecycle::Checkpoint>,
     lifecycle_ready: bool,
+    terminal_exit_done: bool,
     live2d: crate::live2d::Live2DPlayer,
 
     auto_play: presentation::AutoPlay,
@@ -151,6 +152,7 @@ impl PlayerApp {
             prepared_live2d: runtime.live2d,
             handoff: None,
             lifecycle_ready: false,
+            terminal_exit_done: false,
             live2d: Default::default(),
             auto_play: Default::default(),
             skip: Default::default(),
@@ -172,8 +174,9 @@ impl PlayerApp {
             message,
             custom,
         };
-        if !app.restore_handoff()? {
-            app.enter(app.session.clone(), app.lifecycle_ready, true)?;
+        app.restore_handoff()?;
+        if !app.effects.has_entered {
+            app.commit_ui(app.empty_ui_plan()?, false);
         }
         app.sync_save_previews();
         #[cfg(not(windows))]
@@ -182,7 +185,8 @@ impl PlayerApp {
     }
 
     fn blocked(&self) -> bool {
-        self.handoff.is_some()
+        !self.effects.has_entered
+            || self.handoff.is_some()
             || self.ui_media.active()
             || self.debug_paused()
             || self.message.is_some()
@@ -215,26 +219,37 @@ impl PlayerApp {
                 | crate::interface::host::Operation::Choose(_)
                 | crate::interface::host::Operation::Load(_)
                 | crate::interface::host::Operation::LoadAuto(_)
-                | crate::interface::host::Operation::Restart
+                | crate::interface::host::Operation::Restart(_)
         ) {
             base.operation = crate::interface::host::Operation::None;
         }
-        if !restored && self.effects.has_entered {
+        // UI navigation supplied by the initiating event is already prepared. Only a
+        // lifecycle changing this candidate stack hands the story back to UI.
+        let entry_stack = base.state.stack.clone();
+        let page_origin = if !self.effects.has_entered && !self.lifecycle_ready {
+            Vec::new()
+        } else {
+            entry_stack.clone()
+        };
+        if !restored && self.effects.has_entered && !self.terminal_exit_done {
             base =
                 self.lifecycle_hook(base, &self.session, "frame.exit", &self.session.frame_id)?;
             anyhow::ensure!(
-                self.custom.state.stack != base.state.stack
+                entry_stack != base.state.stack
                     || !base
                         .ui_actions
                         .iter()
                         .any(|a| matches!(a, crate::interface::presentation::Action::Sequence(_))),
                 "离幕序列需要同时打开 UI 页面，推荐在 screenOpen 中播放"
             );
-            if self.custom.state.stack != base.state.stack
+            if entry_stack != base.state.stack
                 || matches!(base.operation, crate::interface::host::Operation::Present)
             {
-                return self
-                    .begin_handoff(&session, self.page_lifecycle(base, &self.session, None)?);
+                return self.begin_handoff(
+                    &session,
+                    self.page_lifecycle(base, &self.session, Some(entry_stack.clone()))?,
+                    entry_stack,
+                );
             }
         }
         let mut plan = self.prepare_ui_entry(&session, &available, restored, Some(base))?;
@@ -244,18 +259,14 @@ impl PlayerApp {
                 .ui_actions
                 .iter()
                 .any(|a| matches!(a, crate::interface::presentation::Action::Sequence(_)))
-                || self.custom.state.stack != plan.state.stack
+                || entry_stack != plan.state.stack
                 || matches!(plan.operation, crate::interface::host::Operation::Present)
             {
-                plan = self.page_lifecycle(
-                    plan,
-                    &session,
-                    (!self.effects.has_entered && !self.lifecycle_ready).then(Vec::new),
-                )?;
-                return self.begin_enter_handoff(session, available, plan);
+                plan = self.page_lifecycle(plan, &session, Some(page_origin))?;
+                return self.begin_enter_handoff(session, available, plan, entry_stack);
             }
         }
-        plan = self.page_lifecycle(plan, &session, None)?;
+        plan = self.page_lifecycle(plan, &session, Some(page_origin))?;
         let candidate = &self.story.frames[&session.frame_id];
         let live2d = crate::live2d::Live2DPlayer::prepare_with(
             candidate,
@@ -293,9 +304,11 @@ impl PlayerApp {
             plan.profile
                 .save(&self.saves.directory().join("profile.json"))?;
         }
+        let terminal_exit_done = handoff_commit.as_ref().is_some_and(|c| c.terminal_exit());
         if let Some(checkpoint) = handoff_commit {
             self.commit_handoff_file(checkpoint)?;
         }
+        self.terminal_exit_done = terminal_exit_done;
         if self.ui_media.video() {
             self.audio.video(None);
         }
@@ -356,6 +369,10 @@ impl PlayerApp {
         match intent {
             UiIntent::Custom(event) => self.custom_event(event)?,
             UiIntent::Play(intent) => {
+                anyhow::ensure!(
+                    self.effects.has_entered,
+                    "请先从 UI 显式选择起始幕或载入存档"
+                );
                 if self.effects.active() {
                     if matches!(intent, controller::Intent::Advance) {
                         self.effects.finish();
@@ -374,6 +391,8 @@ impl PlayerApp {
                         )?;
                         if result.entered {
                             self.enter(result.session, false, false)?;
+                        } else {
+                            self.exit_terminal(None)?;
                         }
                     }
                 }
@@ -463,7 +482,7 @@ impl PlayerApp {
         if !transitioning {
             self.typewriter.tick(elapsed, self.settings.text_speed);
         }
-        if !self.ui_media.active() {
+        if self.effects.has_entered && !self.ui_media.active() {
             self.mark_current_read();
         }
         let mut intent = None;
@@ -491,6 +510,15 @@ impl PlayerApp {
                         &self.story.routes[&frame.id],
                         self.available.is_empty(),
                     );
+                    if !self.terminal_exit_done
+                        && matches!(self.story.routes[&frame.id], crate::model::Route::End)
+                        && custom
+                            .definition
+                            .lifecycle
+                            .contains_key(&format!("frame.exit:{}", frame.id))
+                    {
+                        custom.data.values["game"]["canAdvance"] = serde_json::json!(true);
+                    }
                     custom.data.values["game"]["transitioning"] =
                         serde_json::json!(self.effects.active());
                     custom.data.values["game"]["autoPlaying"] =
@@ -506,6 +534,9 @@ impl PlayerApp {
                     if self.effects.active() {
                         custom.data.values["game"]["continueText"] = serde_json::json!("跳过转场");
                     }
+                    if !self.effects.has_entered {
+                        custom.data.awaiting_start();
+                    }
                     intent = crate::interface::render::draw(
                         ui,
                         crate::interface::render::Input {
@@ -515,7 +546,11 @@ impl PlayerApp {
                             data: &custom.data,
                             frame,
                             assets: &self.assets,
-                            visible_text: self.typewriter.visible_text(),
+                            visible_text: if self.effects.has_entered {
+                                self.typewriter.visible_text()
+                            } else {
+                                ""
+                            },
                             blocked: self.message.is_some()
                                 || capture_busy
                                 || debug_paused
@@ -532,6 +567,7 @@ impl PlayerApp {
                         && !debug_input
                         && !ui_input
                         && !self.ui_media.active()
+                        && self.effects.has_entered
                         && custom.state.keyboard(&custom.definition)
                         && ctx.input(|i| i.key_pressed(egui::Key::Space))
                     {

@@ -55,8 +55,8 @@ impl Bundle {
             options.core.as_deref(),
             options.no_live2d,
         )?;
-        if let Some(plan) = loader::initial_ui_plan(&loaded, &logic)? {
-            live2d.validate_commands(&loaded.story.frames[&loaded.story.entry], &plan.live2d)?;
+        for (entry, plan) in loader::initial_ui_plans(&loaded, &logic)? {
+            live2d.validate_commands(&loaded.story.frames[&entry], &plan.live2d)?;
         }
         Ok(Self {
             loaded,

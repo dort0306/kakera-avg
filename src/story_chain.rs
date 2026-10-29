@@ -15,7 +15,15 @@ const GROUPS: &[(&str, &[&str])] = &[
     ("scripts", &["script"]),
     (
         "assets",
-        &["image", "nine-patch", "font", "audio", "video", "live2d"],
+        &[
+            "cg",
+            "image",
+            "nine-patch",
+            "font",
+            "audio",
+            "video",
+            "live2d",
+        ],
     ),
     ("effects", &["image-effect"]),
     ("variables", &["int", "bool", "string"]),

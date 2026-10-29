@@ -22,7 +22,7 @@ impl PlayerApp {
 
     /// A fully displayed sentence counts as read; videos hide the dialogue and never mark it.
     pub(super) fn mark_current_read(&mut self) {
-        if self.ui_media.video() || !self.typewriter.complete() {
+        if !self.effects.has_entered || self.ui_media.video() || !self.typewriter.complete() {
             return;
         }
         let frame_id = self.session.frame_id.clone();
@@ -124,7 +124,7 @@ mod tests {
                 },
             )?;
             let ctx = egui::Context::default();
-            let app = PlayerApp::new_context(
+            let mut app = PlayerApp::new_context(
                 &ctx,
                 bundle.loaded,
                 bundle.assets,
@@ -133,6 +133,7 @@ mod tests {
                 bundle.logic,
                 Renderer::cpu(),
             )?;
+            app.enter(app.story.start(), false, true)?;
             Ok(Self {
                 app,
                 ctx,

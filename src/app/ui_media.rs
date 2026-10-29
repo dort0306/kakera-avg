@@ -357,6 +357,7 @@ mod tests {
             b.logic,
             crate::render::Renderer::cpu(),
         )?;
+        app.enter(app.story.start(), false, true)?;
         app.pending_auto = None;
         app.message = None;
         Ok((app, root, saves))

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- UI entry: pages and shared state use game-root-relative includes. -->
-<ui schema="3" width="1280" height="720" initial="hud" title-bind="ui.windowTitle">
+<ui schema="3" width="1280" height="720" initial="title" title-bind="ui.windowTitle">
+  <include src="ui/title.xml" />
   <include src="ui/state.xml" />
   <include src="ui/presentation.xml" />
   <include src="ui/hud.xml" />

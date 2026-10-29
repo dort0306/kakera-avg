@@ -23,7 +23,57 @@ pub(super) struct Checkpoint {
     #[serde(deserialize_with = "Option::deserialize")]
     sequence: Option<String>,
 }
+impl Checkpoint {
+    pub(super) fn terminal_exit(&self) -> bool {
+        self.exited
+            && self.source.frame_id == self.continuation.frame_id
+            && self.source.history == self.continuation.history
+            && self.source.variables == self.continuation.variables
+            && self.source.history_base_variables == self.continuation.history_base_variables
+            && self.source.generation == self.continuation.generation
+    }
+}
 impl PlayerApp {
+    pub(super) fn exit_terminal(&mut self, base: Option<Plan>) -> Result<()> {
+        let mut plan = base.unwrap_or(self.empty_ui_plan()?);
+        plan.operation = Operation::None;
+        if self.terminal_exit_done
+            || !matches!(
+                self.story.routes[&self.session.frame_id],
+                crate::model::Route::End
+            )
+        {
+            return self.commit_page_plan(plan);
+        }
+        ensure!(self.handoff.is_none(), "交接期间不能退出末幕");
+        plan = self.lifecycle_hook(plan, &self.session, "frame.exit", &self.session.frame_id)?;
+        plan = self.page_lifecycle(plan, &self.session, None)?;
+        if plan.state.stack != self.custom.state.stack
+            || matches!(plan.operation, Operation::Present)
+        {
+            ensure!(
+                matches!(plan.operation, Operation::None | Operation::Present),
+                "末幕退出不能混合返回操作"
+            );
+            let prepared = self.prepare_ui_media(&plan)?;
+            let mut checkpoint = self.checkpoint(&self.session, &plan)?;
+            checkpoint.exited = true;
+            checkpoint.entered = false;
+            crate::save::atomic_json(
+                &self.saves.directory().join("flow-checkpoint.json"),
+                &checkpoint,
+            )?;
+            self.handoff = Some(checkpoint);
+            self.pending_auto = None;
+            self.auto_play.set(false);
+            self.commit_ui(plan, true);
+            self.apply_ui_media(prepared);
+        } else {
+            self.commit_page_plan(plan)?;
+        }
+        self.terminal_exit_done = true;
+        Ok(())
+    }
     pub(super) fn ui_video_position(&self) -> f64 {
         self.ui_media.position()
     }
@@ -196,7 +246,12 @@ impl PlayerApp {
             }),
         })
     }
-    pub(super) fn begin_handoff(&mut self, continuation: &Session, plan: Plan) -> Result<()> {
+    pub(super) fn begin_handoff(
+        &mut self,
+        continuation: &Session,
+        plan: Plan,
+        origin: Vec<String>,
+    ) -> Result<()> {
         ensure!(self.handoff.is_none(), "不允许嵌套剧情交接");
         let mut plan = plan;
         ensure!(
@@ -205,7 +260,8 @@ impl PlayerApp {
         );
         plan.operation = Operation::None;
         let prepared = self.prepare_ui_media(&plan)?;
-        let checkpoint = self.checkpoint(continuation, &plan)?;
+        let mut checkpoint = self.checkpoint(continuation, &plan)?;
+        checkpoint.origin = origin;
         crate::save::atomic_json(
             &self.saves.directory().join("flow-checkpoint.json"),
             &checkpoint,
@@ -233,6 +289,7 @@ impl PlayerApp {
         session: Session,
         available: Vec<String>,
         mut plan: Plan,
+        origin: Vec<String>,
     ) -> Result<()> {
         ensure!(
             self.handoff.is_none()
@@ -241,6 +298,7 @@ impl PlayerApp {
         );
         plan.operation = Operation::None;
         let mut checkpoint = self.checkpoint(&session, &plan)?;
+        checkpoint.origin = origin;
         checkpoint.source = checkpoint.continuation.clone();
         checkpoint.exited = false;
         checkpoint.entered = true;
@@ -298,7 +356,14 @@ impl PlayerApp {
     }
     pub(super) fn commit_page_plan(&mut self, mut plan: Plan) -> Result<()> {
         match plan.operation.clone() {
-            Operation::Present => return self.begin_handoff(&self.session.clone(), plan),
+            Operation::Present if !self.effects.has_entered => plan.operation = Operation::None,
+            Operation::Present => {
+                return self.begin_handoff(
+                    &self.session.clone(),
+                    plan,
+                    self.custom.state.stack.clone(),
+                );
+            }
             Operation::Resume(target) => return self.resume_handoff(plan, target),
             _ => {}
         }
@@ -316,8 +381,12 @@ impl PlayerApp {
                 false
             }
         });
-        if video && self.handoff.is_none() {
-            return self.begin_handoff(&self.session.clone(), plan);
+        if video && self.effects.has_entered && self.handoff.is_none() {
+            return self.begin_handoff(
+                &self.session.clone(),
+                plan,
+                self.custom.state.stack.clone(),
+            );
         }
         plan.operation = Operation::None;
         let prepared = self.prepare_ui_media(&plan)?;
@@ -330,6 +399,12 @@ impl PlayerApp {
     }
     fn resume_handoff(&mut self, mut plan: Plan, target: Option<String>) -> Result<()> {
         ensure!(plan.ui_actions.is_empty(), "返回剧情不能同时启动演出或音效");
+        if !self.effects.has_entered {
+            let target = target.context("首次进入游戏必须显式指定起始幕或载入存档")?;
+            let session = self.story.start_at(&target).map_err(anyhow::Error::msg)?;
+            plan.operation = Operation::None;
+            return self.enter_planned(session, false, true, Some(plan));
+        }
         let mut checkpoint = if let Some(c) = &self.handoff {
             c.clone()
         } else {
@@ -346,13 +421,27 @@ impl PlayerApp {
             );
             let (source, _, _) = self.validated_checkpoint(&checkpoint)?;
             ensure!(source == self.session, "隐藏槽来源已改变");
+        } else {
+            let path = self.saves.directory().join("flow-checkpoint.json");
+            if path.exists() {
+                checkpoint = serde_json::from_slice(&crate::save::read_json_bytes(&path)?)?;
+                self.validated_checkpoint(&checkpoint)?;
+            } else {
+                ensure!(target.is_some(), "没有可恢复的隐藏槽，请显式指定起始幕");
+            }
         }
         let mut target = target;
         if plan.state.stack == self.custom.state.stack && plan.state.stack != checkpoint.origin {
             plan.state.stack = checkpoint.origin.clone();
             plan = self.page_lifecycle(plan, &self.session, None)?;
             if let Operation::Resume(frame) = &plan.operation {
-                target = frame.clone();
+                if let (Some(original), Some(closing)) = (&target, frame) {
+                    ensure!(
+                        self.story.resolve_frame(original) == self.story.resolve_frame(closing),
+                        "关闭回调与指定起始幕冲突"
+                    );
+                }
+                target = target.or_else(|| frame.clone());
             }
         }
         let mut session = checkpoint
@@ -373,8 +462,9 @@ impl PlayerApp {
                 .session;
             }
         }
-        let already_entered =
-            checkpoint.entered && session.frame_id == checkpoint.continuation.frame_id;
+        let terminal_exit = checkpoint.terminal_exit();
+        let already_entered = (checkpoint.entered || terminal_exit)
+            && session.frame_id == checkpoint.continuation.frame_id;
         plan.operation = Operation::None;
         let return_stack = plan.state.stack.clone();
         let available = self
@@ -424,8 +514,8 @@ impl PlayerApp {
         checkpoint.origin = return_stack;
         checkpoint.stack = entry_plan.state.stack.clone();
         checkpoint.variables = entry_plan.state.variables.clone();
-        checkpoint.exited = false;
-        checkpoint.entered = true;
+        checkpoint.exited = terminal_exit && already_entered;
+        checkpoint.entered = !checkpoint.exited;
         checkpoint.sequence = entry_plan.ui_actions.iter().find_map(|a| {
             if let Action::Sequence(id) = a {
                 Some(id.clone())
@@ -445,6 +535,7 @@ impl PlayerApp {
         };
         if let Some(entry) = self.debug_break(entry) {
             self.commit_entry(entry)?;
+            self.terminal_exit_done = terminal_exit && already_entered;
         }
         Ok(())
     }
@@ -457,7 +548,17 @@ impl PlayerApp {
             !c.entered || (source == continuation && !c.exited),
             "隐藏已进入标记不一致"
         );
-        ensure!(c.exited == (source != continuation), "隐藏槽离幕标记不一致");
+        ensure!(
+            c.exited == (source != continuation)
+                || (c.exited
+                    && !c.entered
+                    && source == continuation
+                    && matches!(
+                        self.story.routes[&source.frame_id],
+                        crate::model::Route::End
+                    )),
+            "隐藏槽离幕标记不一致"
+        );
         if source != continuation {
             let previous = continuation
                 .history
@@ -581,6 +682,7 @@ impl PlayerApp {
                 live2d,
             })?;
             self.pending_auto = None;
+            self.terminal_exit_done = checkpoint.terminal_exit();
             self.handoff = Some(checkpoint);
             self.lifecycle_ready = true;
             Ok(true)
@@ -628,6 +730,17 @@ mod tests {
         Ok(())
     }
     fn load(root: &Path, saves: &Path) -> Result<PlayerApp> {
+        let mut app = load_ui(root, saves)?;
+        if !app.effects.has_entered {
+            app.enter(app.story.start(), false, true)?;
+        }
+        app.pending_auto = None;
+        app.lifecycle_ready = true;
+        app.typewriter.finish();
+        app.effects.finish();
+        Ok(app)
+    }
+    fn load_ui(root: &Path, saves: &Path) -> Result<PlayerApp> {
         let b = crate::runtime::Bundle::load(
             &crate::package::Snapshot::directory(root)?,
             &crate::runtime::LoadOptions {
@@ -635,7 +748,7 @@ mod tests {
                 no_live2d: true,
             },
         )?;
-        let mut app = PlayerApp::new_context(
+        let app = PlayerApp::new_context(
             &egui::Context::default(),
             b.loaded,
             b.assets,
@@ -644,10 +757,6 @@ mod tests {
             b.logic,
             crate::render::Renderer::cpu(),
         )?;
-        app.pending_auto = None;
-        app.lifecycle_ready = true;
-        app.typewriter.finish();
-        app.effects.finish();
         Ok(app)
     }
     fn standard(target: &str) -> String {
@@ -1002,6 +1111,420 @@ mod tests {
         assert_eq!(app.custom.state.stack, vec!["hud"]);
         assert_eq!(app.custom.state.variables["trace"].to_string(), "AXOCB");
         assert!(app.handoff.is_none());
+        Ok(())
+    }
+    #[test]
+    fn terminal_exit_runs_once_and_survives_handoff_restore() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameExit('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});on.screenClose('movie',ctx=>ctx.resume());",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        let before = app.session.clone();
+        advance(&mut app)?;
+        assert_eq!(app.session, before);
+        assert!(app.handoff.as_ref().unwrap().terminal_exit());
+        drop(app);
+        let mut app = load(root.path(), saves.path())?;
+        let mut plan = app.empty_ui_plan()?;
+        plan.operation = Operation::Resume(None);
+        app.resume_handoff(plan, None)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        assert!(app.terminal_exit_done);
+        assert_eq!(app.session, before);
+        let trace = app.custom.state.variables["trace"].clone();
+        advance(&mut app)?;
+        assert_eq!(app.custom.state.variables["trace"], trace);
+        assert!(app.handoff.is_none());
+        Ok(())
+    }
+    #[test]
+    fn terminal_exit_failure_is_retryable_and_keyboard_uses_same_path() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), "on.frameExit('b',ctx=>ctx.open('movie'));")?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        let before = app.session.clone();
+        std::fs::create_dir(saves.path().join("flow-checkpoint.json"))?;
+        assert!(
+            app.handle(UiIntent::Play(controller::Intent::Advance))
+                .is_err()
+        );
+        assert!(!app.terminal_exit_done);
+        assert_eq!(app.session, before);
+        assert_eq!(app.custom.state.stack, vec!["hud"]);
+        std::fs::remove_dir(saves.path().join("flow-checkpoint.json"))?;
+        app.handle(UiIntent::Play(controller::Intent::Advance))?;
+        assert!(app.handoff.is_some());
+        Ok(())
+    }
+    #[test]
+    fn terminal_exit_plain_callback_and_explicit_resume_do_not_repeat_exit() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameExit('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        advance(&mut app)?;
+        advance(&mut app)?;
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "ABX");
+        app.enter(app.session.clone(), true, true)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        advance(&mut app)?;
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "ABXX");
+        write_game(
+            root.path(),
+            "on.frameExit('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});on.screenClose('movie',ctx=>ctx.resume('c'));",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        app.typewriter.finish();
+        app.effects.finish();
+        advance(&mut app)?;
+        let mut plan = app.empty_ui_plan()?;
+        plan.operation = Operation::Resume(None);
+        app.resume_handoff(plan, None)?;
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "ABX");
+        Ok(())
+    }
+    #[test]
+    fn ui_resume_uses_durable_continuation_and_preserves_explicit_target() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameExit('a',ctx=>ctx.open('movie'));on.screenClose('movie',ctx=>ctx.resume());on.ui('start',ctx=>ctx.resume('c'));on.ui('continue',ctx=>ctx.resume());",
+        )?;
+        let mut app = load(root.path(), saves.path())?;
+        advance(&mut app)?;
+        let mut plan = app.empty_ui_plan()?;
+        plan.operation = Operation::Resume(Some("c".into()));
+        app.resume_handoff(plan, Some("c".into()))?;
+        assert_eq!(app.session.frame_id, "c");
+        let saved = std::fs::read(saves.path().join("flow-checkpoint.json"))?;
+        let checkpoint: Checkpoint = serde_json::from_slice(&saved)?;
+        assert_eq!(checkpoint.continuation.frame_id, "c");
+        assert_eq!(
+            checkpoint.continuation.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        app.enter(app.story.start(), true, true)?;
+        let mut plan = app.empty_ui_plan()?;
+        plan.operation = Operation::Resume(None);
+        app.resume_handoff(plan, None)?;
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(
+            app.session.variables["n"],
+            crate::model::VariableValue::Int(1)
+        );
+        let before = app.session.clone();
+        let bytes = std::fs::read(saves.path().join("flow-checkpoint.json"))?;
+        let mut plan = app.empty_ui_plan()?;
+        plan.operation = Operation::Resume(Some("missing".into()));
+        assert!(app.resume_handoff(plan, Some("missing".into())).is_err());
+        assert_eq!(app.session, before);
+        assert_eq!(
+            std::fs::read(saves.path().join("flow-checkpoint.json"))?,
+            bytes
+        );
+        Ok(())
+    }
+    #[test]
+    fn ui_resume_requires_a_checkpoint_or_explicit_start() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(root.path(), "")?;
+        let mut app = load(root.path(), saves.path())?;
+        let plan = app.empty_ui_plan()?;
+        assert!(app.resume_handoff(plan, None).is_err());
+        let plan = app.empty_ui_plan()?;
+        app.resume_handoff(plan, Some("c".into()))?;
+        assert_eq!(app.session.frame_id, "c");
+        assert!(saves.path().join("flow-checkpoint.json").is_file());
+        Ok(())
+    }
+    #[test]
+    fn title_to_hud_navigation_is_not_a_story_handoff_and_hooks_run_once() -> Result<()> {
+        for movie in [false, true] {
+            let root = tempfile::tempdir()?;
+            let saves = tempfile::tempdir()?;
+            write_game(
+                root.path(),
+                &format!(
+                    "on.ui('start',ctx=>{{ctx.open('hud');ctx.resume('c');}});on.ui('restart-main',ctx=>{{ctx.open('hud');ctx.restart('a');}});on.ui('title',ctx=>ctx.open('title'));on.screenOpen('hud',ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));on.frameEnter('c',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');{}}});on.screenClose('movie',ctx=>ctx.resume());",
+                    if movie { "ctx.open('movie');" } else { "" }
+                ),
+            )?;
+            let path = root.path().join("story.xml");
+            std::fs::write(
+                &path,
+                std::fs::read_to_string(&path)?.replace("entry=\"a\"", "entry=\"a c\""),
+            )?;
+            let path = root.path().join("ui.xml");
+            std::fs::write(
+                &path,
+                std::fs::read_to_string(&path)?
+                    .replace("initial=\"hud\"", "initial=\"title\"")
+                    .replace("</ui>", "<screen id=\"title\" modal=\"false\"/></ui>"),
+            )?;
+            let mut app = load_ui(root.path(), saves.path())?;
+            app.lifecycle_ready = true;
+            let event = |name: &str| interface::Event {
+                sound: None,
+                route: None,
+                name: name.into(),
+                item: serde_json::Value::Null,
+                value: serde_json::Value::Null,
+            };
+            app.custom_event(event("start"))?;
+            assert_eq!(app.session.frame_id, "c");
+            assert_eq!(app.custom.state.variables["trace"].to_string(), "HC");
+            assert_eq!(app.handoff.is_some(), movie);
+            if movie {
+                assert_eq!(app.handoff.as_ref().unwrap().origin, ["hud"]);
+                app.resume_handoff(app.empty_ui_plan()?, None)?;
+            } else {
+                assert!(!saves.path().join("flow-checkpoint.json").exists());
+            }
+            assert_eq!(app.custom.state.stack, ["hud"]);
+            assert!(app.handoff.is_none());
+            assert!(app.pending_auto.is_some());
+            app.custom_event(event("title"))?;
+            app.custom_event(event("restart-main"))?;
+            assert_eq!(app.session.frame_id, "a");
+            assert_eq!(app.session.history.len(), 1);
+            assert_eq!(app.custom.state.stack, ["hud"]);
+            assert!(app.handoff.is_none());
+            assert_eq!(app.custom.state.variables["trace"].to_string(), "HCHA");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_entries_wait_for_explicit_ui_selection_without_default_history() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameEnter('c',ctx=>ctx.setUi('trace',ctx.ui.trace+'C'));on.ui('start',ctx=>ctx.resume('secret'));on.ui('bare',ctx=>ctx.resume());on.ui('save',ctx=>ctx.save(1));on.ui('auto',ctx=>ctx.autoPlay(true));on.ui('restart',ctx=>ctx.restart());",
+        )?;
+        let path = root.path().join("story.xml");
+        let xml = std::fs::read_to_string(&path)?
+            .replace("entry=\"a\"", "entry=\"a secret\"")
+            .replace("<frame id=\"c\">", "<frame id=\"c\" name=\"secret\">");
+        std::fs::write(&path, xml)?;
+        let mut app = load_ui(root.path(), saves.path())?;
+        assert!(!app.effects.has_entered);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "");
+        assert_eq!(app.custom.data.values["game"]["frameId"], "");
+        assert!(app.pending_auto.is_none());
+        app.typewriter.finish();
+        app.mark_current_read();
+        assert!(!app.read.contains("a"));
+        assert!(
+            app.handle(UiIntent::Play(controller::Intent::Advance))
+                .is_err()
+        );
+        for name in ["bare", "advance", "save", "auto", "restart"] {
+            assert!(
+                app.custom_event(interface::Event {
+                    sound: None,
+                    route: None,
+                    name: name.into(),
+                    item: serde_json::Value::Null,
+                    value: serde_json::Value::Null
+                })
+                .is_err(),
+                "{name}"
+            );
+        }
+        assert!(
+            app.resume_handoff(app.empty_ui_plan()?, Some("b".into()))
+                .is_err()
+        );
+        app.rebuild_cpu_presentation()?;
+        assert!(!app.effects.has_entered);
+        // A stale inactive slot must not supply another route's variables to a fresh start.
+        std::fs::write(saves.path().join("flow-checkpoint.json"), "stale")?;
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "start".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })?;
+        assert!(app.effects.has_entered);
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(app.session.history.len(), 1);
+        assert_eq!(app.session.history[0].frame_id, "c");
+        assert_eq!(app.session.variables, app.story.initial_variables());
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "C");
+        app.story
+            .validate_session_with(&app.session, &app.logic)
+            .map_err(anyhow::Error::msg)?;
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_entry_validation_rejects_duplicates_unknown_and_checks_each_guard() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        write_game(root.path(), "")?;
+        let path = root.path().join("story.xml");
+        let original = std::fs::read_to_string(&path)?
+            .replace("<frame id=\"c\">", "<frame id=\"c\" name=\"secret\">");
+        for entries in ["a a", "c secret", "a missing", " "] {
+            std::fs::write(
+                &path,
+                original.replace("entry=\"a\"", &format!("entry=\"{entries}\"")),
+            )?;
+            let error =
+                crate::loader::load_game(&crate::content::DirectorySource::new(root.path())?)
+                    .err()
+                    .expect("invalid entries");
+            assert!(format!("{error:#}").contains("story.xml:"));
+        }
+        std::fs::write(&path, original.replace("entry=\"a\"", "entry=\"a secret\""))?;
+        let script = std::fs::read_to_string(root.path().join("story.js"))?.replace(
+            "on.end('c');",
+            "on.end('c');on.ui('game.enter',ctx=>{if(ctx.game.frameId==='secret')throw Error('second entry guard');});",
+        );
+        std::fs::write(root.path().join("story.js"), script)?;
+        assert!(
+            crate::loader::load_game(&crate::content::DirectorySource::new(root.path())?).is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn first_entry_load_and_restart_keep_routes_separate_and_fail_atomically() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.frameEnter('c',ctx=>ctx.open('movie'));on.ui('load',ctx=>ctx.load(1));on.ui('restart-c',ctx=>ctx.restart('c'));",
+        )?;
+        let path = root.path().join("story.xml");
+        std::fs::write(
+            &path,
+            std::fs::read_to_string(&path)?.replace("entry=\"a\"", "entry=\"a c\""),
+        )?;
+        let mut app = load_ui(root.path(), saves.path())?;
+        let before = app.session.clone();
+        std::fs::create_dir(saves.path().join("flow-checkpoint.json"))?;
+        assert!(
+            app.resume_handoff(app.empty_ui_plan()?, Some("c".into()))
+                .is_err()
+        );
+        assert_eq!(app.session, before);
+        assert!(!app.effects.has_entered);
+        assert_eq!(app.custom.state.stack, ["hud"]);
+        std::fs::remove_dir(saves.path().join("flow-checkpoint.json"))?;
+        // Load a non-entry position using its validated history, without entering placeholder a.
+        let session = controller::transition_with(
+            &app.story,
+            &app.story.start_at("a").map_err(anyhow::Error::msg)?,
+            controller::Intent::Advance,
+            &app.logic,
+        )?
+        .session;
+        let snapshot = Snapshot::capture_with(&app.story, &session, &app.logic)?;
+        app.saves.write_snapshot(
+            &app.saves.slot_path(crate::save::SlotId::new(1)?),
+            &snapshot,
+        )?;
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "load".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })?;
+        assert_eq!(app.session, session);
+        assert_eq!(app.custom.state.variables["trace"].to_string(), "");
+        assert!(app.pending_auto.is_none());
+        app.custom_event(interface::Event {
+            sound: None,
+            route: None,
+            name: "restart-c".into(),
+            item: serde_json::Value::Null,
+            value: serde_json::Value::Null,
+        })?;
+        assert_eq!(app.session.frame_id, "c");
+        assert_eq!(app.session.history.len(), 1);
+        assert_eq!(app.session.variables, app.story.initial_variables());
+        Ok(())
+    }
+
+    #[test]
+    fn cg_assets_have_shared_unlocks_counts_and_background_only_frames() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let saves = tempfile::tempdir()?;
+        write_game(
+            root.path(),
+            "on.ui('game.enter',ctx=>{if(ctx.game.cgId)ctx.unlock(ctx.game.cgId);});",
+        )?;
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo/assets/bg/room.png"),
+            root.path().join("cg.png"),
+        )?;
+        let path = root.path().join("story.xml");
+        let xml = std::fs::read_to_string(&path)?
+            .replace("<assets>", "<assets><cg id=\"cg.test\" src=\"cg.png\"/>")
+            .replace(
+                "<visuals/>",
+                "<visuals><visual id=\"full\" cg=\"cg.test\"/></visuals>",
+            )
+            .replace("<frame id=\"b\">", "<frame id=\"b\" visual=\"full\">");
+        std::fs::write(&path, &xml)?;
+        let mut app = load(root.path(), saves.path())?;
+        let initial = app.session.clone();
+        assert_eq!(app.custom.definition.gallery.len(), 1);
+        advance(&mut app)?;
+        assert!(app.custom.profile.unlocked.contains("cg.test"));
+        assert!(app.story.frames["b"].visual.portraits.is_empty());
+        let bytes = std::fs::read(saves.path().join("profile.json"))?;
+        app.enter(initial, true, true)?;
+        assert!(app.custom.profile.unlocked.contains("cg.test"));
+        drop(app);
+        let app = load(root.path(), saves.path())?;
+        assert_eq!(app.custom.profile.unlocked.len(), 1);
+        assert_eq!(std::fs::read(saves.path().join("profile.json"))?, bytes);
+        let data = interface::Data::build(interface::data::Input {
+            definition: &app.custom.definition,
+            story: &app.story,
+            session: &app.session,
+            available: &app.available,
+            state: &app.custom.state,
+            profile: &app.custom.profile,
+            slots: &[],
+            settings: &app.settings,
+            complete: true,
+        });
+        assert_eq!(data.values["cg"]["total"], 1);
+        assert_eq!(data.values["cg"]["unlocked"], 1);
+        for bad in [
+            xml.replace("cg=\"cg.test\"", "cg=\"font\""),
+            xml.replace("cg=\"cg.test\"", "cg=\"cg.test\" background=\"cg.test\""),
+        ] {
+            std::fs::write(&path, bad)?;
+            assert!(load(root.path(), saves.path()).is_err());
+        }
         Ok(())
     }
 }

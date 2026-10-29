@@ -16,6 +16,10 @@ impl PlayerApp {
             .install_render(&self.context, &self.renderer);
         let previous = std::mem::replace(&mut self.assets, rebuilt);
         self.assets.restore_streams_from(&previous);
+        if !self.effects.has_entered {
+            self.revision = self.revision.wrapping_add(1);
+            return Ok(());
+        }
         self.live2d = crate::live2d::Live2DPlayer::prepare_with(
             &self.story.frames[&self.session.frame_id],
             &self.prepared_live2d,
@@ -71,6 +75,7 @@ impl PlayerApp {
             prepared_media: runtime.media,
             prepared_live2d: runtime.live2d,
             handoff: None,
+            terminal_exit_done: self.terminal_exit_done,
             lifecycle_ready: true,
             live2d,
             auto_play: Default::default(),
@@ -94,8 +99,13 @@ impl PlayerApp {
             message: None,
             custom,
         };
-        let mut plan =
-            candidate.prepare_ui_entry(&candidate.session, &candidate.available, true, None)?;
+        let started = self.effects.has_entered;
+        candidate.lifecycle_ready = started;
+        let mut plan = if started {
+            candidate.prepare_ui_entry(&candidate.session, &candidate.available, true, None)?
+        } else {
+            candidate.empty_ui_plan()?
+        };
         {
             // Hot reload refreshes UI locals, never grants persistent unlocks or replays transient actions.
             plan.profile = candidate.custom.profile.clone();
@@ -115,11 +125,13 @@ impl PlayerApp {
             warnings.push(warning);
         }
         let frame = &candidate.story.frames[&candidate.session.frame_id];
-        candidate
-            .effects
-            .enter_scene(None, frame, frame.transition, true);
-        candidate.typewriter = Typewriter::new(&frame.text, true);
-        candidate.audio.enter(&frame.audio, true);
+        if started {
+            candidate
+                .effects
+                .enter_scene(None, frame, frame.transition, true);
+            candidate.typewriter = Typewriter::new(&frame.text, true);
+            candidate.audio.enter(&frame.audio, true);
+        }
         {
             candidate.commit_ui(plan, true);
         }

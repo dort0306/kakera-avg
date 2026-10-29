@@ -121,7 +121,7 @@
       },
       save(slot, overwrite = false) { emit({ type: "save", slot, overwrite }); },
       load(slot) { emit({ type: "load", slot }); },
-      restart() { emit({ type: "restart" }); },
+      restart(frame) { emit({ type: "restart", frame: frame === undefined ? null : String(frame) }); },
       advance() { emit({ type: "advance" }); },
       choose(option) { emit({ type: "choose", option }); },
       setting(name, value) { emit({ type: "setting", name, value }); },

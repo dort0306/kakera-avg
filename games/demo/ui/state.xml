@@ -14,6 +14,7 @@
     <string id="cgTitle" initial="午后房间" />
   </variables>
   <gallery>
+    <cg id="cg.ending" image="cg.ending" title="结尾 CG" />
     <cg id="cg.room" image="bg.room" title="午后房间" unlocked="true" />
     <cg id="cg.lin" image="portrait.lin" title="一同出发" />
   </gallery>

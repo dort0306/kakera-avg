@@ -96,12 +96,13 @@ impl PlayerApp {
         json!({"protocol":"KakeraEditorDebug","version":1,"process_id":std::process::id(),
             "engine_version":env!("CARGO_PKG_VERSION"),"state_revision":debug.epoch,
             "presentation_revision":self.revision,"story_id":self.story.id,"content_version":self.story.content_version,
-            "frame_id":self.session.frame_id,"frame_name":self.story.frames[&self.session.frame_id].reference(),
+            "game_started":self.effects.has_entered,
+            "frame_id":self.effects.has_entered.then_some(&self.session.frame_id),"frame_name":self.effects.has_entered.then_some(self.story.frames[&self.session.frame_id].reference()),
             "paused":debug.paused,"reason":debug.reason,"last_error":debug.last_error,
             "pending_frame":debug.pending.as_ref().map(|entry|&entry.session.frame_id),
             "pending_variables":debug.pending.as_ref().map(|entry|variables(&entry.session.variables)),
             "variables":variables(&self.session.variables),"ui_variables":variables(&self.custom.state.variables),
-            "history_length":self.session.history.len(),"available_options":self.available,
+            "history_length":if self.effects.has_entered {self.session.history.len()} else {0},"available_options":if self.effects.has_entered {self.available.clone()} else {Vec::new()},
             "ui_stack":self.custom.state.stack,"window_title":self.window_title(),
             "text_complete":self.typewriter.complete(),"transitioning":self.effects.active(),
             "video_playing":self.ui_media.video(),"live2d_active":self.live2d.active(),
@@ -154,6 +155,10 @@ impl PlayerApp {
             }
             command => {
                 ensure!(debug.paused, "step requires paused state");
+                ensure!(
+                    self.effects.has_entered || debug.pending.is_some(),
+                    "请先从 UI 选择起始幕或载入存档"
+                );
                 ensure!(
                     self.message.is_none()
                         && !self.ui_media.active()

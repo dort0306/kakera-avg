@@ -107,7 +107,11 @@ fn real_demo_loads_all_assets_from_package_without_directory_access() -> Result<
     let bundle = Bundle::load(&packed, &options)?;
     let (directory, logic) = loader::load_game(&source)?;
     assert_eq!(bundle.loaded.story.start(), directory.story.start());
-    assert_eq!(bundle.loaded.story.frames.len(), 30);
+    assert_eq!(bundle.loaded.story.frames.len(), 31);
+    assert_eq!(
+        bundle.loaded.story.entries,
+        ["opening", "alternate.opening"]
+    );
     assert_eq!(bundle.assets.media.videos.len(), 2);
     assert_eq!(bundle.assets.live2d.models.len(), 1);
     assert_eq!(bundle.logic.ui_handlers()?, logic.ui_handlers()?);

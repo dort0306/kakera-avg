@@ -199,7 +199,15 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
 
     let mut assets = BTreeMap::new();
     let asset_node = single(s, story_node, "assets")?;
-    let asset_tags = &["image", "nine-patch", "font", "audio", "video", "live2d"];
+    let asset_tags = &[
+        "cg",
+        "image",
+        "nine-patch",
+        "font",
+        "audio",
+        "video",
+        "live2d",
+    ];
     check(s, asset_node, "assets", &[], asset_tags, false)?;
     for node in elements(asset_node) {
         check(s, node, node.tag_name().name(), &["id", "src"], &[], false)?;
@@ -219,6 +227,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             "video" => AssetKind::Video,
             "live2d" => AssetKind::Live2D,
             "image" => AssetKind::Image,
+            "cg" => AssetKind::Cg,
             "nine-patch" => {
                 if !relative.to_string_lossy().ends_with(".9.png") {
                     return Err(error(s, node, "nine-patch 资源必须为源 .9.png"));
@@ -274,14 +283,28 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             s,
             node,
             "visual",
-            &["id", "background", "background-effect"],
+            &["id", "background", "cg", "background-effect"],
             &["portrait"],
             false,
         )?;
-        let background = node.attribute("background").map(str::to_owned);
-        if let Some(bg) = &background {
-            image_ref(s, node, &assets, bg)?;
+        let cg = node.attribute("cg");
+        if cg.is_some()
+            && (node.attribute("background").is_some() || elements(node).next().is_some())
+        {
+            return Err(error(s, node, "CG 画面不能同时声明 background 或 portrait"));
         }
+        let background = if let Some(id) = cg {
+            if !assets.get(id).is_some_and(|a| a.kind == AssetKind::Cg) {
+                return Err(error(s, node, format!("CG 引用不存在或类型错误：{id}")));
+            }
+            Some(id.to_owned())
+        } else {
+            let background = node.attribute("background").map(str::to_owned);
+            if let Some(bg) = &background {
+                image_ref(s, node, &assets, bg)?;
+            }
+            background
+        };
         let mut portraits = Vec::new();
         let mut slots = BTreeSet::new();
         for p in elements(node) {
@@ -482,10 +505,20 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
     let path = Path::new(required(s, node, "src")?);
     crate::content::validate_path(path).map_err(|e| error(s, node, e))?;
     let interface_path = path.to_owned();
-    let entry = frame_references
-        .get(required(s, story_node, "entry")?)
+    let mut entries = Vec::new();
+    for reference in required(s, story_node, "entry")?.split_whitespace() {
+        let id = frame_references
+            .get(reference)
+            .ok_or_else(|| error(s, story_node, "入口场景不存在"))?;
+        if entries.contains(id) {
+            return Err(error(s, story_node, "起始幕重复（含 ID/name 指向同一幕）"));
+        }
+        entries.push(id.clone());
+    }
+    let entry = entries
+        .first()
         .cloned()
-        .ok_or_else(|| error(s, story_node, "入口场景不存在"))?;
+        .ok_or_else(|| error(s, story_node, "至少声明一个起始幕"))?;
     let scripts_node = single(s, story_node, "scripts")?;
     check(s, scripts_node, "scripts", &[], &["script"], false)?;
     let mut scripts = Vec::new();
@@ -510,6 +543,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             id,
             content_version,
             entry,
+            entries,
             assets,
             characters,
             frames,
@@ -528,9 +562,14 @@ pub fn load_game(
     let compiled = crate::story_chain::compile(source)?;
     let mut parsed = parse_story(&compiled.xml).map_err(|e| compiled.diagnostic(e))?;
     let logic = crate::script::ScriptLogic::load(&mut parsed.story, source, &parsed.scripts)?;
-    logic
-        .options(&parsed.story, &parsed.story.start())
-        .map_err(anyhow::Error::msg)?;
+    for entry in &parsed.story.entries {
+        logic
+            .options(
+                &parsed.story,
+                &parsed.story.start_at(entry).map_err(anyhow::Error::msg)?,
+            )
+            .map_err(anyhow::Error::msg)?;
+    }
     let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
     let interface = ui.parse(&parsed.story, &logic.ui_handlers()?)?;
     let loaded = LoadedStory {
@@ -538,57 +577,60 @@ pub fn load_game(
         scripts: parsed.scripts,
         interface,
     };
-    initial_ui_plan(&loaded, &logic)?;
+    initial_ui_plans(&loaded, &logic)?;
     Ok((loaded, logic))
 }
 /// Evaluate the entry lifecycle against a fresh, IO-free snapshot for startup validation.
-pub fn initial_ui_plan(
+pub fn initial_ui_plans(
     loaded: &LoadedStory,
     logic: &crate::script::ScriptLogic,
-) -> Result<Option<crate::interface::host::Plan>> {
+) -> Result<Vec<(String, crate::interface::host::Plan)>> {
     let def = &loaded.interface;
+    let mut plans = Vec::new();
     if def.enter {
         use crate::interface::{
             Data, Event, data,
             host::{self, Profile, State},
         };
-        let session = loaded.story.start();
-        let state = State::new(def);
-        let profile = Profile::new(&loaded.story.id, def);
-        let settings = crate::settings::Settings::default();
-        let available = logic
-            .options(&loaded.story, &session)
+        for entry in &loaded.story.entries {
+            let session = loaded.story.start_at(entry).map_err(anyhow::Error::msg)?;
+            let state = State::new(def);
+            let profile = Profile::new(&loaded.story.id, def);
+            let settings = crate::settings::Settings::default();
+            let available = logic
+                .options(&loaded.story, &session)
+                .map_err(anyhow::Error::msg)?;
+            let data = Data::build(data::Input {
+                definition: def,
+                story: &loaded.story,
+                session: &session,
+                available: &available,
+                state: &state,
+                profile: &profile,
+                slots: &[],
+                settings: &settings,
+                complete: false,
+            });
+            let commands = logic.ui_event(
+                &Event {
+                    sound: None,
+                    route: None,
+                    name: "game.enter".into(),
+                    item: serde_json::Value::Null,
+                    value: serde_json::Value::Null,
+                },
+                &session,
+                &state.variables,
+                &data.values,
+            )?;
+            let plan = host::prepare(def, &state, &settings, &profile, commands, true)?;
+            crate::effects::validate_portraits(
+                &loaded.story.frames[&session.frame_id],
+                &plan.portraits,
+            )
             .map_err(anyhow::Error::msg)?;
-        let data = Data::build(data::Input {
-            definition: def,
-            story: &loaded.story,
-            session: &session,
-            available: &available,
-            state: &state,
-            profile: &profile,
-            slots: &[],
-            settings: &settings,
-            complete: false,
-        });
-        let commands = logic.ui_event(
-            &Event {
-                sound: None,
-                route: None,
-                name: "game.enter".into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null,
-            },
-            &session,
-            &state.variables,
-            &data.values,
-        )?;
-        let plan = host::prepare(def, &state, &settings, &profile, commands, true)?;
-        crate::effects::validate_portraits(
-            &loaded.story.frames[&session.frame_id],
-            &plan.portraits,
-        )
-        .map_err(anyhow::Error::msg)?;
-        return Ok(Some(plan));
+            plans.push((session.frame_id.clone(), plan));
+        }
     }
-    Ok(None)
+    Ok(plans)
 }

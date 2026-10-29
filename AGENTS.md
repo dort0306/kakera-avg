@@ -170,3 +170,17 @@ button 的 route="open:页面ID"/"close" 与 event 二选一，其他控件仍�
 - 固定隐藏 flow-checkpoint.json schema 1，source/continuation 为完整 save 9，含 UI 栈/变量/原栈/序列 ID。先验证准备再原子写，再提交；成功返回写 inactive 墓碑，坏槽保留并提示。启动恢复只重开 UI 生命周期，视频从零播放，不入播放器指针。2MiB 总预算，独立于玩家槽和普通自动槽，不受 autosave 开关影响，排除监控/发布。
 - UI 返回通过显式 history.resume_to 保存和重放；不能伪造普通选项。save 9 每条 resume_to 必需可为 null，旧 save 8 不迁移。候选变量/历史/目标错误或隐藏写失败保留旧 Session/UI/音频。
 - 活动交接禁止普通剧情/存读档/设置及其他持久 IO，热更延后；恢复动作不能混合 CG/设置等跨文件 IO。验证四回调/首尾/自循环/别名/循环预算、单次视频返回、跨进程隐藏槽/原子失败/坏槽/墓碑/普通槽隔离与 save 9 历史裁剪重放。GUI/设备/听感分开记录，依据本版计划/验收/API 第 32 节。
+
+## v0.9.1 末幕退出
+
+依据 doc/v0.9.1-implementation-plan.zh-cn.md 与 doc/v0.9.1-validation.zh-cn.md。末幕文字完成后手动继续派发 frameExit，每次进入最多成功一次；补全不退出，Ctrl/自动仍在结尾停止。隐藏槽 source=continuation 且 exited=true/entered=false 仅允许 End 路由；完整状态相等才能判定末幕退出，不能把自循环误判。同幕恢复不重复进入/退出，失败保留旧状态并允许重试。普通槽/重开重置瞬时退出标记，数据格式不变。
+
+UI 唤起剧情复用 ctx.resume(frame?)：on.ui 与自动 screenClose 使用同一事务。优先读取并验证磁盘隐藏 continuation（包括 inactive），省略目标且无槽必须报错；显式起始幕沿用变量/历史，成功后同步隐藏 source/continuation。无参关闭回调不得覆盖显式目标，冲突目标拒绝，坏槽/原子失败不改变旧状态。
+
+## 专用 CG 资源
+
+依据 doc/cg-resources-implementation-plan.zh-cn.md。assets.cg 使用作者稳定 ID，visual.cg 只允许专用 CG 且与背景/人物互斥；复用静态图片缓存，Model 不放解锁记录。专用资源自动加入 gallery，同 ID 可声明标题，game.cgId 供作者 game.enter 解锁。cg.total/unlocked/progress 来自 profile 共享集合，不写入剧情槽，不因读旧槽或重开撤销。demo 当前 content-version=10；story 8/UI 3/save 9/profile 1 不变。
+
+## 多起始幕
+
+依据 doc/multiple-entries-implementation-plan.zh-cn.md、doc/multiple-entries-validation.zh-cn.md。story.entry 为一个或多个空白分隔 ID/name，严格拒绝重复/未知目标。启动仅显示 initial UI；首次 resume/restart 必须显式选择声明起始幕或载入玩家档，不运行默认幕生命周期/音频/自动档/已读。首次选择创建初始变量及单条历史，不沿用 inactive 隐藏进度；active 交接仍完整恢复。运行中 resume 保持续接，restart(frame) 重置，多个入口无参 restart 拒绝。菜单、隐藏路线显示/解锁仍优先 XML/JS。demo content-version=11，其他格式不变；验证两种包、别名、单次进入、回滚及热更/渲染重建不自动进入。

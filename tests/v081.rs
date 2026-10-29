@@ -334,7 +334,11 @@ fn real_demo_and_media_load_from_kpak2_with_compiled_chapters() -> Result<()> {
     };
     package::write_streaming(&stage, &path, 1, false, |archive| {
         let bundle = Bundle::load(archive, &options)?;
-        assert_eq!(bundle.loaded.story.frames.len(), 30);
+        assert_eq!(bundle.loaded.story.frames.len(), 31);
+        assert_eq!(
+            bundle.loaded.story.entries,
+            ["opening", "alternate.opening"]
+        );
         assert_eq!(bundle.assets.media.videos.len(), 2);
         assert_eq!(bundle.assets.live2d.models.len(), 1);
         for video in bundle.assets.media.videos.values() {

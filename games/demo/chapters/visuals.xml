@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <story schema="8">
   <visuals>
+    <visual id="ending.cg" cg="cg.ending" />
     <visual id="room.empty" background="bg.room" />
     <visual id="room.lin" background="bg.room">
       <portrait character="lin" image="portrait.lin" slot="center" effect="portrait.enter" />

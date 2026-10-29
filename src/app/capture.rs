@@ -24,7 +24,7 @@ impl PlayerApp {
     }
     pub(super) fn save_current(&self, slot: SlotId) -> Result<()> {
         anyhow::ensure!(
-            self.handoff.is_none() && !self.ui_media.active(),
+            self.effects.has_entered && self.handoff.is_none() && !self.ui_media.active(),
             "UI 演出期间不能保存"
         );
         let image = self
@@ -36,6 +36,9 @@ impl PlayerApp {
             .write_snapshot(&self.saves.slot_path(slot), &snapshot)
     }
     pub(super) fn queue_autosave(&mut self) {
+        if !self.effects.has_entered {
+            return;
+        }
         match Snapshot::capture_committed(&self.story, &self.session) {
             Ok(snapshot) => self.pending_auto = Some((self.revision, snapshot)),
             Err(error) => self.autosave_error(error),
@@ -145,6 +148,7 @@ mod tests {
             bundle.logic,
             crate::render::Renderer::cpu(),
         )?;
+        app.enter(app.story.start(), false, true)?;
         let cache = Rc::new(RefCell::new(Cache::default()));
         app.attach_capture(cache.clone());
         let reads = Rc::new(Cell::new(0));

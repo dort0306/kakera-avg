@@ -34,11 +34,11 @@ fn game(root: &Path) -> Result<()> {
     )?;
     std::fs::write(
         root.join("ui.xml"),
-        r#"<ui schema="3" initial="hud" title-bind="ui.title"><variables><string id="title" initial="初始"/></variables><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#,
+        r#"<ui schema="3" initial="hud" title-bind="ui.title"><variables><string id="title" initial="初始"/></variables><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="testStart" width="120" height="50" text="开始" event="test-start"/></screen></ui>"#,
     )?;
     std::fs::write(
         root.join("story.js"),
-        r#"on.advance('opening',()=> 'question.alias');on.choice('question.alias','again',ctx=>{ctx.add('count',1n);return 'question.alias';},ctx=>ctx.vars.count<2n);on.choice('question.alias','end',()=> 'ending',ctx=>ctx.vars.count>=1n);on.choice('question.alias','bad',()=> 'missing');on.end('ending');on.ui('game.enter',ctx=>ctx.setUi('title',ctx.game.frameId));"#,
+        r#"on.advance('opening',()=> 'question.alias');on.choice('question.alias','again',ctx=>{ctx.add('count',1n);return 'question.alias';},ctx=>ctx.vars.count<2n);on.choice('question.alias','end',()=> 'ending',ctx=>ctx.vars.count>=1n);on.choice('question.alias','bad',()=> 'missing');on.end('ending');on.ui('test-start',ctx=>ctx.resume('opening'));on.ui('game.enter',ctx=>ctx.setUi('title',ctx.game.frameId));"#,
     )?;
     Ok(())
 }
@@ -49,6 +49,30 @@ fn exchange(address: SocketAddr, request: Value) -> Result<Value> {
     let mut line = String::new();
     BufReader::new(socket).read_line(&mut line)?;
     Ok(serde_json::from_str(&line)?)
+}
+fn start_from_ui(app: &mut PlayerApp, ctx: &eframe::egui::Context) {
+    use eframe::egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
+    for pressed in [None, Some(true), Some(false)] {
+        let pos = Pos2::new(35.0, 25.0);
+        let mut events = vec![Event::PointerMoved(pos)];
+        if let Some(pressed) = pressed {
+            events.push(Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        let _ = ctx.run(
+            RawInput {
+                focused: true,
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0))),
+                events,
+                ..Default::default()
+            },
+            |ctx| app.update_ui(ctx),
+        );
+    }
 }
 fn request(id: u64, command: Value, revision: Option<u64>) -> Value {
     json!({"version":1,"id":id,"token":TOKEN,"expected_revision":revision,"command":command})
@@ -240,6 +264,7 @@ fn remote_breakpoints_pause_before_commit_and_self_loops_remain_atomic() -> Resu
     )?;
     let server = Server::bind("127.0.0.1:0".parse()?, TOKEN.into())?;
     let address = server.address;
+    start_from_ui(&mut app, &ctx);
     app.attach_debug(server);
     let mut id = 1;
     let mut state = call(
@@ -431,6 +456,7 @@ fn paused_debug_freezes_presentation_and_blocks_native_story_input() -> Result<(
     )?;
     let server = Server::bind("127.0.0.1:0".parse()?, TOKEN.into())?;
     let address = server.address;
+    start_from_ui(&mut app, &ctx);
     app.attach_debug(server);
     for _ in 0..5 {
         let _ = ctx.run(

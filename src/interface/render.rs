@@ -177,6 +177,9 @@ impl Renderer<'_> {
                 }
             }
             Kind::Scene => {
+                if self.input.data.values["game"]["frameId"] == "" {
+                    return;
+                }
                 let mut motion = self
                     .input
                     .effects

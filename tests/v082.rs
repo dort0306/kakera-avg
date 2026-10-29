@@ -423,6 +423,11 @@ fn publication_generates_uuid_v4_and_preserves_named_routes_history_and_saves() 
     let root = tempfile::tempdir()?;
     let out = tempfile::tempdir()?;
     game(root.path())?;
+    let path = root.path().join("story.xml");
+    std::fs::write(
+        &path,
+        std::fs::read_to_string(&path)?.replace("entry=\"opening\"", "entry=\"opening finish\""),
+    )?;
     let original = std::fs::read(root.path().join("story.xml"))?;
     let project = loader::load_game(&DirectorySource::new(root.path())?)?;
     assert_eq!(project.0.story.entry, "opening");
@@ -444,6 +449,8 @@ fn publication_generates_uuid_v4_and_preserves_named_routes_history_and_saves() 
         let bundle = Bundle::load(&archive, &options())?;
         let story = &bundle.loaded.story;
         let logic = &bundle.logic;
+        assert_eq!(story.entries.len(), 2);
+        assert_eq!(story.start_at("finish").unwrap().frame_id, "fixed");
         let id = story.resolve_frame("opening").unwrap();
         let pieces: Vec<_> = id.split('-').collect();
         assert_eq!(

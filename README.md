@@ -1,4 +1,4 @@
-# Kakera AVG Rust · v0.9.0
+# Kakera AVG Rust · v0.9.1
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
 
@@ -30,7 +30,7 @@ v0.9.0 将视频统一到 UI，frame 不再接受 video。新增 on.frameEnter/E
 | --- | --- |
 | story | schema 8；固定 story.xml，单/多文件均须显式 next |
 | XML UI | schema 3，必需；可多文件 include，打包合并，布局与交互仍由 XML/JS 定义 |
-| 手动/自动档 | schema 9；demo content-version=9 |
+| 手动/自动档 | schema 9；demo content-version=11 |
 | KPAK / profile / read | KPAK 2（流式）与 1（小包兼容）；profile/read 为 1 |
 
 从 v0.8 起删除旧 story/flow 解析、声明式路由、无 XML UI 的兼容菜单、旧档导入、默认旧执行器和旧设置字段补齐。旧内容/槽位明确拒绝，不自动迁移或覆盖；旧格式只在 [v0.7.3 归档](doc/archive/v0.7.3-xml-js-api.zh-cn.md) 与历史 doc 中说明。settings.json 必须包含完整字段（含 skip_all、fullscreen）；坏文件提示后使用默认值。save 9 的 screenshot 字段必需，可为 null（无窗口工具快照），图像坏时拒绝。
@@ -47,6 +47,8 @@ cargo run --locked -- --check
 cargo run --locked -- --check --renderer d3d11
 ```
 
+启动先显示 XML 初始 UI，demo 可选择“从午后开始”“另一条故事线”或载入存档。`story entry="opening secret-entry"` 声明多个起始幕；首次通过 `ctx.resume("opening")` / `ctx.restart("opening")` 显式选择，或 `ctx.load` / `ctx.loadAuto` 读档，不自动进入列表第一幕。选择前没有剧情生命周期、剧情音频、自动档和已读副作用。运行中 `resume` 沿用续接变量/历史，`restart(frame)` 清空剧情进度；多起始幕不允许无参 restart。布局、路线显隐和解锁条件仍由 XML/JS 组合。详见 [多起始幕策略](doc/multiple-entries-implementation-plan.zh-cn.md)。demo content-version=11，旧剧情槽明确拒绝，共享 profile 不撤销。
+
 打开设置页勾选“全屏显示”即可切换；窗口化默认 1280×720、最小 640×360。窗口位置在本次运行内恢复，不跨进程保存。工程监控 XML/JS 和素材，完整快照/脚本/资源/当前历史验证成功才替换；坏编辑保留旧状态。契约不兼容必须显式从入口重载，story_id 改变需重启。
 
 ## 本地打包
@@ -59,7 +61,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.9.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.9.1，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -121,3 +123,14 @@ cargo run --locked -- --check
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 
 发布目录中的源码引用链接供仓库开发环境查阅；本地发行目录不携带 Rust 源码或游戏散文件。
+
+v0.9.1 修复末幕 frameExit：文字完成后手动继续触发一次，UI 演出可恢复末幕或显式返回其他幕；自动播放与 Ctrl 仍在结尾停止。普通读档/重开重置退出状态。数据契约保持 story 8/UI 3/save 9。
+
+修复策略与本轮结果见 [v0.9.1 计划](doc/v0.9.1-implementation-plan.zh-cn.md) 和 [v0.9.1 验收](doc/v0.9.1-validation.zh-cn.md)。
+
+UI 唤起剧情：控件 on.ui 或自动演出 screenClose 中用 `ctx.resume("幕ID或name")` 指定起始幕，用 `ctx.resume()` 从磁盘隐藏槽 continuation 恢复（包括 inactive）。首次无槽须指定起始幕；指定幕沿用变量/历史，不清空变量。成功唤起后同步隐藏槽，失败保留原状态。布局仍使用 XML，交互仍使用 JS。
+
+专用 CG：在 assets 声明 `<cg id="作者标记" src="…"/>`，visual 用 `cg="作者标记"` 显示完整 CG，不与背景/人物混用。专用资源自动加入画廊，`game.cgId` 提供当前标记；在现有 game.enter 回调中 `if (ctx.game.cgId) ctx.unlock(ctx.game.cgId)` 可在进入时解锁。`cg.progress` 显示共享解锁数量，profile.json 独立于各剧情槽，同标记只计一次。demo 增加纯 CG 结尾示例，content-version 升为 10，旧剧情槽明确拒绝；save 9/profile 1 不变。详见 [CG 策略](doc/cg-resources-implementation-plan.zh-cn.md)。
+CG 的自动检查与实际窗口结果见 [CG 验收记录](doc/cg-resources-validation.zh-cn.md)。
+
+多起始幕已完成 D3D11/CPU 真实窗口复验：双路线选择、第 200 槽跨进程加载、变量/历史、自动档恢复及 UI 视频返回通过，并修复主菜单切 HUD 曾被误判为交接而暂停台词的问题。当前完整回归 189 项通过；设备音频和听感未验收，详见 [GUI 复验记录](doc/multiple-entries-validation.zh-cn.md#gui-复验与修复2026-10-29)。

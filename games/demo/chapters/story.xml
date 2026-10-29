@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <story schema="8">
   <frames>
+    <frame id="alternate.opening" visual="room.empty">
+      <text>另一个午后，你独自推开了房门。这条故事线从这里开始。</text>
+    </frame>
     <frame id="opening" visual="room.empty">
       <transition kind="fade-black" duration="800" />
       <text>午后的房间里，传来了轻轻的敲门声。</text>
@@ -30,7 +33,7 @@
       <text>今天的相处会带来怎样的结果呢？</text>
       <audio bgm="bgm.room" />
     </frame>
-    <frame id="accept" visual="room.lin" speaker="lin">
+    <frame id="accept" visual="ending.cg" speaker="lin">
       <transition kind="fade-white" duration="1000" />
       <text>我们已经很熟悉了。那就一起出发吧！</text>
       <audio bgm="bgm.room" voice="voice.lin" />

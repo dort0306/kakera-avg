@@ -2,7 +2,7 @@
 <ui schema="3">
   <screen id="gallery">
     <panel id="galleryPanel" x="120" y="80" width="1040" height="560" image="ui.panel">
-      <label id="galleryTitle" x="30" y="20" width="600" height="40" text="CG 画廊" font-size="28" color="#F0CA89" />
+      <label id="galleryTitle" x="30" y="20" width="600" height="40" bind="cg.progress" font-size="28" color="#F0CA89" />
       <button id="galleryClose" x="920" y="20" width="88" height="38" text="返回" event="close" image="ui.button" hover-image="ui.hover" />
       <label id="galleryHint" x="30" y="74" width="960" height="30" text="达成一同出发结尾，即可解锁角色 CG；解锁记录独立保存。" font-size="17" />
       <repeat id="galleryCards" x="30" y="130" width="980" height="380" source="gallery" columns="3" item-width="300" item-height="230" gap="16">

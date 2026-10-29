@@ -126,3 +126,7 @@ UI 根 ui-media 可跨 include 拆分；两格式仍汇总为单 UI 入口。音
 ## v0.9.0 生命周期与隐藏交接
 
 应用版本 0.9.0，story 8/UI 3，save 9，demo content-version=9。frame 内 video 已删除，只用 UI sequence.video；on.frameEnter/Exit 与 on.screenOpen/Close、ctx.present/resume 负责双向交接。flow-checkpoint.json 是固定隐藏自动槽，独立于 slot-* 和 auto-*，不显示、不发布、不监控；活动交接重启恢复 UI，视频从零播放，成功返回写 inactive 墓碑。发布前验证离幕插播、自然结束/跳过关闭与指定幕恢复、隐藏槽跨进程/原子失败/普通槽隔离。接口见 API 第 32 节，旧 frame 视频写法仅在归档手册保留。
+
+## 多故事线入口
+
+story.xml 可声明 `entry="opening secret-entry"`，入口可跨章节、使用 ID/name；两种包都完整保留，不按入口裁剪其他路线。ui.xml initial 应指向作者主菜单，由按钮显式 `ctx.restart("opening")` 或首次 `ctx.resume("opening")`，也可以读取手动/自动槽。启动不会自动选择第一个入口；多入口重开必须传目标。隐藏路线按钮和解锁条件仅用 XML/JS；入口声明不会自动生成菜单。demo content-version=11，旧 demo 剧情槽拒绝，共享 CG 保留。见 [多起始幕 API](xml-js-api.zh-cn.md#多起始幕与首次-ui-选择)。

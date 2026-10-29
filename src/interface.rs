@@ -258,7 +258,7 @@ fn image(file: &str, node: XmlNode<'_, '_>, id: &str, story: &Story) -> Result<(
     if !story
         .assets
         .get(id)
-        .is_some_and(|asset| asset.kind == AssetKind::Image)
+        .is_some_and(|asset| matches!(asset.kind, AssetKind::Image | AssetKind::Cg))
     {
         return Err(error(
             file,
@@ -316,9 +316,17 @@ fn binding(
             VariableValue::String(_) => ValueKind::Text,
         });
     }
+    if matches!(path, "cg.total" | "cg.unlocked") {
+        return Some(ValueKind::Number);
+    }
+    if path == "cg.progress" {
+        return Some(ValueKind::Text);
+    }
     if let Some(id) = path.strip_prefix("game.") {
         return match id {
-            "frameId" | "speaker" | "text" | "continueText" | "autoText" => Some(ValueKind::Text),
+            "frameId" | "cgId" | "speaker" | "text" | "continueText" | "autoText" => {
+                Some(ValueKind::Text)
+            }
             "complete" | "canAdvance" | "ended" | "noChoices" | "transitioning" | "autoPlaying"
             | "live2dEnabled" => Some(ValueKind::Bool),
             _ => None,
@@ -790,6 +798,9 @@ pub fn parse(
             let id = required(file, cg, "id")?.to_owned();
             let img = required(file, cg, "image")?;
             image(file, cg, img, story)?;
+            if story.assets[img].kind == AssetKind::Cg && id != img {
+                return Err(error(file, cg, "专用 CG 画廊 ID 必须等于资源 ID"));
+            }
             if gallery
                 .insert(
                     id.clone(),
@@ -816,6 +827,27 @@ pub fn parse(
         count: 0,
         handlers,
     };
+    for (id, asset) in &story.assets {
+        if asset.kind == AssetKind::Cg {
+            if let Some(cg) = gallery.get(id) {
+                if cg.image != *id {
+                    return Err(error(file, root, "专用 CG 的画廊标记必须引用自身资源"));
+                }
+            } else {
+                gallery.insert(
+                    id.clone(),
+                    Cg {
+                        image: id.clone(),
+                        title: id.clone(),
+                        unlocked: false,
+                    },
+                );
+            }
+        }
+    }
+    if gallery.len() > 256 {
+        return Err(error(file, root, "CG 总数超过 256"));
+    }
     let mut screens = BTreeMap::new();
     for screen in elements(root).filter(|node| node.has_tag_name("screen")) {
         check(
@@ -902,7 +934,7 @@ pub fn parse(
     let images = story
         .assets
         .iter()
-        .filter(|(_, asset)| asset.kind == AssetKind::Image)
+        .filter(|(_, asset)| matches!(asset.kind, AssetKind::Image | AssetKind::Cg))
         .map(|(id, _)| id.clone())
         .collect();
     let media = presentation::Catalog::parse(root, file, story, &screens)?;

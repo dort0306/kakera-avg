@@ -37,6 +37,19 @@ pub fn values(vars: &Variables) -> Value {
     )
 }
 impl Data {
+    /// Hide the internal validation checkpoint until a story has actually been entered.
+    pub fn awaiting_start(&mut self) {
+        self.values["game"]["frameId"] = json!("");
+        self.values["game"]["cgId"] = json!("");
+        self.values["game"]["speaker"] = json!("");
+        self.values["game"]["text"] = json!("");
+        self.values["game"]["canAdvance"] = json!(false);
+        self.values["game"]["complete"] = json!(false);
+        self.values["game"]["ended"] = json!(false);
+        self.values["game"]["continueText"] = json!("请选择故事起点");
+        self.lists.insert("choices".into(), Vec::new());
+        self.lists.insert("history".into(), Vec::new());
+    }
     pub fn build(input: Input<'_>) -> Self {
         let Input {
             definition,
@@ -60,6 +73,22 @@ impl Data {
             values: json!({"game":{"frameId":frame.reference(),"speaker":speaker,"text":frame.text},"settings":settings,"ui":values(&state.variables)}),
             lists: Default::default(),
         };
+        data.values["game"]["cgId"] = json!(
+            frame
+                .visual
+                .background
+                .as_ref()
+                .filter(|id| story.assets[*id].kind == crate::model::AssetKind::Cg)
+                .cloned()
+                .unwrap_or_default()
+        );
+        let total = definition.gallery.len();
+        let unlocked = definition
+            .gallery
+            .keys()
+            .filter(|id| profile.unlocked.contains(*id))
+            .count();
+        data.values["cg"] = json!({"total":total,"unlocked":unlocked,"progress":format!("已解锁 {unlocked} / {total}")});
         data.values["saves"] = json!({"page":state.slot_page,"pages":crate::save::PAGE_COUNT,
             "pageText":format!("第 {} / {} 页 · 200 手动槽",state.slot_page,crate::save::PAGE_COUNT),
             "canPrev":state.slot_page>1,"canNext":state.slot_page<crate::save::PAGE_COUNT});
