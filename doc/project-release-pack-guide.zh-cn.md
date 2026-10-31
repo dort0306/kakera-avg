@@ -1,18 +1,19 @@
-# v0.11.1 工程、发布与窗口模式指南
+# 工程、发布与窗口模式指南（v0.11.2）
 
-当前版本 0.11.1：普通事件先 `event.register(id, callback)` 独立定义，再由 XML event 或 `ui(controlId).bind(eventId)` 连接；控件事件可空，旧普通两参数 bind 不再接受。生命周期入口、ctx 和数据格式不变。旧脚本包须作者迁移后重建，KPAK 不做 JS 转译；`tools/package.ps1` 默认输出 `target/package/kakera-avg-v0.11.1`。下述 v0.9.0 隐藏槽与媒体行为仍沿用，当前规范见 [API 第 37 节](xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)，本轮证据见 [验收记录](v0.11.1-validation.zh-cn.md)。
+当前版本 0.11.2：UI 支持 `component.register` 组合标签和 repeat `page-size`/`page-bind` 分页（见 [API 第 38 节](xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页)）；事件先 `event.register(id, callback)` 独立定义，再由 XML event 或 `ui(controlId).bind(eventId)` 连接，旧普通两参数 bind 不再接受（见 [API 第 37 节](xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)）。生命周期入口、ctx 和数据格式不变；旧脚本包须作者迁移后重建，KPAK 不做 JS 转译。`tools/package.ps1` 默认输出 `target/package/kakera-avg-v0.11.2`。版本规划见 [PLAN.md](../PLAN.md)，播放器使用说明见 [播放器使用指南](player-guide.zh-cn.md)，本轮证据见 [v0.11.2 验收](v0.11.2-validation.zh-cn.md)。
 
-适用版本 0.9.0；唯一数据契约 story 8 / UI 3 / save 9；资源包为 KPAK 2（流式）并保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。Frame 视频已移除，视频只在 UI sequence 中；幕与页面以生命周期回调双向交接，隐藏交接使用 flow-checkpoint.json，详见 API 第 32 节。
+唯一数据契约 story 8 / UI 3 / save 9；资源包为 KPAK 2（流式）并保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。Frame 视频已移除，视频只在 UI sequence 中；幕与页面以生命周期回调双向交接，隐藏交接使用 flow-checkpoint.json，详见 [API 第 32 节](xml-js-api.zh-cn.md#32-v090-幕与页面生命周期隐藏交接槽)。
 
 ## 工程运行
 
 ```powershell
 cargo build --locked --release --bins
 ./target/release/kakera-avg.exe --project games/demo --check | Out-Host
-./target/release/kakera-avg.exe --project games/demo --save-dir target/v083-development
+./target/release/kakera-avg.exe --project games/demo --save-dir target/dev-saves
+./target/release/kakera-avg.exe --project games/demo --renderer cpu --no-audio
 ```
 
---project 指定工程目录，默认源码启动为 games/demo。固定 story.xml，通过每份 XML 的 next.src 串联，末份 next end="true"；interface、scripts、assets 等路径以游戏根为准，不随章节目录变化。必须提供 UI 和全部 JS 注册；不读取 flow.xml，不运行旧 schema。
+--project 指定工程目录，默认源码启动为 games/demo。固定 story.xml，通过每份 XML 的 next.src 串联，末份 next end="true"；interface、scripts、assets 等路径以游戏根为准，不随章节目录变化。必须提供 UI 和全部 JS 注册；不读取 flow.xml，不运行旧 schema。启动先显示 XML 初始 UI；多起始幕必须由 UI 显式 resume/restart 或读档选择，见下文“多故事线入口”。
 
 工程使用原生通知/去抖和固定快照候选准备。编辑 XML/JS/素材后完整验证当前变量/历史/条件/进入计划和资源，再原子替换。坏编辑保留旧会话/画面/声音；查看“工程状态”。不兼容候选只允许显式从入口重载，story_id 改变需重启。成功热更不写自动档/重复 CG 解锁，不重播瞬时动作。
 
@@ -27,9 +28,9 @@ demo 设置页“全屏显示”由 XML/JS 调用 ctx.setting("fullscreen", bool
 ## 资源包与便携目录
 
 ```powershell
-cargo run --locked --bin kakera-pack -- games/demo target/v083-publication/game.kpak
-cargo run --locked --bin kakera-pack -- games/demo target/v083-publication/game.kpak --force --level 19
-cargo run --locked -- --package target/v083-publication/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
+cargo run --locked --bin kakera-pack -- games/demo target/package/game.kpak --format 2
+cargo run --locked --bin kakera-pack -- games/demo target/package/small.kpak --format 1
+cargo run --locked -- --package target/package/game.kpak --cubism-core runtime/live2d/windows-x64/Live2DCubismCore.dll --check
 ./tools/package.ps1
 ```
 
@@ -37,15 +38,16 @@ kakera-pack 两个位置参数先于选项。支持 --format 1|2（默认 2）�
 
 打包先记录引擎实际读取的依赖，建立只含发布文件的固定快照；合并 next 链到包内 story.xml，移除链上的源章节，UI include 另行展开为原入口路径的单个完整 UI，并移除实际子文件；JS/资源及其他显式附加文件保留逻辑路径，不改源工程。完整候选校验、包自检/独立加载和所选源文件指纹复查通过后原子写出；输出须在工程根外，已有输出没有 --force 就拒绝。KPAK 按逻辑路径排序、同字节去重、Zstandard 压缩与 SHA-256 损坏检测，未加密。2 使用独立 1MiB 原文块，1 保持整包 solid。素材不有损转码。默认只含引擎依赖、assets/licenses 与 licenses 目录的普通文件。其他文件须在根 kakera.package.json 以 schema 1/include 列表明确声明；不支持目录/通配，清单自身不入包。未引用的设计稿、模型权重和编辑器索引不会自动收集。
 
-发布脚本默认 target/package/kakera-avg-v0.9.0，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
+发布脚本默认 `target/package/kakera-avg-v0.11.2`，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
 
 ```text
-kakera-avg-v0.9.0/
+kakera-avg-v0.11.2/
   kakera-avg.exe
   game.kpak
   Live2DCubismCore.dll
   licenses/
   README.md
+  PLAN.md
   doc/
 ```
 
@@ -94,7 +96,7 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 ## 编辑器调试与发布附加文件
 
-调试启动、认证帧和断点事务见 [调试 API v1](editor/10-player-debug-api.zh-cn.md)。必须显式 --project、--save-dir、--debug-listen 和 --debug-token-file；仅 loopback，发布/--check 拒绝。暂停冻结呈现，断点保留旧会话和完整候选，继续才提交。协议无远程 JS eval、行级断点或任意跳转。
+调试启动、认证帧和断点事务见 [API 第 29.1 节](xml-js-api.zh-cn.md#291-调试启动与运行状态)。必须显式 --project、--save-dir、--debug-listen 和 --debug-token-file；仅 loopback，发布/--check 拒绝。启动即暂停并关闭本次自动保存。暂停冻结呈现，断点保留旧会话和完整候选，继续才提交。协议无远程 JS eval、行级断点或任意跳转。
 
 需要额外随包发送作者文本时，在工程根写：
 
@@ -104,7 +106,7 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 路径须指向现存普通文件，禁止越界、链接、大小写冲突；附加文件不是宿主可执行依赖。默认依赖包含所有已声明并被加载器读取的资源，不分析 JS 字符串来猜路径，也不以当前场景可达性删去其他场景资源。低层容器 API 仍可打包任意合法文件，默认收敛策略由 kakera-pack CLI 实施。更多限制见 API 第 29 节。
 
-编辑器 AI/插件的接口和开发路线是规划，未作为本版可运行编辑器交付，见 [编辑器方案](editor/README.zh-cn.md)。
+编辑器 AI/插件的接口和开发路线仍属规划，未作为本版可运行编辑器交付；归档方案见 [doc/archive/editor-v0.8.2](archive/editor-v0.8.2/README.zh-cn.md)，当前版本规划见 [PLAN.md](../PLAN.md)。
 
 ## 用户数据和限制
 
@@ -112,7 +114,7 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 用户 JSON（settings.json/profile.json/read.json/ui-audio.json/keybindings.json/ui-colors.json/slot-*/auto-*/flow-checkpoint.json，含大小写变体）、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
 
-数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.9.0 验收](v0.9.0-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
+数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.11.2 验收](v0.11.2-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
 
 
 v0.8.4 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、keybindings.json、ui-colors.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。v0.10.0 起键位/配色偏好同样只保存在玩家 --save-dir，不属于发布内容。
@@ -141,4 +143,4 @@ story.xml 可声明 `entry="opening secret-entry"`，入口可跨章节、使用
 
 默认游戏不启用；入口声明 localization 后，清单和全部语言的 FTL/字体/语音都经 ContentSource 准备验证，不根据打包机系统语言裁剪。KPAK 1/2 均保留 key、默认值、UI text-arg 及具名场景引用，源工程不改写。关闭时未引用 FTL 不自动入包。language.json（含大小写变体）属于玩家偏好，排除监控、默认依赖/显式附加和发布；不要将它写入清单 include。
 
-宿主 zh-CN.ftl 编译进播放器，不要求游戏额外分发，也不接受游戏覆盖。package.ps1 默认输出 kakera-avg-v0.10.1，复制 licenses 中的 Fluent/Unicode 相关许可。语音仍使用现有有界预解码，不因国际化放宽 PCM/包预算。接口及生成演示见 API 第 36 节和 tools/prepare-localization-demo.ps1。
+宿主 zh-CN.ftl 编译进播放器，不要求游戏额外分发，也不接受游戏覆盖。package.ps1 复制 licenses 中的 Fluent/Unicode 相关许可，默认目录随当前应用版本。语音仍使用现有有界预解码，不因国际化放宽 PCM/包预算。接口及生成演示见 API 第 36 节和 tools/prepare-localization-demo.ps1。

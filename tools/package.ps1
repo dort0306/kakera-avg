@@ -23,6 +23,7 @@ try {
     $gameLicenses=Join-Path $Project 'assets/licenses'
     if (Test-Path -LiteralPath $gameLicenses) { Copy-Item -LiteralPath $gameLicenses -Destination (Join-Path $Output 'licenses/game') -Recurse }
     Copy-Item -LiteralPath README.md -Destination $Output
+    Copy-Item -LiteralPath PLAN.md -Destination $Output
     New-Item -ItemType Directory -Path (Join-Path $Output 'doc') | Out-Null
     Get-ChildItem -LiteralPath doc -File | Where-Object { $_.Extension -in '.md','.json' } | Copy-Item -Destination (Join-Path $Output 'doc')
     Copy-Item -LiteralPath doc/localization-example -Destination (Join-Path $Output 'doc/localization-example') -Recurse
