@@ -53,7 +53,7 @@ fn source() -> Memory {
     Memory([
         ("story.xml", STORY), ("ui.xml", ROOT), ("ui/hud.xml", HUD), ("ui/state.xml", STATE),
         ("ui/pages.xml", r#"<ui schema="3"><include src="ui/hud.xml"/><screen id="settings"><button id="close" width="100" height="40" text="关闭" event="close"/></screen></ui>"#),
-        ("story.js", "frame('start').end();ui('edit').bind('edit', ctx=>ctx.setUi('title',ctx.value));ui('close').bind('close', ctx=>ctx.close());"),
+        ("story.js", "frame('start').end();(event.register('edit', ctx=>ctx.setUi('title',ctx.value)), ui('edit').bind('edit'));(event.register('close', ctx=>ctx.close()), ui('close').bind('close'));"),
     ].into_iter().map(|(p,s)|(p.into(),s.as_bytes().to_vec())).collect())
 }
 /// Budget-only fixtures stop needing the sample page callbacks.

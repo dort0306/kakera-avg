@@ -183,8 +183,8 @@ fn retirement_and_reentry_are_bounded_and_restore_has_no_clocks() {
 fn js_commands_validate_candidate_slot_and_pose_without_mutating_old_state() {
     let mut src = source();
     src.js = src.js.replace(
-        r#"ui("fxDurationSlider").bind("fx-duration", ctx => ctx.setUi("fxDuration", Math.round(ctx.value)));"#,
-        r#"ui("fxDurationSlider").bind("fx-duration", ctx=>{ctx.setUi('status','changed');ctx.portrait('center','fall-left');ctx.choose('fall-left');});"#,
+        r#"event.register("fx-duration", ctx => ctx.setUi("fxDuration", Math.round(ctx.value)));"#,
+        r#"event.register("fx-duration", ctx=>{ctx.setUi('status','changed');ctx.portrait('center','fall-left');ctx.choose('fall-left');});"#,
     );
     let (loaded, logic) = load_game(&src).unwrap();
     let def = loaded.interface;

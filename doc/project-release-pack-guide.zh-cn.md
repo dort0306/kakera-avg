@@ -1,4 +1,6 @@
-# v0.9.0 工程、发布与窗口模式指南
+# v0.11.1 工程、发布与窗口模式指南
+
+当前版本 0.11.1：普通事件先 `event.register(id, callback)` 独立定义，再由 XML event 或 `ui(controlId).bind(eventId)` 连接；控件事件可空，旧普通两参数 bind 不再接受。生命周期入口、ctx 和数据格式不变。旧脚本包须作者迁移后重建，KPAK 不做 JS 转译；`tools/package.ps1` 默认输出 `target/package/kakera-avg-v0.11.1`。下述 v0.9.0 隐藏槽与媒体行为仍沿用，当前规范见 [API 第 37 节](xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)，本轮证据见 [验收记录](v0.11.1-validation.zh-cn.md)。
 
 适用版本 0.9.0；唯一数据契约 story 8 / UI 3 / save 9；资源包为 KPAK 2（流式）并保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。Frame 视频已移除，视频只在 UI sequence 中；幕与页面以生命周期回调双向交接，隐藏交接使用 flow-checkpoint.json，详见 API 第 32 节。
 

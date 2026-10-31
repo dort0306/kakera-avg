@@ -135,5 +135,10 @@ pub fn declarations(ui: &str) -> Vec<kakera_avg::interface::Registration> {
             out.push(kakera_avg::interface::Registration::ui(id.clone(), event));
         }
     }
-    out
+    out.into_iter()
+        .map(|item| item.key.event)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(kakera_avg::interface::Registration::event)
+        .collect()
 }

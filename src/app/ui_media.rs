@@ -362,7 +362,7 @@ mod tests {
         )?;
         std::fs::write(
             root.path().join("story.js"),
-            "frame('start').end();ui('leave').bind('leave',ctx=>ctx.sequence('leave'));ui('movie').bind('movie',ctx=>ctx.sequence('movie'));ui('role').bind('role',ctx=>{ctx.setUi('status','changed');ctx.soundActor('a',false);});ui('mixed').bind('mixed',ctx=>{ctx.sequence('reveal');ctx.restart();});",
+            "frame('start').end();(event.register('leave', ctx=>ctx.sequence('leave')), ui('leave').bind('leave'));(event.register('movie', ctx=>ctx.sequence('movie')), ui('movie').bind('movie'));(event.register('role', ctx=>{ctx.setUi('status','changed');ctx.soundActor('a',false);}), ui('role').bind('role'));(event.register('mixed', ctx=>{ctx.sequence('reveal');ctx.restart();}), ui('mixed').bind('mixed'));",
         )?;
         let b = Bundle::load(
             &package::Snapshot::directory(root.path())?,

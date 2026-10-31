@@ -5235,6 +5235,16 @@
       "host-i18n-detail-0067",
       "src/app/localization.rs",
       "language changes require a stationary UI boundary"
+    ],
+    [
+      "host-bridge-0033",
+      "src/script/bridge.js",
+      "普通控件请使用 event.register(id, callback) 独立注册，再用 ui(id).bind(eventId) 绑定"
+    ],
+    [
+      "host-bridge-0034",
+      "src/script/bridge.js",
+      "事件 ID 重复：{arg0}；首次注册：{arg1}"
     ]
   ],
   "embedded_catalog": {

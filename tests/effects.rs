@@ -223,7 +223,7 @@ fn effect_xml_is_strict_and_reference_errors_have_positions() {
 #[test]
 fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only() {
     let js = format!(
-        "{JS}\nui('test').bind('test', ctx=>{{ctx.setUi('status','changed');ctx.animate('missing','shake');}});ui('bad-transition').bind('bad-transition', ctx=>ctx.transition('dissolve'));ui('good').bind('good', ctx=>ctx.animate('scene','shake',600,20));ui('repeat-target').bind('repeat-target', ctx=>ctx.animate('cgThumbnail','fade-in')); "
+        "{JS}\n(event.register('test', ctx=>{{ctx.setUi('status','changed');ctx.animate('missing','shake');}}), ui('test').bind('test'));(event.register('bad-transition', ctx=>ctx.transition('dissolve')), ui('bad-transition').bind('bad-transition'));(event.register('good', ctx=>ctx.animate('scene','shake',600,20)), ui('good').bind('good'));(event.register('repeat-target', ctx=>ctx.animate('cgThumbnail','fade-in')), ui('repeat-target').bind('repeat-target')); "
     );
     let ui = common::probe(&UI, &["test", "bad-transition", "repeat-target", "good"]);
     let (loaded, logic) = load_game(&source(&STORY, &ui, &js)).unwrap();

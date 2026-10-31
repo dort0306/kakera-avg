@@ -16,7 +16,7 @@ use std::{
 };
 
 const STORY: &str = r#"<story schema="8" id="title-test" content-version="8" entry="start"><scripts><script src="script.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/></assets><characters/><visuals/><variables/><frames><frame id="start"><text>Hello</text></frame></frames><next end="true"/></story>"#;
-const SCRIPT: &str = r#"frame('start').end();ui('caption').bind('caption', ctx=>ctx.setUi('caption',ctx.value));ui('$game').bind('game.enter', ctx=>ctx.setUi('caption',`章节 · ${ctx.game.frameId}`));"#;
+const SCRIPT: &str = r#"frame('start').end();(event.register('caption', ctx=>ctx.setUi('caption',ctx.value)), ui('caption').bind('caption'));ui('$game').bind('game.enter', ctx=>ctx.setUi('caption',`章节 · ${ctx.game.frameId}`));"#;
 struct Memory(BTreeMap<PathBuf, Vec<u8>>);
 impl ContentSource for Memory {
     fn read(&self, path: &Path) -> Result<Vec<u8>> {

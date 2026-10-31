@@ -826,7 +826,7 @@ mod tests {
         std::fs::write(
             root.join("story.js"),
             format!(
-                "frame('a').advance(ctx=>{{ctx.add('n',1);return 'b';}});frame('b').end();frame('c').end();frame('a').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));frame('b').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));ui('advance').bind('advance', ctx=>ctx.advance());{extra}"
+                "frame('a').advance(ctx=>{{ctx.add('n',1);return 'b';}});frame('b').end();frame('c').end();frame('a').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));frame('b').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));(event.register('advance', ctx=>ctx.advance()), ui('advance').bind('advance'));{extra}"
             ),
         )?;
         Ok(())
@@ -1104,7 +1104,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "ui('present').bind('present', ctx=>ctx.present('movie'));frame('a').exit(ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));ui('movie').bind('screen.open', ctx=>ctx.sequence('cut'));ui('movie').bind('screen.close', ctx=>ctx.resume('c'));",
+            "(event.register('present', ctx=>ctx.present('movie')), ui('present').bind('present'));frame('a').exit(ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));ui('movie').bind('screen.open', ctx=>ctx.sequence('cut'));ui('movie').bind('screen.close', ctx=>ctx.resume('c'));",
         )?;
         let mut app = load(root.path(), saves.path())?;
         app.custom_event(interface::Event::ui("present", "present"))?;
@@ -1269,7 +1269,8 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            &(standard("'b'") + "ui('resume-direct').bind('resume-direct', ctx=>ctx.resume());"),
+            &(standard("'b'")
+                + "(event.register('resume-direct', ctx=>ctx.resume()), ui('resume-direct').bind('resume-direct'));"),
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1377,7 +1378,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "frame('a').exit(ctx=>ctx.open('movie'));ui('movie').bind('screen.close', ctx=>ctx.resume());ui('start').bind('start', ctx=>ctx.resume('c'));ui('continue').bind('continue', ctx=>ctx.resume());",
+            "frame('a').exit(ctx=>ctx.open('movie'));ui('movie').bind('screen.close', ctx=>ctx.resume());(event.register('start', ctx=>ctx.resume('c')), ui('start').bind('start'));(event.register('continue', ctx=>ctx.resume()), ui('continue').bind('continue'));",
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1434,7 +1435,7 @@ mod tests {
         write_game(
             root.path(),
             &(standard("'b'")
-                + "ui('quit').bind('quit', ctx=>ctx.quit());ui('bad-quit').bind('bad-quit', ctx=>{ctx.setUi('trace','changed');ctx.quit();ctx.setUi('missing',true);});ui('mixed-quit').bind('mixed-quit', ctx=>{ctx.quit();ctx.advance();});ui('media-quit').bind('media-quit', ctx=>{ctx.quit();ctx.sequence('cut');});"),
+                + "(event.register('quit', ctx=>ctx.quit()), ui('quit').bind('quit'));(event.register('bad-quit', ctx=>{ctx.setUi('trace','changed');ctx.quit();ctx.setUi('missing',true);}), ui('bad-quit').bind('bad-quit'));(event.register('mixed-quit', ctx=>{ctx.quit();ctx.advance();}), ui('mixed-quit').bind('mixed-quit'));(event.register('media-quit', ctx=>{ctx.quit();ctx.sequence('cut');}), ui('media-quit').bind('media-quit'));"),
         )?;
         let event = |name: &str| interface::Event::ui(name, name);
         let mut app = load_ui(root.path(), saves.path())?;
@@ -1493,7 +1494,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "ui('open').bind('open', ctx=>ctx.open('movie'));ui('movie').bind('screen.open', ctx=>ctx.quit());",
+            "(event.register('open', ctx=>ctx.open('movie')), ui('open').bind('open'));ui('movie').bind('screen.open', ctx=>ctx.quit());",
         )?;
         let mut app = load(root.path(), saves.path())?;
         let state = app.custom.state.clone();
@@ -1514,7 +1515,7 @@ mod tests {
             write_game(
                 root.path(),
                 &format!(
-                    "ui('start').bind('start', ctx=>{{ctx.open('hud');ctx.resume('c');}});ui('restart-main').bind('restart-main', ctx=>{{ctx.open('hud');ctx.restart('a');}});ui('titleButton').bind('title', ctx=>ctx.open('title'));ui('hud').bind('screen.open', ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));frame('c').enter(ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');{}}});ui('movie').bind('screen.close', ctx=>ctx.resume());",
+                    "(event.register('start', ctx=>{{ctx.open('hud');ctx.resume('c');}}), ui('start').bind('start'));(event.register('restart-main', ctx=>{{ctx.open('hud');ctx.restart('a');}}), ui('restart-main').bind('restart-main'));(event.register('title', ctx=>ctx.open('title')), ui('titleButton').bind('title'));ui('hud').bind('screen.open', ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));frame('c').enter(ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');{}}});ui('movie').bind('screen.close', ctx=>ctx.resume());",
                     if movie { "ctx.open('movie');" } else { "" }
                 ),
             )?;
@@ -1569,7 +1570,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "frame('c').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'C'));ui('start').bind('start', ctx=>ctx.resume('secret'));ui('bare').bind('bare', ctx=>ctx.resume());ui('save').bind('save', ctx=>ctx.save(1));ui('auto').bind('auto', ctx=>ctx.autoPlay(true));ui('restart').bind('restart', ctx=>ctx.restart());",
+            "frame('c').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'C'));(event.register('start', ctx=>ctx.resume('secret')), ui('start').bind('start'));(event.register('bare', ctx=>ctx.resume()), ui('bare').bind('bare'));(event.register('save', ctx=>ctx.save(1)), ui('save').bind('save'));(event.register('auto', ctx=>ctx.autoPlay(true)), ui('auto').bind('auto'));(event.register('restart', ctx=>ctx.restart()), ui('restart').bind('restart'));",
         )?;
         let path = root.path().join("story.xml");
         let xml = std::fs::read_to_string(&path)?
@@ -1651,7 +1652,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "frame('c').enter(ctx=>ctx.open('movie'));ui('load').bind('load', ctx=>ctx.load(1));ui('restart-c').bind('restart-c', ctx=>ctx.restart('c'));",
+            "frame('c').enter(ctx=>ctx.open('movie'));(event.register('load', ctx=>ctx.load(1)), ui('load').bind('load'));(event.register('restart-c', ctx=>ctx.restart('c')), ui('restart-c').bind('restart-c'));",
         )?;
         let path = root.path().join("story.xml");
         std::fs::write(

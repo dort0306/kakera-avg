@@ -69,7 +69,7 @@ mod tests {
 
     const STORY: &str = r#"<story schema="8" id="colors-test" content-version="1" entry="opening"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/></assets><characters/><visuals/><frames><frame id="opening"><text>开始。</text></frame></frames><next end="true"/></story>"#;
     const UI: &str = r##"<ui schema="3" initial="hud"><variables><string id="draft" initial="#00FF00FF"/></variables><palette><color id="accent" initial="#10253BFF"/></palette><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="apply" width="120" height="40" text="应用" event="apply"/><button id="clear" width="120" height="40" text="清除" event="clear"/><button id="reset" width="120" height="40" text="重置" event="reset"/><button id="mixed" width="120" height="40" text="混合" event="mixed"/></screen></ui>"##;
-    const SCRIPT: &str = "frame('opening').end();ui('apply').bind('apply',ctx=>ctx.colorPreference('accent',ctx.ui.draft));ui('clear').bind('clear',ctx=>ctx.colorPreference('accent',null));ui('reset').bind('reset',ctx=>ctx.resetColors());ui('mixed').bind('mixed',ctx=>{ctx.colorPreference('accent','#00FF00FF');ctx.setting('muted',true);});";
+    const SCRIPT: &str = "frame('opening').end();(event.register('apply', ctx=>ctx.colorPreference('accent',ctx.ui.draft)), ui('apply').bind('apply'));(event.register('clear', ctx=>ctx.colorPreference('accent',null)), ui('clear').bind('clear'));(event.register('reset', ctx=>ctx.resetColors()), ui('reset').bind('reset'));(event.register('mixed', ctx=>{ctx.colorPreference('accent','#00FF00FF');ctx.setting('muted',true);}), ui('mixed').bind('mixed'));";
 
     struct Harness {
         app: PlayerApp,
@@ -210,7 +210,7 @@ mod tests {
             "</screen>", "<color-picker id=\"picker\" x=\"100\" y=\"100\" width=\"256\" height=\"282\" value=\"ui.draft\" event=\"pick\"/></screen>",
         ))?;
         fs::write(h.game.path().join("story.js"), SCRIPT.replace(
-            "frame('opening').end();", "frame('opening').advance(()=> 'second');frame('second').end();ui('picker').bind('pick',ctx=>ctx.setUi('draft',ctx.value));",
+            "frame('opening').end();", "frame('opening').advance(()=> 'second');frame('second').end();(event.register('pick', ctx=>ctx.setUi('draft',ctx.value)), ui('picker').bind('pick'));",
         ))?;
         for fast_forward in [false, true] {
             let mut app = h.reopen()?;

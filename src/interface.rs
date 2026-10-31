@@ -38,7 +38,7 @@ pub struct Definition {
     pub images: BTreeSet<String>,
     pub nine_patches: BTreeSet<String>,
     pub image_sizes: BTreeMap<String, [u32; 2]>,
-    /// Ordinary `ui('$host').bind(result, callback)` capture result events.
+    /// Independently registered events, also available as capture result callbacks.
     pub host_handlers: BTreeSet<String>,
     pub enter: bool,
 }
@@ -47,6 +47,7 @@ pub struct Definition {
 /// an event name string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EventCategory {
+    Registered,
     Ui,
     Game,
     Host,
@@ -56,6 +57,7 @@ pub enum EventCategory {
 impl EventCategory {
     pub fn id(self) -> &'static str {
         match self {
+            Self::Registered => "registered",
             Self::Ui => "ui",
             Self::Game => "game",
             Self::Host => "host",
@@ -65,6 +67,7 @@ impl EventCategory {
     }
     pub fn parse(value: &str) -> Option<Self> {
         match value {
+            "registered" => Some(Self::Registered),
             "ui" => Some(Self::Ui),
             "game" => Some(Self::Game),
             "host" => Some(Self::Host),
@@ -144,6 +147,9 @@ impl Registration {
     }
     pub fn ui(target: impl Into<String>, event: impl Into<String>) -> Self {
         Self::new(EventCategory::Ui, target, event)
+    }
+    pub fn event(event: impl Into<String>) -> Self {
+        Self::new(EventCategory::Registered, "", event)
     }
 }
 #[derive(Clone, Debug)]
@@ -408,6 +414,7 @@ fn reserved_target(id: &str) -> bool {
 pub fn reserved_event(event: &str) -> bool {
     event.is_empty()
         || event == "game.enter"
+        || matches!(event, "screen.open" | "screen.close")
         || LIFECYCLE_PREFIXES
             .iter()
             .any(|prefix| event.starts_with(prefix))
@@ -1052,7 +1059,10 @@ impl Parser<'_> {
                 ));
             }
             let sound = xml.attribute("sound").map(str::to_owned);
-            let event = xml.attribute("event").map(str::to_owned);
+            let event = xml
+                .attribute("event")
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
             let route = xml
                 .attribute("route")
                 .map(|value| {
@@ -1082,24 +1092,6 @@ impl Parser<'_> {
                     self.file,
                     xml,
                     crate::i18n::format("host-interface-0077", &[("arg0", event.to_string())]),
-                ));
-            }
-            if matches!(kind, Kind::Button | Kind::Slider { .. } | Kind::Toggle)
-                && event.is_none()
-                && route.is_none()
-                && sound.is_none()
-            {
-                return Err(error(
-                    self.file,
-                    xml,
-                    crate::i18n::text("host-interface-0059"),
-                ));
-            }
-            if matches!(kind, Kind::ColorPicker { .. }) && event.is_none() {
-                return Err(error(
-                    self.file,
-                    xml,
-                    crate::i18n::text("host-interface-0060"),
                 ));
             }
             let children = if container {
@@ -1431,6 +1423,7 @@ pub fn parse_localized(
         let event = |name| -> Result<Option<String>> {
             screen
                 .attribute(name)
+                .filter(|value| !value.is_empty())
                 .map(|value| {
                     if reserved_event(value) {
                         return Err(error(
@@ -1576,6 +1569,16 @@ pub fn parse_localized(
             ));
         }
         match key.category {
+            EventCategory::Registered => {
+                ensure!(
+                    key.target.is_empty()
+                        && !reserved_event(&key.event)
+                        && !matches!(key.event.as_str(), "screen.open" | "screen.close"),
+                    "{}",
+                    crate::i18n::format("host-interface-0079", &[("arg0", key.describe())])
+                );
+                host_handlers.insert(key.event.clone());
+            }
             EventCategory::Game => {
                 ensure!(
                     key.target == "$game" && key.event == "game.enter",
@@ -1585,12 +1588,10 @@ pub fn parse_localized(
                 enter = true;
             }
             EventCategory::Host => {
-                ensure!(
-                    key.target == "$host" && !reserved_event(&key.event),
+                anyhow::bail!(
                     "{}",
                     crate::i18n::format("host-interface-0079", &[("arg0", key.describe())])
                 );
-                host_handlers.insert(key.event.clone());
             }
             EventCategory::FrameEnter | EventCategory::FrameExit => {
                 let actual = story.resolve_frame(&key.target).ok_or_else(|| {
@@ -1665,8 +1666,20 @@ pub fn parse_localized(
                             Some(screen) => {
                                 screen.background_click.as_deref() == Some(event)
                                     || screen.background_right_click.as_deref() == Some(event)
+                                    || (screen.background_click.is_none()
+                                        && screen.background_right_click.is_none())
                             }
-                            None => node.is_some_and(|node| node.event.as_deref() == Some(event)),
+                            None => node.is_some_and(|node| {
+                                matches!(
+                                    node.kind,
+                                    Kind::Button
+                                        | Kind::Slider { .. }
+                                        | Kind::Toggle
+                                        | Kind::ColorPicker { .. }
+                                ) && node.route.is_none()
+                                    && (node.event.is_none()
+                                        || node.event.as_deref() == Some(event))
+                            }),
                         };
                         ensure!(
                             matched,
@@ -1684,13 +1697,32 @@ pub fn parse_localized(
                                 ]
                             )
                         );
+                        if let Some(screen) = screens.get_mut(&key.target) {
+                            if screen.background_click.is_none()
+                                && screen.background_right_click.is_none()
+                            {
+                                screen.background_click = Some(event.into());
+                            }
+                        } else {
+                            fn attach(nodes: &mut [Node], id: &str, event: &str) {
+                                for node in nodes {
+                                    if node.id == id {
+                                        node.event = Some(event.into());
+                                    }
+                                    attach(&mut node.children, id, event);
+                                }
+                            }
+                            for screen in screens.values_mut() {
+                                attach(&mut screen.nodes, &key.target, event);
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    // Every XML event reference needs exactly one registered callback, and every
-    // registration of a real target points back at a real XML event.
+    // Definitions may be unused and controls may be unbound. Every actual binding,
+    // whether declared in XML or JS, must reference an independently defined event.
     let mut xml_keys: BTreeMap<UiEventKey, String> = BTreeMap::new();
     for (id, screen) in &screens {
         for name in [&screen.background_click, &screen.background_right_click]
@@ -1720,7 +1752,11 @@ pub fn parse_localized(
     }
     for (key, location) in &xml_keys {
         ensure!(
-            seen.contains_key(key),
+            seen.contains_key(&UiEventKey {
+                category: EventCategory::Registered,
+                target: String::new(),
+                event: key.event.clone()
+            }),
             "{}",
             crate::i18n::format(
                 "host-interface-0084",

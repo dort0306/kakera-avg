@@ -41,6 +41,8 @@
 
 ## 修改与验证
 
+每次修改以一次用户请求的完整交付为单位：用户未指定版本号时，将当前应用版本 `x.y.z` 的 `z` 自动加 1；用户明确指定版本时使用指定版本。本轮中间修复和重跑不重复递增。同步 Cargo.toml、Cargo.lock 根包版本、README 与发布脚本默认目录，不把应用版本递增等同于 story/UI/save/content-version 升级。每轮完成修改及相关检查后，必须执行 `cargo build --locked --release --bins` 构建最新播放器与打包器二进制，交付时报告实际版本、绝对路径与构建结果；失败必须明确记录，不用旧二进制冒充新构建。不擅自提交、推送或公开发布。
+
 工作在当前根目录单 crate，提交 `Cargo.lock`，不提交 `target`、本地工具缓存或用户存档。保持实现直接；主逻辑单线程，视频允许一个有界解码线程，工程允许原生监控及单候选准备线程，不引入异步 runtime。新增抽象前先确认真实需求。文档使用中文，源代码采用惯用 Rust。
 
 代码完成后运行与变更有关的检查：
@@ -210,8 +212,6 @@ story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/demo content-version=11 不变。W
 
 后续职责拆分已按 doc/hsl-picker-composition-implementation-plan.zh-cn.md、doc/hsl-picker-composition-validation-plan.zh-cn.md 落地（2026-10-30）：控件只呈现环/方形/可选 alpha，预览与 HEX 交由作者 `color-bind`/`bind` 组合；布局为 D=min(W,H−R)、R=alpha?26:0，最小 128×154（alpha）/128×128（无 alpha），保留 RGBA 事件编码与 alpha 棋盘。用户报告的松开回跳按真实 App→JS→事务提交→下一帧链路复验，未复现；不以手动回写渲染快照或旧验收记录代替。实际证据与未执行的 DPI 范围见验收方案第 7 节。
 
-## v0.11.0 新版 JS 注册 API
+## v0.11.1 独立事件与可选控件绑定
 
-依据 doc/js-api-redesign-implementation-plan.zh-cn.md 与 doc/js-api-redesign-validation.zh-cn.md，接口见 API 第 37 节。剧情用 `frame(id).advance(targetOrRun)/choice(option, targetOrRun, when?)/end()`，界面用 `ui(控件或页面ID).bind(事件名, 回调)`；`targetOrRun` 接受字符串或返回字符串的函数，静态目标加载期校验、动态目标执行期校验，两者共用同一 Controller 事务。生命周期为 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`；全局进入钩子和捕获结果绑定固定虚拟目标 `ui('$game')`/`ui('$host')`，真实 UI 禁用这两个 ID。
-
-注册键为结构化的 (类别, 目标, 事件)，不是全局事件名：同名事件必须逐目标绑定，共享逻辑复用同一函数；完整装配后每个 XML 事件恰好一个注册，重复/未知目标/事件不匹配/页面与控件同 ID 全部拒绝。`frame`/`ui` 不可写、选择器冻结，回调期间注册失败。旧 `on.*` 入口已删除且无别名，旧脚本必须带文件名与栈拒绝，不提供迁移器或回退；ctx 参数、命令白名单、预算、story 8/UI 3/save 9/profile 1/read 1/KPAK 1&2 与 demo content-version=11 不变，新语法不写入存档。修改注册层时同步迁移 demo、测试与手册示例，并复验路由/别名/自循环/生命周期/捕获、两种包与跨进程槽位。
+依据 doc/v0.11.1-implementation-plan.zh-cn.md 与 doc/v0.11.1-validation.zh-cn.md，API 第 37 节。普通事件用 event.register(id, callback) 独立注册，可未被引用；控件用 ui(id).bind(eventId) 或 XML event 引用，允许省略/空事件，绑定支持前向引用。事件 ID 唯一、重复定义/绑定、未知目标/非空引用、route 冲突拒绝；XML 与 JS 同时声明须相同，不允许静默覆盖。未绑定控件仍阻挡背景，不自动提交业务值。捕获 resultEvent 直接引用独立事件，不再要求 $host 注册；生命周期专用入口、frame 路由两种目标、ctx 权限及数据格式保持不变。旧 on.* 与普通两参数 bind 无兼容别名。检查 demo、生成器、现行示例和宿主隔离/预算/回滚；历史验收不冒充本轮复测。

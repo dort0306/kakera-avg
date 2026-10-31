@@ -1,5 +1,7 @@
 # JS 注册 API 重设计验收方案
 
+这是 v0.11.0 历史验收设计。v0.11.1 的独立事件、可空控件与单参数绑定按 [新方案](v0.11.1-implementation-plan.zh-cn.md) 和 [本轮验收](v0.11.1-validation.zh-cn.md) 执行。
+
 日期：2026-10-31。状态：**已执行**，实际结果见 [验收记录](js-api-redesign-validation.zh-cn.md)。对应 [落地方案](js-api-redesign-implementation-plan.zh-cn.md)；本文件保留为验收设计与用例清单，不预填通过结果。
 
 ## 1. 验收原则与准备

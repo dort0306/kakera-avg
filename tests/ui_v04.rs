@@ -149,7 +149,9 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     assert!(opened.state.paused(&f.definition));
     assert!(!opened.state.keyboard(&f.definition));
     let xml = UI.replace("</ui>","<screen id=\"credits\"><label id=\"creditsText\" width=\"1000\" height=\"100\" text=\"作者定制页\"/></screen><screen id=\"probe\"><button id=\"creditsButton\" width=\"40\" height=\"20\" text=\"探针\" event=\"credits\"/></screen></ui>");
-    let js = format!("{UI_JS}\nui('creditsButton').bind('credits', ctx=>ctx.open('credits')); ");
+    let js = format!(
+        "{UI_JS}\n(event.register('credits', ctx=>ctx.open('credits')), ui('creditsButton').bind('credits')); "
+    );
     let (loaded, logic) = load_game(&source(&xml, &js)).unwrap();
     let def = loaded.interface;
     let cmds = logic
@@ -521,7 +523,8 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
         "while(true){}",
         "for(let i=0;i<33;i++)ctx.close();",
     ] {
-        let js = format!("{UI_JS}\nui('test').bind('test', ctx=>{{{body}}});");
+        let js =
+            format!("{UI_JS}\n(event.register('test', ctx=>{{{body}}}), ui('test').bind('test'));");
         let ui = common::probe(&UI, &["test"]);
         let (loaded, logic) = load_game(&source(&ui, &js)).unwrap();
         assert!(
@@ -536,7 +539,9 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
             "{body}"
         );
     }
-    let js = format!("{UI_JS}\nlet n=0;ui('test').bind('test', ctx=>ctx.message(String(++n))); ");
+    let js = format!(
+        "{UI_JS}\nlet n=0;(event.register('test', ctx=>ctx.message(String(++n))), ui('test').bind('test')); "
+    );
     let ui = common::probe(&UI, &["test"]);
     let (loaded, logic) = load_game(&source(&ui, &js)).unwrap();
     for _ in 0..2 {
@@ -809,6 +814,30 @@ fn renderer_uses_xml_hitboxes_and_repeat_items_without_running_callbacks() {
     let data = snapshot(&f, &question, true);
     let event = click(&ctx, &f, &assets, &question, &data, 1000.0, 184.0).unwrap();
     assert_eq!(event.item["id"], json!("accept"));
+}
+
+#[test]
+fn unbound_controls_emit_nothing_and_still_block_background_clicks() {
+    let mut f = fixture();
+    fn unbind(nodes: &mut [interface::Node]) {
+        for node in nodes {
+            if node.event.as_deref() == Some("open-save") {
+                node.event = None;
+            }
+            unbind(&mut node.children);
+        }
+    }
+    unbind(&mut f.definition.screens.get_mut("hud").unwrap().nodes);
+    let directory =
+        DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
+    let ctx = eframe::egui::Context::default();
+    let assets = kakera_avg::assets::PreparedAssets::load_from(&f.story, &directory)
+        .unwrap()
+        .install(&ctx);
+    let session = f.story.start();
+    let data = snapshot(&f, &session, true);
+    assert!(click(&ctx, &f, &assets, &session, &data, 940.0, 39.0).is_none());
+    assert_eq!(f.state.stack, vec!["hud"]);
 }
 
 #[test]

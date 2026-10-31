@@ -994,6 +994,8 @@ host-bridge-0029 = { "回调必须同步返回目标场景 ID" }
 host-bridge-0030 = { "目标幕必须为非空字符串或返回非空字符串的函数" }
 host-bridge-0031 = { "ui('$game') 只接受 game.enter：" }{ $arg0 }
 host-bridge-0032 = { "保留事件名不能注册到该目标：" }{ $arg0 }
+host-bridge-0033 = { "普通控件请使用 event.register(id, callback) 独立注册，再用 ui(id).bind(eventId) 绑定" }
+host-bridge-0034 = { "事件 ID 重复：" }{ $arg0 }{ "；首次注册：" }{ $arg1 }
 host-language-system = 无法读取系统首选语言，使用开发者默认语言：{ $reason }
 
 host-i18n-detail-0001 = { "文本数值参数超出精确整数范围" }

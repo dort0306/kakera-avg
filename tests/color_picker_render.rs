@@ -785,7 +785,7 @@ fn review_picker_first_focus_must_block_same_frame_advance() -> anyhow::Result<(
     )?;
     std::fs::write(
         game.path().join("story.js"),
-        "frame('opening').advance(()=> 'second');frame('second').end();ui('start').bind('start', ctx=>ctx.restart('opening'));ui('picker').bind('pick', ctx=>{ctx.setUi('color',ctx.value);ctx.setUi('show',false);});ui('$game').bind('game.enter', ctx=>ctx.setUi('title',ctx.game.frameId));",
+        "frame('opening').advance(()=> 'second');frame('second').end();(event.register('start', ctx=>ctx.restart('opening')), ui('start').bind('start'));(event.register('pick', ctx=>{ctx.setUi('color',ctx.value);ctx.setUi('show',false);}), ui('picker').bind('pick'));ui('$game').bind('game.enter', ctx=>ctx.setUi('title',ctx.game.frameId));",
     )?;
     std::fs::write(
         game.path().join("ui.xml"),
@@ -1074,7 +1074,7 @@ impl AppHarness {
     }
 }
 
-const ACCEPT: &str = "ui('start').bind('start', ctx=>ctx.restart('opening'));ui('picker').bind('pick', ctx=>ctx.setUi('color',ctx.value));ui('plain').bind('pick-text', ctx=>ctx.setUi('text',ctx.value));frame('opening').end();";
+const ACCEPT: &str = "(event.register('start', ctx=>ctx.restart('opening')), ui('start').bind('start'));(event.register('pick', ctx=>ctx.setUi('color',ctx.value)), ui('picker').bind('pick'));(event.register('pick-text', ctx=>ctx.setUi('text',ctx.value)), ui('plain').bind('pick-text'));frame('opening').end();";
 
 #[test]
 fn app_accept_chain_keeps_release_binding_marker_preview_and_hex() -> anyhow::Result<()> {
@@ -1189,7 +1189,7 @@ fn app_ring_and_alpha_edits_only_change_their_axis() -> anyhow::Result<()> {
 #[test]
 fn app_rejected_candidate_returns_to_the_committed_value() -> anyhow::Result<()> {
     let mut h = app_harness(
-        "ui('start').bind('start', ctx=>ctx.restart('opening'));ui('picker').bind('pick', ctx=>{});ui('plain').bind('pick-text', ctx=>ctx.setUi('text',ctx.value));frame('opening').end();",
+        "(event.register('start', ctx=>ctx.restart('opening')), ui('start').bind('start'));(event.register('pick', ctx=>{}), ui('picker').bind('pick'));(event.register('pick-text', ctx=>ctx.setUi('text',ctx.value)), ui('plain').bind('pick-text'));frame('opening').end();",
     )?;
     h.start();
     let square = h.square(0);
@@ -1224,7 +1224,7 @@ fn app_rejected_candidate_returns_to_the_committed_value() -> anyhow::Result<()>
 #[test]
 fn app_corrected_candidate_moves_marker_and_external_nodes() -> anyhow::Result<()> {
     let mut h = app_harness(
-        "ui('start').bind('start', ctx=>ctx.restart('opening'));ui('picker').bind('pick', ctx=>ctx.setUi('color','#3366CCFF'));ui('plain').bind('pick-text', ctx=>ctx.setUi('text',ctx.value));frame('opening').end();",
+        "(event.register('start', ctx=>ctx.restart('opening')), ui('start').bind('start'));(event.register('pick', ctx=>ctx.setUi('color','#3366CCFF')), ui('picker').bind('pick'));(event.register('pick-text', ctx=>ctx.setUi('text',ctx.value)), ui('plain').bind('pick-text'));frame('opening').end();",
     )?;
     h.start();
     let square = h.square(0);
@@ -1270,7 +1270,7 @@ fn both_package_formats_keep_compact_pickers_and_author_composition() -> anyhow:
     )?;
     std::fs::write(
         root.path().join("story.js"),
-        "frame('opening').end();ui('picker').bind('pick', ctx=>ctx.setUi('color',ctx.value));ui('plain').bind('pick-text', ctx=>ctx.setUi('text',ctx.value));",
+        "frame('opening').end();(event.register('pick', ctx=>ctx.setUi('color',ctx.value)), ui('picker').bind('pick'));(event.register('pick-text', ctx=>ctx.setUi('text',ctx.value)), ui('plain').bind('pick-text'));",
     )?;
     std::fs::write(
         root.path().join("ui.xml"),

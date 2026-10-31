@@ -1,6 +1,8 @@
 # XML 与 JavaScript API 使用手册
 
-适用版本：Kakera AVG Rust v0.11.0。唯一创作与存档契约为 story 8 / UI 3 / save 9，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.11.0 把 JS 注册改为 `frame(id)`/`ui(id)` 选择器（第 37 节），旧 `on.*` 入口已删除；v0.10.1 新增默认关闭的游戏国际化及独立语言偏好。旧播放器不认识这些扩展时严格拒绝。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-30。
+v0.11.1：普通事件通过 `event.register(id, callback)` 独立定义，控件通过 XML event 或 `ui(id).bind(eventId)` 引用，事件允许未使用、控件事件允许省略/为空。生命周期专用入口不变；现行约束与迁移见第 37.2–37.4 节，覆盖此前普通两参数 bind 规则。核对日期：2026-10-31。
+
+适用版本：Kakera AVG Rust v0.11.1。唯一创作与存档契约为 story 8 / UI 3 / save 9，包容器为 KPAK 2（流式）/1（小包兼容），profile/read 为 1。v0.11.0 把 JS 注册改为 `frame(id)`/`ui(id)` 选择器（第 37 节），旧 `on.*` 入口已删除；v0.10.1 新增默认关闭的游戏国际化及独立语言偏好。旧播放器不认识这些扩展时严格拒绝。旧文件不自动迁移；历史接口仅查阅 [v0.7.3 归档](archive/v0.7.3-xml-js-api.zh-cn.md)。游戏界面和交互优先用 XML/JS，只有缺少宿主能力时才扩展 Rust。核对日期：2026-10-30。
 
 从工程编辑到生成可运行发布目录的完整命令、参数、Core 配置与排错，见 [工程模式、发布模式与 kakera-pack 使用指南](project-release-pack-guide.zh-cn.md)。本手册集中说明 XML/JS 契约，第 20 节同时给出运行与资源包接口参考。
 
@@ -53,7 +55,7 @@
 | `story.xml` / 章节 XML | story.xml 是固定入口，声明身份/UI；内容分组可分散到显式 next 链的各文件，合并后形成完整故事 |
 | `ui.xml` | 画布、页面、图片、位置、大小、颜色、控件、绑定、UI 变量和 CG 清单 |
 | `frame(id).advance/choice/end` | 剧情继续与选择；只有这里可更新剧情变量 |
-| `ui(id).bind(event, fn)` | 页面/控件互动、设置、存读档、自动播放与模型动作；`ui('$game')` 注册 game.enter |
+| `event.register(event, fn)` | 页面/控件互动、设置、存读档、自动播放与模型动作；`ui('$game')` 注册 game.enter |
 | Rust 宿主 | 校验与原子提交、绘制、计时、IO、音频、媒体和 Core 适配 |
 
 | 版本字段 | 当前正式值 | 用途 |
@@ -206,15 +208,15 @@ frame("ending").end();
 ```javascript
 "use strict";
 
-ui("openSettings").bind("open-settings", ctx => ctx.open("settings"));
-ui("settingsBack").bind("close", ctx => ctx.close());
-ui("continue").bind("advance", ctx => ctx.advance());
-ui("choice").bind("choose", ctx => ctx.choose(ctx.item.id));
-ui("speed").bind("text-speed", ctx => ctx.setting("text_speed", ctx.value));
-ui("mute").bind("mute", ctx => ctx.setting("muted", ctx.value));
+event.register("open-settings", ctx => ctx.open("settings"));
+event.register("close", ctx => ctx.close());
+event.register("advance", ctx => ctx.advance());
+event.register("choose", ctx => ctx.choose(ctx.item.id));
+event.register("text-speed", ctx => ctx.setting("text_speed", ctx.value));
+event.register("mute", ctx => ctx.setting("muted", ctx.value));
 ```
 
-`advance`、`choose`、`close` 等是示例自定的事件名，并非引擎内置按钮行为；删掉对应的 `ui(控件ID).bind(事件名, …)` 注册会导致 XML 事件引用校验失败。
+`advance`、`choose`、`close` 等是示例自定的事件名，并非引擎内置按钮行为；删掉对应的 `event.register(事件名, …)` 注册会导致 XML 事件引用校验失败。
 
 ## 4. story.xml 完整参考
 
@@ -521,7 +523,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
 </ui>
 ```
 
-上述 close 事件仍需在已加载的 JS 中注册，例如 `ui("closeSettings").bind("close", ctx => ctx.close())`。事件、绑定、UI 变量、资源和页面引用沿用全局契约，不为每份 XML 新建局部作用域。
+上述 close 事件仍需在已加载的 JS 中注册，例如 `event.register("close", ctx => ctx.close())`。事件、绑定、UI 变量、资源和页面引用沿用全局契约，不为每份 XML 新建局部作用域。
 
 | 规则 | 行为 |
 | --- | --- |
@@ -619,7 +621,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
         event="open-save" image="ui.button" hover-image="ui.hover" disabled-image="ui.disabled" />
 ```
 
-`event` 与 `route` 互斥：event 须注册对应的 `ui(控件ID).bind(...)`，route 直接执行页面导航（第 30 节）。也可仅声明 `sound="音频资源或音效组ID"` 创建纯音效按钮；有 sound 时可不写 event/route，或与二者之一组合（第 31 节）；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
+`event` 与 `route` 互斥：非空 event 须有对应的 `event.register(...)`，route 直接执行页面导航（第 30 节）。也可仅声明 `sound="音频资源或音效组ID"` 创建纯音效按钮；有 sound 时可不写 event/route，或与二者之一组合（第 31 节）；`text/bind` 互斥，文字默认空，字号默认 20。图片均为共享 image ID，按按钮矩形 stretch；button 不接受 fit 或 image-bind。
 
 悬停优先使用 hover-image，禁用优先使用 disabled-image；缺省回退到普通 image，无图则填色。禁用背景额外变暗，且不发事件。color 控制背景/图片 tint，当前按钮文字固定白色居中；不能用 color 单独改按钮文字颜色。radius 只作用于无图背景。若需复杂按钮字效，推荐把文字画入美术图片。
 
@@ -634,7 +636,7 @@ gallery 只声明收藏数据，不自动生成页面。缩略图、锁定提示
         value="settings.muted" event="mute-changed" font-size="20" />
 ```
 
-slider 必填 value/min/max/event，min 必须小于 max；value 必须绑定 number。toggle 必填 value/event，value 必须绑定 bool，text 为开关标签。它们在值改变时发事件，`ctx.value` 分别是 Number、boolean；**不会自动写回绑定来源**，需要回调调用 setting 或 setUi。
+slider 必填 value/min/max，min 必须小于 max；value 必须绑定 number。toggle 必填 value，value 必须绑定 bool，text 为开关标签。event 均可省略或为空，按需用 XML 引用或 JS 单参数 bind 连接独立事件。已绑定时在值改变后派发，`ctx.value` 分别为 Number、boolean；**不会自动写回绑定来源**，需要回调调用 setting 或 setUi。
 
 滑杆和开关当前采用 egui 基础控件，无图片皮肤属性；toggle 的 color/font-size 控制标签，slider 不接受 font-size。XML 接受 number 类型的 UI int 作为滑杆来源，但滑杆输出可能有小数，更新 UI int 时应使用 `Math.round(ctx.value)`；不适合编辑大范围精确 i64。
 
@@ -736,12 +738,12 @@ game 进度字段逐帧更新，但选项条件只在提交边界求值缓存。
 ### 10.1 注册与输入
 
 ```javascript
-ui("控件ID").bind(eventName, ctx => {
+event.register(eventName, ctx => {
   // 收集命令；不要返回目标场景或对象
 });
 ```
 
-首个参数是声明该事件的控件或页面 ID，eventName 仍是 XML 中的作者事件名。同一（目标，事件名）只能注册一次；多个按钮可共用同一事件名，但必须逐目标绑定，共享逻辑写成同一个函数。`game.enter` 只能绑定固定虚拟目标 `$game`，不能用于节点 event。没有 click/tick、DOM 事件或任意事件派发 API；具名幕/页面生命周期使用第 32 节的 `frame(id).enter/exit`、`ui(id).bind('screen.open'/'screen.close')`。
+首个参数是独立事件 ID；同一 ID 只能定义一次。多个按钮可通过 XML event 或 ui(id).bind(eventId) 复用同一函数；函数定义不依赖控件。`game.enter` 只能绑定固定虚拟目标 `$game`，不能用于节点 event。没有 click/tick、DOM 事件或任意事件派发 API；具名幕/页面生命周期使用第 32 节的 `frame(id).enter/exit`、`ui(id).bind('screen.open'/'screen.close')`。
 
 v0.5 的 `ctx.transition/animate` 参数及生命周期权限见 [第 17 节](#17-内置转场与图片效果)，v0.5.1 的 `ctx.portrait` 见第 18 节；其余 UI 命令在本章逐项说明。
 
@@ -762,7 +764,7 @@ UI ctx 没有剧情回调的 `frameId/optionId/set/add`；场景请读 `ctx.game
 **所有 UI 读取始终是事件开始时的快照。** setUi/setting/open 等只是排队命令，不会改变同一回调里 ctx.ui/settings/game 的读取结果。需要更新后再计算时用 JS 局部变量：
 
 ```javascript
-ui("incrementButton").bind("increment", ctx => {
+event.register("increment", ctx => {
   const next = ctx.ui.counter + 1n; // counter 必须事先声明
   ctx.setUi("counter", next);
   ctx.setUi("status", `当前计数：${next}`);
@@ -827,7 +829,7 @@ ctx.setting(name, value);
 名称区分大小写，不接受其他设置项。数值在宿主按 f32 存储，不是精确十进制。变更原子写入独立 settings.json，成功后生效；text_speed=0 会立即补全当前句。autosave 控制后续场景进入时的自动写档；关闭后不删除已存在自动槽。skip_all 只改变按住 Ctrl 时的快进范围，见第 23 节。
 
 ```javascript
-ui("resetAudio").bind("reset-audio", ctx => {
+event.register("reset-audio", ctx => {
   ctx.setting("muted", false);
   ctx.setting("bgm_volume", 0.35);
   ctx.setting("voice_volume", 0.8);
@@ -861,7 +863,7 @@ cgId 必须在 XML gallery 清单中。新解锁原子写入独立 profile.json�
 
 ### 10.8 UI 演出与音效方法速查
 
-以下方法可用于普通 `ui(id).bind(...)` 回调；新生命周期仅按第 32 节白名单使用，不可在 `game.enter` 中调用；全部返回 undefined，不能同步获得抽中的声音或演出完成结果。
+以下方法可用于普通 `event.register(...)` 回调；新生命周期仅按第 32 节白名单使用，不可在 `game.enter` 中调用；全部返回 undefined，不能同步获得抽中的声音或演出完成结果。
 
 | 方法 | 参数 | 用法与约束 |
 | --- | --- | --- |
@@ -904,8 +906,8 @@ ui("$game").bind("game.enter", ctx => {
 UI 声明 int pendingSlot（initial=1、min=1、max=200）和 string confirmText、status；定义 save 与 confirm-save 两个模态页面。save 页的 repeat source=slots，存入按钮 event=save-slot；确认按钮 event=confirm-save，取消按钮 event=close。repeat 只展示当前十槽页，分页命令见第 19.1 节。
 
 ```javascript
-ui("openSave").bind("open-save", ctx => ctx.open("save"));
-ui("saveSlot").bind("save-slot", ctx => {
+event.register("open-save", ctx => ctx.open("save"));
+event.register("save-slot", ctx => {
   if (ctx.item.exists) {
     ctx.setUi("pendingSlot", ctx.item.slot);
     ctx.setUi("confirmText", `确认覆盖槽位 ${ctx.item.slot}？`);
@@ -916,7 +918,7 @@ ui("saveSlot").bind("save-slot", ctx => {
     ctx.close();
   }
 });
-ui("confirmSave").bind("confirm-save", ctx => {
+event.register("confirm-save", ctx => {
   ctx.save(Number(ctx.ui.pendingSlot), true);
   ctx.setUi("status", "覆盖完成");
   ctx.close(); // 确认页
@@ -936,7 +938,7 @@ ui("confirmSave").bind("confirm-save", ctx => {
 该节点置于 slots 模板中：
 
 ```javascript
-ui("loadSlot").bind("load-slot", ctx => {
+event.register("load-slot", ctx => {
   ctx.load(ctx.item.slot);
   ctx.setUi("status", "读档完成");
   ctx.close();
@@ -955,7 +957,7 @@ gallery 模板用 `visible="item.unlocked"` 显示缩略图，`visible="not:item
 ```
 
 ```javascript
-ui("viewCg").bind("view-cg", ctx => {
+event.register("view-cg", ctx => {
   if (!ctx.item.unlocked) return;
   ctx.setUi("cgImage", ctx.item.image);
   ctx.setUi("cgTitle", ctx.item.title);
@@ -967,7 +969,7 @@ ui("viewCg").bind("view-cg", ctx => {
 
 ### 12.4 自定义信息/设置页面
 
-添加一个 screen，包含 label/image/button，注册 open 回调，即可制作作者介绍、操作帮助等页面；无须增加 Rust 窗口。剧情派生条件可在 game.enter 中更新 UI bool 后绑定 visible；只有 UI 点击决定的页签、提示和计数可在普通 `ui(id).bind(...)` 回调中维护。没有逐帧自定义脚本钩子。
+添加一个 screen，包含 label/image/button，注册 open 回调，即可制作作者介绍、操作帮助等页面；无须增加 Rust 窗口。剧情派生条件可在 game.enter 中更新 UI bool 后绑定 visible；只有 UI 点击决定的页签、提示和计数可在普通 `event.register(...)` 回调中维护。没有逐帧自定义脚本钩子。
 
 ## 13. 持久化与内容兼容
 
@@ -1187,13 +1189,13 @@ ui("$game").bind("game.enter", ctx => {
 });
 
 // 普通 UI 事件，target 是 XML 节点 ID
-ui("shakeButton").bind("shake-preview", ctx => ctx.animate("memoryPreview", "shake", 600, 20));
+event.register("shake-preview", ctx => ctx.animate("memoryPreview", "shake", 600, 20));
 ```
 
 | 方法 | 参数与默认值 | 校验与提交 |
 | --- | --- | --- |
 | `ctx.transition(kind, duration=600, easing="ease-in-out")` | kind 与 XML 同名；duration 为整数 Number 毫秒 | 仅 game.enter；覆盖目标 frame 的 XML 转场，本次进入最多一次；none 可取消 XML 转场 |
-| `ctx.animate(target, kind, duration=400, strength=12, easing="ease-in-out")` | target/kind/easing 为 string；duration 为整数 Number；strength 为有限 Number | 普通 `ui(id).bind(...)` 回调或 game.enter 均可；目标必须是非 repeat 内的 scene，或带 image/image-bind 的 image/panel |
+| `ctx.animate(target, kind, duration=400, strength=12, easing="ease-in-out")` | target/kind/easing 为 string；duration 为整数 Number；strength 为有限 Number | 普通 `event.register(...)` 回调或 game.enter 均可；目标必须是非 repeat 内的 scene，或带 image/image-bind 的 image/panel |
 
 target 不接受素材 ID、CSS 选择器、repeat 实例索引或普通 button/label；重复模板节点无法唯一定位，故拒绝。多个命令指向同一个目标时，最后一次替换其活动动画，不排队。scene 的 JS 动画作用整个场景区域；图片/面板只改变自身图片，不移动文字和点击区域。关闭后不可见的节点仍按共同呈现时钟计时，不延迟到再次可见才开始。
 
@@ -1251,11 +1253,11 @@ target 不接受素材 ID、CSS 选择器、repeat 实例索引或普通 button/
 
 ```javascript
 // 普通 UI 回调：摇动当前中间槽，结束后保持 XML 姿态。
-ui("linShake").bind("lin-shake", ctx => ctx.portrait("center", "shake", 800, 24, "ease-out"));
+event.register("lin-shake", ctx => ctx.portrait("center", "shake", 800, 24, "ease-out"));
 
 // 与选择组合：宿主验证选择成功后的候选场景。
 // 选项 fall 的目标 Frame 必须有 center 槽及 pose="fallen-right"。
-ui("fallChoice").bind("fall-choice", ctx => {
+event.register("fall-choice", ctx => {
   ctx.portrait("center", "fall-right", 1200);
   ctx.choose("fall");
 });
@@ -1266,7 +1268,7 @@ ui("$game").bind("game.enter", ctx => {
 });
 ```
 
-签名：`ctx.portrait(slot, action, duration=600, strength=32, easing="ease-in-out")`。slot/action/easing 为 string，duration 为整数 Number，strength 为有限 Number。slot 只能 `left/center/right`，动作与参数见上表。允许普通 `ui(id).bind(...)` 回调和 game.enter；剧情 `frame(...).advance/choice` 的 ctx 不提供此方法。
+签名：`ctx.portrait(slot, action, duration=600, strength=32, easing="ease-in-out")`。slot/action/easing 为 string，duration 为整数 Number，strength 为有限 Number。slot 只能 `left/center/right`，动作与参数见上表。允许普通 `event.register(...)` 回调和 game.enter；剧情 `frame(...).advance/choice` 的 ctx 不提供此方法。
 
 该命令只收集宿主动作计划，不执行脚本动画循环。计入每次回调 32 条 UI 命令预算，原 QuickJS 时间/内存/命令限制不变。同一槽后一个命令替换前一个，不排队；不同槽可同时播放。`none` 可取消本槽动作并回到声明姿态。
 
@@ -1305,9 +1307,9 @@ demo 正常进入问题页后选择“立绘动作演示”，打开专用 XML �
 ```
 
 ```javascript
-ui("prevPage").bind("slots-prev", ctx => ctx.slotsPage(ctx.saves.page - 1));
-ui("nextPage").bind("slots-next", ctx => ctx.slotsPage(ctx.saves.page + 1));
-ui("jumpPage").bind("slots-page", ctx => ctx.slotsPage(Math.round(ctx.value)));
+event.register("slots-prev", ctx => ctx.slotsPage(ctx.saves.page - 1));
+event.register("slots-next", ctx => ctx.slotsPage(ctx.saves.page + 1));
+event.register("slots-page", ctx => ctx.slotsPage(Math.round(ctx.value)));
 // 范围外直接报错，不会钳制到第一页或最后一页。
 ```
 
@@ -1323,8 +1325,8 @@ ui("jumpPage").bind("slots-page", ctx => ctx.slotsPage(Math.round(ctx.value)));
 - `ctx.loadAuto(slot)` 与手动 load 相同：候选 Session、可用选项、进入命令和媒体准备全部通过才提交。读档后自动播放停止，视频/模型从声明起点重建。
 
 ```javascript
-ui("autosaveToggle").bind("autosave-setting", ctx => ctx.setting("autosave", ctx.value));
-ui("loadAutoSlot").bind("load-auto-slot", ctx => {
+event.register("autosave-setting", ctx => ctx.setting("autosave", ctx.value));
+event.register("load-auto-slot", ctx => {
   ctx.loadAuto(ctx.item.slot);
   ctx.close(); // 按实际页面栈决定关闭几层
 });
@@ -1338,8 +1340,8 @@ ui("loadAutoSlot").bind("load-auto-slot", ctx => {
 ```
 
 ```javascript
-ui("auto").bind("toggle-auto", ctx => ctx.autoPlay(!ctx.game.autoPlaying));
-ui("autoDelay").bind("auto-delay", ctx => ctx.setting("auto_delay", ctx.value));
+event.register("toggle-auto", ctx => ctx.autoPlay(!ctx.game.autoPlaying));
+event.register("auto-delay", ctx => ctx.setting("auto_delay", ctx.value));
 ```
 
 `ctx.autoPlay(enabled)` 只接受 boolean，属于瞬时呈现命令，禁止在 game.enter 中调用。文字完整、转场结束、当前语音完成后，等待 auto_delay 秒提交一次 Advance；不会自动补全正在显示的句子。无设备或 --no-audio 时语音视为已结束。
@@ -1411,7 +1413,7 @@ model3 的 FileReferences.Moc/Textures/Motions/Expressions/Pose 及辅助文件�
 每槽一个实例，随进入事件重建，不暗中继承前帧。每次更新从参数默认值开始，叠加 XML 初值，再应用当前 motion3 与 expression3，最后 Core 校验/钳制参数并更新网格。motion 覆盖同名初值；expression 的 Add/Multiply/Overwrite 再作用在动作结果上。无 motion 时仍显示真实模型静态形变。XML 的立绘 enter/exit/pose 和 ctx.portrait 对合成纹理照常生效；灰度、模糊等预计算 filter 不支持 Live2D，加载阶段拒绝。位置/缩放/翻转/染色/透明度保留。
 
 ```javascript
-ui("waveButton").bind("wave", ctx => ctx.live2d("center", "TapBody:0"));
+event.register("wave", ctx => ctx.live2d("center", "TapBody:0"));
 // 也可在 game.enter 中对候选场景触发已登记动作。
 ```
 
@@ -1687,14 +1689,14 @@ UI XML 不并入 story.xml：其根级 include 通过独立装配合并到原 UI
 在 ui 的 variables 内声明 `<bool id="hudVisible" initial="true" />`，在已登记的 JS 文件中注册：
 
 ```javascript
-ui("hud").bind("background-advance", ctx => {
+event.register("background-advance", ctx => {
   if (!ctx.ui.hudVisible) {
     ctx.setUi("hudVisible", true);
     return; // 这一下仅恢复 HUD
   }
   if (ctx.game.canAdvance) ctx.advance();
 });
-ui("hud").bind("toggle-hud", ctx => {
+event.register("toggle-hud", ctx => {
   ctx.setUi("hudVisible", !ctx.ui.hudVisible);
 });
 ```
@@ -1823,7 +1825,7 @@ Windows 窗口客户区固定为 16:9，默认 1280×720、最小 640×360（逻
 ```
 
 ```javascript
-ui("fullscreen").bind("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
+event.register("fullscreen", ctx => ctx.setting("fullscreen", ctx.value));
 ```
 
 事件名自定并须注册；完整样例在 demo 设置页。fullscreen 只接受 bool，默认 false，和同批设置一起验证、原子保存成功后由宿主在更新边界切换。坏命令或设置写入失败不切换窗口。启动读取完整设置后恢复模式。
@@ -1890,8 +1892,8 @@ ui("fullscreen").bind("fullscreen", ctx => ctx.setting("fullscreen", ctx.value))
 ```
 
 ```javascript
-ui("showGreen").bind("show-green", ctx => ctx.setUi("spriteRegion", "64,0,64,64"));
-ui("showRed").bind("show-red", ctx => ctx.setUi("spriteRegion", "128,0,64,64"));
+event.register("show-green", ctx => ctx.setUi("spriteRegion", "64,0,64,64"));
+event.register("show-red", ctx => ctx.setUi("spriteRegion", "128,0,64,64"));
 ```
 
 region 是四个逗号分隔的整数 `x,y,width,height`，允许数字旁空格；原点为原始图像左上角，单位是源像素。x/y 非负、宽高为正，不允许小数/负数/溢出/空值。区域必须完全在当前源图内，字符串最多 128 字节。region-bind 必须指向 UI string 变量，与 region 互斥，不能绑定 setting、剧情变量或 item 字段。
@@ -1960,7 +1962,7 @@ id 缺省时 name 必填；两者都缺少会给出源文件位置错误。显�
 ```
 
 ```javascript
-ui("renameTitle").bind("rename-title", ctx => ctx.setUi("windowTitle", "我的游戏 · 特别篇"));
+event.register("rename-title", ctx => ctx.setUi("windowTitle", "我的游戏 · 特别篇"));
 // 也可在已有 game.enter 回调内按进入的场景设置；请合并进原回调，勿重复注册。
 ui("$game").bind("game.enter", ctx => ctx.setUi("windowTitle", `我的游戏 · ${ctx.game.frameId}`));
 ```
@@ -2083,10 +2085,10 @@ clip.asset 必须是已声明 Audio，actor 可省略，存在时必须是 chara
 ### 31.4 玩家偏好与绑定
 
 ```js
-ui("roleToggle").bind("role", ctx => ctx.soundActor("lin", ctx.value));
-ui("excludeToggle").bind("exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
-ui("uiAudioToggle").bind("ui-audio", ctx => ctx.soundEnabled(ctx.value));
-ui("watchButton").bind("watch", ctx => ctx.sequence("opening"));
+event.register("role", ctx => ctx.soundActor("lin", ctx.value));
+event.register("exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
+event.register("ui-audio", ctx => ctx.soundEnabled(ctx.value));
+event.register("watch", ctx => ctx.sequence("opening"));
 ```
 
 只接受严格 bool 和已声明的角色/Audio ID。偏好保存为存档目录内独立 `ui-audio.json`（schema 1、story_id、enabled、disabled_actors、excluded 完整字段），原子替换，失败不提交本批 UI 状态/声音；坏文件提示并采用默认值，未知旧 ID 保留排除意图但不参与当前选择。不随剧情槽读档/重开回滚，不打包、不触发工程热更。存档仍只保存剧情变量/位置/历史。
@@ -2178,12 +2180,12 @@ ui("watchButton").bind("watch", ctx => ctx.sequence("opening"));
 
 ```js
 // scripts/api-presentation.js
-ui("apiFade").bind("api-fade", ctx => ctx.sequence("api.fade"));
-ui("apiIntro").bind("api-intro", ctx => ctx.sequence("api.intro"));
-ui("apiCredits").bind("api-credits", ctx => ctx.sequence("api.credits"));
-ui("apiMaster").bind("api-master", ctx => ctx.soundEnabled(ctx.value));
-ui("apiActor").bind("api-actor", ctx => ctx.soundActor("lin", ctx.value));
-ui("apiExclude").bind("api-exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
+event.register("api-fade", ctx => ctx.sequence("api.fade"));
+event.register("api-intro", ctx => ctx.sequence("api.intro"));
+event.register("api-credits", ctx => ctx.sequence("api.credits"));
+event.register("api-master", ctx => ctx.soundEnabled(ctx.value));
+event.register("api-actor", ctx => ctx.soundActor("lin", ctx.value));
+event.register("api-exclude", ctx => ctx.soundExclude("voice.lin", ctx.value));
 ```
 
 三个开关的值均由只读绑定恢复，作者不需要再用 UI 变量复制偏好。关闭凛后，随机组只剩敲门声；排除 voice.lin 也会让它无法经直接资源引用播放。演出页返回按钮关闭当前模态页；片尾的 open:hud 目标必须是 modal=false 才会直接回到根剧情界面。finish=return 不会自动退出当前页，也不会推进剧情。
@@ -2216,7 +2218,7 @@ ui("opening-movie").bind("screen.close", ctx => ctx.resume("question"));
 
 四种注册可省略，fn 必须是同步函数并返回 undefined；回调按每次独立 QuickJS 隔离执行。普通参数快照沿用普通 UI 回调：ctx.vars 只读，ctx.ui 为事件开始时 UI 变量，ctx.game.frameId 对具名幕给出 name。幕 exit 读取旧幕快照，幕 enter 读取候选幕快照；离幕交给 UI 期间剧情尚未提交，UI 读取保留的旧剧情，待续目标/变量由隐藏槽持有；进入幕触发 UI 时，该幕与 UI 一起提交，UI 读取该幕快照。
 
-新生命周期允许 open/close/setUi/message/playSound/sequence/present；离幕 sequence 需要同批打开 UI 页，推荐只在 frameExit 中打开页面、在 screenOpen 中启动序列；**只有 screenClose 额外允许 resume**。普通 `ui(id).bind(...)` 回调也可 present/resume。生命周期不允许 setting、unlock、存读档、普通 advance/choose/restart、任意变量修改或 IO。原有 game.enter 保持自己的白名单；正常进入时顺序为旧 frameExit → game.enter → 新 frameEnter；exit 已打开交接页时，game.enter/新 frameEnter 延后到续接提交前。读档/隐藏槽恢复及历史校验不重放 frameEnter/Exit；隐藏槽恢复不重放 game.enter，保留隐藏 UI 变量；普通存读档仍沿用既有 game.enter 恢复规则。
+新生命周期允许 open/close/setUi/message/playSound/sequence/present；离幕 sequence 需要同批打开 UI 页，推荐只在 frameExit 中打开页面、在 screenOpen 中启动序列；**只有 screenClose 额外允许 resume**。普通 `event.register(...)` 回调也可 present/resume。生命周期不允许 setting、unlock、存读档、普通 advance/choose/restart、任意变量修改或 IO。原有 game.enter 保持自己的白名单；正常进入时顺序为旧 frameExit → game.enter → 新 frameEnter；exit 已打开交接页时，game.enter/新 frameEnter 延后到续接提交前。读档/隐藏槽恢复及历史校验不重放 frameEnter/Exit；隐藏槽恢复不重放 game.enter，保留隐藏 UI 变量；普通存读档仍沿用既有 game.enter 恢复规则。
 
 页面回调也只生成候选计划，不在绘制时执行。同一事务所有回调合计最多 32 条命令、页面生命周期最多 16 次派发，一次最多启动一个序列、一个返回操作；循环开关、重复模态页、超限、非法目标或回调异常拒绝整个事务，旧剧情/UI/音频不部分提交。UI 返回及进入幕交接同样支持场景断点：断点暂停期间隐藏槽不提前写成已完成，继续成功提交后才更新。XML 节点 event 不可伪造这些保留生命周期事件。
 
@@ -2253,14 +2255,14 @@ ui("opening-movie").bind("screen.close", ctx => ctx.resume());
 ### 32.3 UI 主动进入剧情
 
 ```js
-ui("watchIntro").bind("watch-intro", ctx => ctx.present("opening-movie"));
+event.register("watch-intro", ctx => ctx.present("opening-movie"));
 ui("opening-movie").bind("screen.open", ctx => ctx.sequence("opening-sequence"));
 ui("opening-movie").bind("screen.close", ctx => ctx.resume("opening"));
 ```
 
 present 保存当前剧情及 UI 交接点，再按页面 modal 规则打开页面；已经有活动交接时禁止嵌套 present。普通 open 仍用于设置、画廊等页面；从幕生命周期打开页面、或通过 UI 事件启动含视频的 sequence 时，宿主也会建立隐藏交接槽。
 
-resume 可在普通 `ui(id).bind(...)` 回调或 `screen.close` 回调使用；没有活动交接时，读取并完整验证磁盘隐藏槽（包括已完成的 inactive 状态）。省略目标时恢复其 continuation；没有隐藏槽时必须显式指定起始幕。剧情已开始后指定目标以隐藏 continuation 为基础，记录显式 UI 返回并保留变量。首次尚未进入剧情时必须显式指定已声明起始幕（或载入手动/自动档），以该幕、初始变量和一条历史建立新会话，不使用 inactive 隐藏槽。指定目标与自动关闭回调的无参 resume 合并时保留指定目标，两个不同显式目标则拒绝整批操作。未显式切页时恢复原页面栈；若从独立主菜单进入 hud，可在回调中先 `ctx.open("hud")` 再 `ctx.resume("opening")`。hud 必须为非模态根页面。
+resume 可在普通 `event.register(...)` 回调或 `screen.close` 回调使用；没有活动交接时，读取并完整验证磁盘隐藏槽（包括已完成的 inactive 状态）。省略目标时恢复其 continuation；没有隐藏槽时必须显式指定起始幕。剧情已开始后指定目标以隐藏 continuation 为基础，记录显式 UI 返回并保留变量。首次尚未进入剧情时必须显式指定已声明起始幕（或载入手动/自动档），以该幕、初始变量和一条历史建立新会话，不使用 inactive 隐藏槽。指定目标与自动关闭回调的无参 resume 合并时保留指定目标，两个不同显式目标则拒绝整批操作。未显式切页时恢复原页面栈；若从独立主菜单进入 hud，可在回调中先 `ctx.open("hud")` 再 `ctx.resume("opening")`。hud 必须为非模态根页面。
 
 离幕时打开 UI 会保留旧幕和未提交的续接点；进入幕时打开 UI 则将该幕与 UI 一起原子提交，并暂停该幕。返回同一已进入幕只恢复显示，不再次调用 game.enter/frameEnter，避免无条件循环播放。返回不同幕才执行新的进入回调。
 
@@ -2312,12 +2314,12 @@ resume 可在普通 `ui(id).bind(...)` 回调或 `screen.close` 回调使用；�
 
 ### UI 显式唤起剧情与隐藏续接（v0.9.1 增量）
 
-控件通过普通 `ui(id).bind(...)` 回调使用相同命令，自动演出通过 `screen.close` 回调使用相同命令，无需新增 XML 格式：
+控件通过普通 `event.register(...)` 回调使用相同命令，自动演出通过 `screen.close` 回调使用相同命令，无需新增 XML 格式：
 
 ```javascript
-ui("startStory").bind("start-story", ctx => { ctx.open("hud"); ctx.resume("opening"); });
-ui("hiddenStory").bind("hidden-story", ctx => { ctx.open("hud"); ctx.resume("secret-entry"); });
-ui("continueStory").bind("continue-story", ctx => { ctx.open("hud"); ctx.resume(); });
+event.register("start-story", ctx => { ctx.open("hud"); ctx.resume("opening"); });
+event.register("hidden-story", ctx => { ctx.open("hud"); ctx.resume("secret-entry"); });
+event.register("continue-story", ctx => { ctx.open("hud"); ctx.resume(); });
 ui("opening-movie").bind("screen.close", ctx => ctx.resume("opening"));
 ```
 
@@ -2353,9 +2355,9 @@ story 8 的 `entry` 支持空白分隔列表，例如 `entry="main.opening secre
 
 ```javascript
 // ui.xml initial 指向作者主菜单；hud 为非模态根页面。
-ui("startMain").bind("start-main", ctx => { ctx.open("hud"); ctx.restart("main.opening"); });
-ui("startSecret").bind("start-secret", ctx => { ctx.open("hud"); ctx.restart("secret.opening"); });
-ui("loadStory").bind("load-story", ctx => { ctx.open("hud"); ctx.load(ctx.item.slot); });
+event.register("start-main", ctx => { ctx.open("hud"); ctx.restart("main.opening"); });
+event.register("start-secret", ctx => { ctx.open("hud"); ctx.restart("secret.opening"); });
+event.register("load-story", ctx => { ctx.open("hud"); ctx.load(ctx.item.slot); });
 ```
 
 启动先打开 initial UI，不执行剧情进入、音频、自动档或已读记录。调试 status 的 game_started 为 false，frame_id/frame_name 为 null、history_length 为 0；选择或载入成功后恢复正常剧情状态。首次 `ctx.resume(frame)` 和 `ctx.restart(frame)` 都必须显式选择声明的入口，建立初始变量及仅含该幕的一条历史；不会加入“默认幕→选择幕”的 resume_to。首次无参 resume/restart、推进、选项、保存及自动播放拒绝。UI 可先播放 sequence，screenClose 也能显式 resume 起始幕；尚无剧情时 UI 演出不建立虚构的剧情隐藏槽。
@@ -2388,7 +2390,7 @@ ui("loadStory").bind("load-story", ctx => { ctx.open("hud"); ctx.load(ctx.item.s
 背景可用 panel/image/nine-patch 和已声明资源 ID，色值的最后两位为 alpha（00 透明、FF 不透明）；正文/标题可自定义颜色、字号、布局，按钮可配置普通/悬停/禁用皮肤、颜色、圆角和字号。button 的 color 控制按钮底色或图片 tint，默认按钮文字为白色；需要单独定制按钮文字颜色时，使用空文字 button 与同位置的有色 label 组合。没有逐帧样式脚本或任意路径读取。
 
 ```javascript
-ui("askYes").bind("quit-game", ctx => ctx.quit());
+event.register("quit-game", ctx => ctx.quit());
 ```
 
 `ctx.quit()` 无参数，请求关闭当前游戏窗口，等价于系统关闭按钮。作者可以直接调用，也可以先经过上述确认页；引擎不会额外弹出固定确认窗口。命令只允许普通 UI 回调，不允许剧情回调、game.enter 或 frame/screen 生命周期自动关闭。整批绑定/页面回调/命令及媒体验证失败时不退出、不部分提交；同批不能混入保存、读档、设置、CG 写入或剧情推进，UI 演出/音效仍遵守原有互斥规则。
@@ -2410,13 +2412,13 @@ ui("askYes").bind("quit-game", ctx => ctx.quit());
 ```
 
 ```javascript
-ui("viewCg").bind("view-cg", ctx => {
+event.register("view-cg", ctx => {
   if (!ctx.item.unlocked) return;          // 不能只依赖按钮 disabled
   ctx.setUi("cgImage", ctx.item.image);    // 必须是已声明 image/CG 资源 ID
   ctx.setUi("cgTitle", ctx.item.title);
   ctx.open("cg-view");
 });
-ui("cgNext").bind("cg-next", ctx => {
+event.register("cg-next", ctx => {
   // 作者维护稳定收藏 ID -> 资源/标题表；不要假设存在 ctx.gallery。
   ctx.setUi("cgImage", table[index + 1].image);
 });
@@ -2462,7 +2464,7 @@ ui("cgNext").bind("cg-next", ctx => {
 
 | API | 行为 |
 | --- | --- |
-| `ctx.captureShortcut(action, resultEvent)` | 开始一次瞬时捕获；`action` 必须为稳定动作 ID，`resultEvent` 必须是绑定到 `$host` 的普通捕获结果事件，禁止生命周期事件 |
+| `ctx.captureShortcut(action, resultEvent)` | 开始一次瞬时捕获；action 为稳定动作 ID，resultEvent 引用独立 event.register 定义，无需目标控件；禁止生命周期事件 |
 | `ctx.cancelShortcutCapture()` | 取消当前捕获，不写偏好 |
 | `ctx.keybinding(action, bindingOrNull)` | 修改候选绑定；同一批最多三个动作，整批验证/原子写后生效 |
 | `ctx.resetKeybindings()` | 单独恢复三个默认绑定并原子保存，不能与单项修改同批 |
@@ -2524,7 +2526,7 @@ XML 可绑定 `shortcuts.advanceLabel`、`shortcuts.fastForwardLabel`、`shortcu
 | --- | --- |
 | `id/x/y/width/height` | 沿用逻辑舞台坐标；建议 256×282（含 alpha 条）或 256×256（不含），至少 128×154 / 128×128 |
 | `value` | 必需，只能绑定 `ui.<string>`；初始值也必须是合法颜色 |
-| `event` | 必需，须绑定到该控件 ID 的普通回调 |
+| `event` | 可省略或为空；非空时引用独立 event.register 定义，也可使用 JS ui(id).bind(eventId) |
 | `alpha` | 可选 bool，默认 true；false 隐藏 alpha 编辑条但保留输入颜色原有 alpha |
 | `visible/enabled` | 现有 bool 绑定；禁用区仍阻挡舞台背景输入 |
 
@@ -2646,14 +2648,14 @@ count = 当前数量：{ $n }
 ### 36.3 选择页、事务与存档
 
 ```javascript
-ui('applyLanguage').bind('apply-language', ctx => {
+event.register('apply-language', ctx => {
   ctx.locale('text', ctx.ui.textDraft || null);
   ctx.locale('voice', ctx.ui.voiceDraft || null);
   ctx.close();
 });
 ```
 
-仅普通 `ui(id).bind(...)` 回调可用；channel 只接受 text/voice，locale 为已声明规范 ID 或 null（跟随系统）。同批每通道至多一次，可附带 UI 草稿/提示/页面变化；禁止混合 settings/配色/CG/快捷键/剧情/存读档/退出或其他持久 IO，生命周期禁止调用。
+仅普通 `event.register(...)` 回调可用；channel 只接受 text/voice，locale 为已声明规范 ID 或 null（跟随系统）。同批每通道至多一次，可附带 UI 草稿/提示/页面变化；禁止混合 settings/配色/CG/快捷键/剧情/存读档/退出或其他持久 IO，生命周期禁止调用。
 
 只读 ctx.localeInfo 为 enabled、textRequested/voiceRequested、text/voice、textSource/voiceSource；无值是真实 null。XML 对应 locale 标量以空串表示 null，source 为 manual/system/default/disabled。textLocales/voiceLocales 列表仅有 id/label/selected/default。原始系统列表不开放给 JS；“跟随系统”由作者按钮提交 null，不伪造 ID。
 
@@ -2701,75 +2703,51 @@ frame('ending').end();
 - 选择器只捕获稳定字符串，不是剧情对象，也不能读取当前 Session。允许保存选择器后重复注册，也可解构方法（`const { advance } = frame('walk')`）而不丢目标；`frame(id)` 单独出现不注册任何东西。
 - `end()` 只声明 End 路由，不等于 `ctx.quit()`。
 
-### 37.2 界面回调与事件名
+### 37.2 v0.11.1 独立事件与可选控件绑定
 
-`bind` 的 event 仍是 **XML 当前的作者事件名**，不是 DOM 的 click/change 类型：
+事件函数不依赖目标控件，使用 `event.register(id, callback)` 全局独立注册。控件事件可省略或写空字符串；事件可不被任何控件引用。完整装配时才检查实际引用，注册与绑定支持跨文件前向引用，二者无需互相选择才能创建。
 
 ```xml
-<button id="continueButton" width="120" height="40" text="继续" event="advance" />
-<slider id="textSpeed" width="300" height="36" value="settings.text_speed" min="0" max="80" event="text-speed" />
+<button id="continueButton" width="120" height="40" text="继续" />
+<button id="anotherContinue" width="120" height="40" text="继续" event="advance" />
+<button id="draftButton" width="120" height="40" text="待配置" event="" />
 ```
 
 ```javascript
-ui('continueButton').bind('advance', ctx => ctx.advance());
-ui('textSpeed').bind('text-speed', ctx => ctx.setting('text_speed', ctx.value));
+// 顺序可以交换：绑定后再定义也合法。
+ui('continueButton').bind('advance');
+event.register('advance', ctx => ctx.advance());
+event.register('close-page', ctx => ctx.close()); // 可以暂时不使用
 ```
 
-- 注册键是结构化的 **(目标类别, 目标 ID, 事件名)**，不再按全局事件名索引：两个按钮可以保留同一 `event` 并各自绑定不同回调。共享逻辑请把同一个函数绑定到多个目标。
-- 同一完整键重复注册拒绝，报告两次注册位置；不会最后覆盖或执行多个回调。
-- 完整装配后校验：每个 XML 事件（控件 `event`、页面 `background-click`/`background-right-click`）必须恰好有一个注册；每个注册必须指向真实目标且事件与 XML 完全一致。未声明 event 的控件、只读节点（label/image/panel 等）、页面与控件同 ID、拼错大小写、未知目标、多余注册全部拒绝。
-- `ui(id)` 可指向控件模板 ID 或页面 ID；`repeat` 只绑定模板子控件 ID，每行仍通过 `ctx.item`/`ctx.value` 取得当前条目。折叠、滚动、换页不重新执行注册。
-- `button route="open:页面"/"close"` 继续走类型化页面栈事务，与 `event` 互斥，不能对它补 JS bind；纯声音按钮保持原规则。
-- XML 的 `bind="game.text"` 是数据绑定，JS 的 `.bind(event, callback)` 是回调注册，两者含义不同。
+- 注册键仅为独立事件 ID，同一 ID 只能定义一次，重复定义报告两处位置。多个控件可绑定同一 ID 并共享一个函数；若业务不同，定义不同 ID。
+- `ui(controlId).bind(eventId)` 只有一个参数，挂接已经定义（或稍后定义）的事件。旧普通控件 `.bind(eventId, callback)` 已移除，不作兼容回退。
+- XML `event="event-id"` 是同等的声明式引用；可以只用 XML 而不写 JS bind。两处同时声明同一引用允许，若指向不同 ID 则拒绝，防止默默覆盖。重复 JS bind 即使相同也拒绝。
+- 控件未绑定时不执行回调、不推进剧情、不写偏好；它仍占据原交互区域并阻挡背景穿透。slider/toggle/picker 不会因未绑定自动提交业务值；原绑定值仍权威。
+- 只读 label/image/panel 等不能通过 bind 变成按钮；route 按钮与事件互斥。sound-only 及 route-only 行为不变。
+- repeat 绑定模板子控件 ID，真实行通过原 ctx.item/value 传递；共享回调不会广播到其他行。
+- screen 的 background-click/background-right-click 各自可为空，并引用独立事件。若两者都为空，`ui(screenId).bind(eventId)` 挂到背景左键；已声明背景事件时 bind 只能确认其中已有引用，不能隐式覆盖右键。不同左右行为使用 XML 两个属性分别声明。
+- 注册本身无目标、无副作用；未知非空引用、未知控件、重复绑定、保留名、route 冲突仍严格报错。没有 DOM、冒泡、emit/dispatch 或字符串 eval。
+- XML 的 `bind="game.text"` 是数据绑定；JS `.bind(eventId)` 是事件引用。
+
+### 37.3 生命周期与宿主结果
+
+生命周期不是普通控件事件，继续沿用 `frame(id).enter/exit(callback)`、`ui(screenId).bind('screen.open'/'screen.close', callback)` 和 `ui('$game').bind('game.enter', callback)`。这些保留入口的顺序、权限、上下文、32 条命令/16 次派发与续接事务全部不变；普通 event.register 不能使用这些保留事件名或前缀来伪造生命周期。
+
+快捷键结果不再需要虚拟目标绑定：
 
 ```javascript
-function closePage(ctx) { ctx.close(); }
-ui('settingsBack').bind('close', closePage);
-ui('historyBack').bind('close', closePage);
+event.register('capture-advance', ctx => ctx.captureShortcut('advance', 'shortcut-captured'));
+event.register('shortcut-captured', ctx => ctx.setUi('shortcutAdvanceDraft', ctx.value));
+ui('captureAdvance').bind('capture-advance');
 ```
 
-### 37.3 生命周期、虚拟目标与捕获结果
+`ctx.captureShortcut(action, resultEvent)` 参数不变，resultEvent 直接引用独立事件，允许没有任何控件引用的结果函数。旧 `ui('$host').bind(resultEvent, callback)` 已删除；$host 只保留为宿主内部派发类别，真实 XML 中 $game/$host 仍是保留 ID。捕获、取消、页切/失焦及释放屏障行为不变。
 
-| 旧写法（已移除） | 当前写法 | 语义 |
-| --- | --- | --- |
-| `on.frameEnter(id, fn)` | `frame(id).enter(fn)` | 幕进入；UI 命令上下文 |
-| `on.frameExit(id, fn)` | `frame(id).exit(fn)` | 幕离开；UI 命令上下文 |
-| `on.screenOpen(id, fn)` | `ui(id).bind('screen.open', fn)` | 只接受页面目标 |
-| `on.screenClose(id, fn)` | `ui(id).bind('screen.close', fn)` | 只接受页面目标 |
-| `on.ui('game.enter', fn)` | `ui('$game').bind('game.enter', fn)` | 全局进入钩子，保留原白名单 |
-| `on.ui(resultEvent, fn)`（捕获结果） | `ui('$host').bind(resultEvent, fn)` | 捕获结果回调 |
+### 37.4 隔离、验证与迁移
 
-```javascript
-frame('intro').exit(ctx => ctx.open('story-intro'));
-ui('story-intro').bind('screen.open', ctx => ctx.sequence('story.intro'));
-ui('story-intro').bind('screen.close', ctx => ctx.resume());
-ui('$game').bind('game.enter', ctx => {
-  if (ctx.game.cgId) ctx.unlock(ctx.game.cgId);
-});
-ui('captureAdvance').bind('capture-advance', ctx => {
-  ctx.captureShortcut('advance', 'shortcut-captured');
-});
-ui('$host').bind('shortcut-captured', ctx => ctx.setUi('shortcutAdvanceDraft', ctx.value));
-```
+frame/ui/event 为不可写、不可配置全局入口，event 对象及选择器冻结；回调执行期间新增事件或绑定均拒绝。事件回调只返回 undefined；原 ctx 参数、命令白名单、QuickJS 隔离、时间/内存/堆栈/更新预算不变。渲染只读装配后的有效引用，事件来源和 ID 仍同时校验；不能通过任意目标派发一个未绑定的全局事件。
 
-- `$game`、`$host` 是固定虚拟目标，不是 XML 节点、页面或变量；真实 UI 中禁止使用这两个 ID（否则报错），也不能新增其他虚拟目标。
-- `$game` 只接受 `game.enter`；`$host` 只接受非保留的捕获结果事件名（`ctx.captureShortcut(action, resultEvent)` 的目标由宿主在 `$host` 查找，不搜索所有控件）。
-- `game.enter`、`screen.open`、`screen.close` 及 `frame.enter:`/`frame.exit:`/`screen.open:`/`screen.close:` 保留编码不能作为普通 XML 事件或普通控件目标的事件名。
-- `frame.enter/exit` **不是**剧情 set/add 上下文：它们只获得 UI 命令上下文，不能借新入口写剧情变量。`screen.open/close` 不能由普通 UI 事件伪造触发。
-- 顺序、首幕不自动进入、Controller 先验证、末幕手动退出一次、自循环进入、同幕续接不重复进入、页面回调上下顺序、历史不触发生命周期全部沿用既有实现；演出 finish 仍只有 return/open/close 三种路由。
+迁移 v0.11.0 普通 `ui(id).bind(name, fn)`：独立注册 `event.register(name, fn)`，再按需 `ui(id).bind(name)` 或保留 XML event 引用。多个同名回调必须由作者明确合并为一个共享函数，或重命名为不同事件 ID，禁止最后一个覆盖前一个。不再要求每个已注册函数有一个控件目标。幕路由及两种目标参数不变，生命周期入口不变，旧 on.* 仍拒绝。
 
-### 37.4 注册隔离与命名
-
-- `frame`、`ui` 是不可写、不可配置的全局函数，选择器对象冻结；回调执行期间再次注册或以任何方式替换全局入口都失败，且不产生部分命令。
-- 回调仍然每次在隔离 QuickJS 中执行：没有 Date、随机、异步任务或宿主 IO；脚本总字节 1MiB、16MiB 堆、256KiB 栈、200ms/10000 次中断、剧情更新 128 条、UI 命令 32 条、生命周期派发 16 次等预算不变。
-- 注册位置来自作者调用行（`at <eval> (scripts/ui.js:4:28)`），装配错误同时给出 JS 位置与相关 XML 位置。
-
-### 37.5 迁移清单
-
-1. 剧情：把 `on.advance/on.choice/on.end` 逐条改为 `frame(id)...`，回调与原参数顺序保持一致。
-2. 界面：为每个 `on.ui(event, fn)` 找到声明该 event 的控件或页面 ID，改写为 `ui('控件ID').bind(event, fn)`；同名事件现在必须逐目标绑定，共享逻辑抽成函数复用。
-3. 生命周期：`on.frameEnter/Exit` → `frame(id).enter/exit`；`on.screenOpen/Close` → `ui(页面ID).bind('screen.open'/'screen.close')`。
-4. `on.ui('game.enter')` → `ui('$game').bind('game.enter')`；捕获结果 → `ui('$host').bind(resultEvent, fn)`。
-5. 用 `cargo run --locked -- --project <工程> --check` 复检；旧脚本会被拒绝，必须完成迁移后才能打包。KPAK 1 的容器兼容不代表旧 JS 内容兼容。
-
-demo（`games/demo/scripts/story.js`、`ui.js`、`endings.js`）与国际化示例已迁移到新语法，可作为对照。story 8/UI 3/save 9/profile 1/read 1/KPAK 1、2 与 content-version=11 不变；新语法不写入存档，纯机械迁移不改变历史重放结果。实际验证见 [验收记录](js-api-redesign-validation.zh-cn.md)。
+story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2 与 demo content-version=11 不变；纯语法迁移不写入存档或更改历史。完整落地及验证见 [v0.11.1 方案](v0.11.1-implementation-plan.zh-cn.md) 和 [验收记录](v0.11.1-validation.zh-cn.md)。

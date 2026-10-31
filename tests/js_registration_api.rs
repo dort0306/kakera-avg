@@ -1,4 +1,4 @@
-//! New `frame(id).advance/choice/end/enter/exit` + `ui(id).bind(event, callback)`
+//! New `frame(id).advance/choice/end/enter/exit` + `(event.register(event, callback), ui(id).bind(event))`
 //! registration contract: routing, structured target validation and isolation.
 use kakera_avg::{
     content::{ContentSource, validate_path},
@@ -38,7 +38,7 @@ const UI: &str = r#"<ui schema="3" initial="hud">
     <button id="advanceButton" width="120" height="40" text="继续" event="advance"/>
     <button id="stayButton" width="120" height="40" text="留下" event="stay"/>
     <button id="closeA" width="60" height="20" text="关闭" event="close"/>
-    <button id="closeB" width="60" height="20" text="关闭" event="close"/>
+    <button id="closeB" width="60" height="20" text="关闭" event="close-b"/>
     <repeat id="rows" width="300" height="120" source="choices" columns="1" item-width="100" item-height="20">
       <button id="rowButton" width="100" height="20" bind="item.text" event="choose"/>
     </repeat>
@@ -54,17 +54,17 @@ frame('walk').advance(() => 'ending');
 frame('ending').end();"#;
 
 const HANDLERS: &str = r#"function closePage(ctx) { ctx.close(); }
-ui('advanceButton').bind('advance', ctx => ctx.advance());
-ui('stayButton').bind('stay', ctx => ctx.choose('stay'));
-ui('closeA').bind('close', closePage);
-ui('closeB').bind('close', ctx => ctx.setUi('status', 'b'));
-ui('rowButton').bind('choose', ctx => ctx.setUi('status', ctx.item.text));
-ui('hud').bind('tap', ctx => ctx.setUi('status', 'tap'));
-ui('hud').bind('menu', ctx => ctx.setUi('status', 'menu'));
+(event.register('advance', ctx => ctx.advance()), ui('advanceButton').bind('advance'));
+(event.register('stay', ctx => ctx.choose('stay')), ui('stayButton').bind('stay'));
+(event.register('close', closePage), ui('closeA').bind('close'));
+(event.register('close-b', ctx => ctx.setUi('status', 'b')), ui('closeB').bind('close-b'));
+(event.register('choose', ctx => ctx.setUi('status', ctx.item.text)), ui('rowButton').bind('choose'));
+(event.register('tap', ctx => ctx.setUi('status', 'tap')), ui('hud').bind('tap'));
+(event.register('menu', ctx => ctx.setUi('status', 'menu')), ui('hud').bind('menu'));
 ui('panel').bind('screen.open', ctx => ctx.setUi('status', 'opened'));
 ui('panel').bind('screen.close', ctx => ctx.setUi('status', 'closed'));
 ui('$game').bind('game.enter', ctx => ctx.setUi('status', ctx.game.frameId));
-ui('$host').bind('shortcut-captured', ctx => ctx.setUi('status', ctx.value));"#;
+event.register('shortcut-captured', ctx => ctx.setUi('status', ctx.value));"#;
 
 struct Game(BTreeMap<PathBuf, Vec<u8>>);
 impl ContentSource for Game {
@@ -321,7 +321,7 @@ fn ui_bindings_are_structured_keys_with_exact_xml_targets() {
         [Command::Close]
     ));
     assert_eq!(
-        dispatched_text(&dispatch(&logic, &story, "closeB", "close", json!(null))),
+        dispatched_text(&dispatch(&logic, &story, "closeB", "close-b", json!(null))),
         "b"
     );
     // Screen background callbacks resolve through the same `(target, event)` key.
@@ -347,19 +347,19 @@ fn ui_registration_targets_and_lifecycle_events_are_validated() {
     let extra = |line: &str| format!("{HANDLERS}\n{line}");
     for (handlers, expected) in [
         (
-            extra("ui('closeA').bind('close', ctx => ctx.close());"),
+            extra("ui('closeA').bind('close');"),
             "重复 UI 回调",
         ),
         (
-            extra("ui('ghost').bind('close', ctx => ctx.close());"),
+            extra("ui('ghost').bind('close');"),
             "JS 注册目标不存在",
         ),
         (
-            extra("ui('caption').bind('close', ctx => ctx.close());"),
+            extra("ui('caption').bind('close');"),
             "JS 注册目标或事件与 XML 不一致",
         ),
         (
-            extra("ui('advanceButton').bind('click', ctx => ctx.close());"),
+            extra("(event.register('click', ctx => ctx.close()), ui('advanceButton').bind('click'));"),
             "JS 注册目标或事件与 XML 不一致",
         ),
         (
@@ -376,15 +376,15 @@ fn ui_registration_targets_and_lifecycle_events_are_validated() {
         ),
         (
             extra("ui('$host').bind('game.enter', ctx => ctx.close());"),
-            "保留事件名",
+            "普通控件请使用",
         ),
         (
-            extra("ui('closeA').bind('frame.enter:opening', ctx => ctx.close());"),
+            extra("(event.register('frame.enter:opening', ctx => ctx.close()), ui('closeA').bind('frame.enter:opening'));"),
             "保留事件名",
         ),
         (
             HANDLERS.replace(
-                "ui('closeB').bind('close', ctx => ctx.setUi('status', 'b'));",
+                "(event.register('close-b', ctx => ctx.setUi('status', 'b')), ui('closeB').bind('close-b'));",
                 "",
             ),
             "XML 事件缺少唯一注册",
@@ -393,6 +393,104 @@ fn ui_registration_targets_and_lifecycle_events_are_validated() {
         let message = failure(ROUTES, &handlers);
         assert!(message.contains(expected), "{expected} not in: {message}");
     }
+}
+
+#[test]
+fn independent_events_allow_forward_bindings_shared_handlers_and_empty_controls() {
+    let ui = r#"<ui schema="3" initial="hud"><variables><string id="status" initial=""/></variables>
+        <screen id="hud" modal="false"><button id="a" width="100" height="30"/>
+        <button id="b" width="100" height="30"/><button id="empty" width="100" height="30" event=""/>
+        <button id="xml" width="100" height="30" event="shared"/></screen></ui>"#;
+    let handlers = "ui('a').bind('shared');event.register('unused', ctx=>ctx.close());event.register('shared',ctx=>ctx.setUi('status',ctx.item.text));ui('b').bind('shared');";
+    let (loaded, logic) = load_game(&source_with(ui, ROUTES, handlers)).unwrap();
+    let nodes = &loaded.interface.screens["hud"].nodes;
+    assert_eq!(nodes[0].event.as_deref(), Some("shared"));
+    assert_eq!(nodes[1].event.as_deref(), Some("shared"));
+    assert_eq!(nodes[2].event, None);
+    for target in ["a", "b", "xml"] {
+        assert_eq!(
+            dispatched_text(&dispatch(
+                &logic,
+                &loaded.story,
+                target,
+                "shared",
+                json!({"text":target})
+            )),
+            target
+        );
+    }
+    assert!(
+        logic
+            .ui_event(
+                &Event::ui("empty", "unused"),
+                &loaded.story.start(),
+                &loaded.interface.initial_variables(),
+                &json!({})
+            )
+            .is_err()
+    );
+    // An event does not require any control or use site.
+    load_game(&source_with(
+        r#"<ui schema="3" initial="hud"><screen id="hud" modal="false"/></ui>"#,
+        ROUTES,
+        "event.register('orphan',ctx=>ctx.close());",
+    ))
+    .unwrap();
+}
+
+#[test]
+fn independent_event_ids_are_strict_and_inline_control_callbacks_are_removed() {
+    let ui = r#"<ui schema="3" initial="hud"><screen id="hud" modal="false"><button id="a" width="100" height="30"/></screen></ui>"#;
+    for handlers in [
+        "event.register('x',ctx=>{});event.register('x',ctx=>{});",
+        "event.register('',ctx=>{});",
+        "event.register('x',null);",
+        "event.register('screen.open',ctx=>{});",
+        "ui('a').bind('missing');",
+        "event.register('x',ctx=>{});ui('missing').bind('x');",
+        "event.register('x',ctx=>{});ui('a').bind('x');ui('a').bind('x');",
+        "ui('a').bind('x',ctx=>{});",
+        "globalThis.event = 3;",
+        "event.register = ()=>{};",
+    ] {
+        assert!(
+            load_game(&source_with(ui, ROUTES, handlers)).is_err(),
+            "{handlers}"
+        );
+    }
+    let (loaded, logic) = load_game(&source_with(ui, ROUTES, "event.register('x',ctx=>{ctx.setUi('status','draft');event.register('late',()=>{});});ui('a').bind('x');")).unwrap();
+    assert!(
+        logic
+            .ui_event(
+                &Event::ui("a", "x"),
+                &loaded.story.start(),
+                &loaded.interface.initial_variables(),
+                &json!({})
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn all_interactive_control_types_can_be_authored_without_events() {
+    let ui = r##"<ui schema="3" initial="hud"><variables><string id="color" initial="#FF0000FF"/></variables><screen id="hud" modal="false">
+        <button id="button" width="120" height="40"/>
+        <slider id="slider" width="200" height="40" value="settings.text_speed" min="0" max="80" event=""/>
+        <toggle id="toggle" width="200" height="40" value="settings.muted"/>
+        <color-picker id="picker" width="128" height="154" value="ui.color"/>
+        </screen></ui>"##;
+    let (loaded, _) = load_game(&source_with(
+        ui,
+        ROUTES,
+        "event.register('later',ctx=>ctx.close());",
+    ))
+    .unwrap();
+    assert!(
+        loaded.interface.screens["hud"]
+            .nodes
+            .iter()
+            .all(|node| node.event.is_none())
+    );
 }
 
 #[test]
@@ -484,8 +582,8 @@ fn ids_with_separators_never_collide_in_the_registration_key() {
         r#"<button id="advanceButton" width="120" height="40" text="继续" event="advance"/><button id="a" width="10" height="10" text="甲" event="b:c"/><button id="a:b" width="10" height="10" text="乙" event="c"/>"#,
     );
     let handlers = HANDLERS.replace(
-        "ui('advanceButton').bind('advance', ctx => ctx.advance());",
-        "ui('a').bind('b:c', ctx => ctx.setUi('status', 'first'));\nui('a:b').bind('c', ctx => ctx.setUi('status', 'second'));\nui('advanceButton').bind('advance', ctx => ctx.advance());",
+        "(event.register('advance', ctx => ctx.advance()), ui('advanceButton').bind('advance'));",
+        "(event.register('b:c', ctx => ctx.setUi('status', 'first')), ui('a').bind('b:c'));\n(event.register('c', ctx => ctx.setUi('status', 'second')), ui('a:b').bind('c'));\n(event.register('advance', ctx => ctx.advance()), ui('advanceButton').bind('advance'));",
     );
     let (story, logic) = load_game(&source_with(&ui, ROUTES, &handlers))
         .map(|(loaded, logic)| (loaded.story, logic))

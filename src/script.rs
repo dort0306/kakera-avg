@@ -15,6 +15,31 @@ use std::{
 };
 
 impl ScriptLogic {
+    pub(crate) fn bind_interface(&mut self, definition: &crate::interface::Definition) {
+        fn collect(nodes: &[crate::interface::Node], keys: &mut BTreeSet<UiEventKey>) {
+            for node in nodes {
+                if let Some(event) = &node.event {
+                    keys.insert(UiEventKey::ui(&node.id, event));
+                }
+                collect(&node.children, keys);
+            }
+        }
+        self.ui_keys = definition.lifecycle.values().cloned().collect();
+        for (id, screen) in &definition.screens {
+            collect(&screen.nodes, &mut self.ui_keys);
+            for event in [&screen.background_click, &screen.background_right_click]
+                .into_iter()
+                .flatten()
+            {
+                self.ui_keys.insert(UiEventKey::ui(id, event));
+            }
+        }
+        if definition.enter {
+            self.ui_keys.insert(UiEventKey::game());
+        }
+        self.ui_keys
+            .extend(definition.host_handlers.iter().map(UiEventKey::host));
+    }
     /// Structured `frame(...)`/`ui(...)` registrations, each with its author call site.
     pub fn ui_registrations(&self) -> Result<Vec<crate::interface::Registration>> {
         #[derive(Deserialize)]
@@ -52,6 +77,11 @@ impl ScriptLogic {
         snapshot: &Value,
     ) -> Result<Vec<crate::interface::host::Command>> {
         let key = &event.key;
+        ensure!(
+            self.ui_keys.contains(key),
+            "{}",
+            crate::i18n::format("host-interface-0079", &[("arg0", key.describe())])
+        );
         let mut request = self.frame_request("ui", &session.frame_id, None, &session.variables);
         request["uiVariables"] = ScriptLogic::request("ui", "", None, ui)["variables"].clone();
         request["category"] = json!(key.category.id());
@@ -67,6 +97,7 @@ impl ScriptLogic {
 pub struct ScriptLogic {
     files: Vec<(String, String)>,
     frames: BTreeMap<String, (String, String)>,
+    ui_keys: BTreeSet<UiEventKey>,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +157,7 @@ impl ScriptLogic {
         let mut logic = Self {
             files,
             frames: BTreeMap::new(),
+            ui_keys: BTreeSet::new(),
         };
         let manifest: Vec<Registration> =
             serde_json::from_str(&logic.evaluate(json!({"mode":"manifest"}))?)?;

@@ -327,7 +327,7 @@ fn locked_unknown_and_background_toolbar_routes_are_bounded() {
 fn image_bind_types_paths_urls_and_batch_failures_are_rejected() {
     let f = demo();
     let bad = format!(
-        "{UI_JS}\nui('bad-batch').bind('bad-batch', ctx => {{ ctx.setUi('cgImage', 'assets/bg/room.png'); ctx.setUi('cgTitle', '坏图'); ctx.open('cg-view'); }});"
+        "{UI_JS}\n(event.register('bad-batch', ctx => {{ ctx.setUi('cgImage', 'assets/bg/room.png'); ctx.setUi('cgTitle', '坏图'); ctx.open('cg-view'); }}), ui('bad-batch').bind('bad-batch'));"
     );
     let bad_fixture = fixture_from(&common::probe(&UI, &["bad-batch"]), &bad);
     let bad_state = demo_state(&bad_fixture);

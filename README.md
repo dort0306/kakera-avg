@@ -1,8 +1,6 @@
-# Kakera AVG Rust · v0.11.0
+# Kakera AVG Rust · v0.11.1
 
-v0.11.0 落地新版 JS 注册 API：剧情用 `frame('幕ID').advance(targetOrRun)/choice(option, targetOrRun, when?)/end()` 注册，界面用 `ui('控件或页面ID').bind('事件名', 回调)` 注册，生命周期用 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`，全局进入钩子和捕获结果分别绑定固定虚拟目标 `ui('$game')`、`ui('$host')`。旧 `on.*` 入口**已删除且无别名**：旧脚本在启动、`--check` 与打包时带文件名和栈拒绝，必须由作者迁移后重建资源包；`ctx` 参数、权限、命令与数据格式不变。接口见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api)，实际验证见 [验收记录](doc/js-api-redesign-validation.zh-cn.md)，设计依据见 [落地方案](doc/js-api-redesign-implementation-plan.zh-cn.md)。
-
-新版注册使用结构化键 **(目标类别, 目标 ID, 事件名)**，同名事件不再全局共享：两个按钮可以保留同一个 `event` 各自绑定不同回调，共享逻辑改为把同一个函数绑定到多个目标。完整装配后校验每个 XML 事件恰好一个注册，注册目标/事件必须与 XML 一致，页面与控件不可同 ID，`$game`/`$host` 为保留 ID。静态字符串目标在加载期校验存在，动态函数目标在执行边界校验，两者走同一 Controller 条件/更新/历史事务。
+v0.11.1 将事件定义与控件彻底解耦：用 `event.register('事件ID', callback)` 独立定义函数，再用 `ui('控件ID').bind('事件ID')` 或 XML `event="事件ID"` 引用。控件事件可省略/为空，函数可独立存在，绑定支持前向引用；共享事件只注册一次。旧普通控件 `.bind(event, callback)` 和捕获结果 $host 注册入口已删除，生命周期专用入口保持不变。剧情继续使用 `frame(id).advance(targetOrRun)/choice(option, targetOrRun, when?)/end()`，字符串目标和函数目标均支持；ctx、权限、预算及数据格式不变。见 [API 第 37 节](doc/xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)、[落地方案](doc/v0.11.1-implementation-plan.zh-cn.md) 与 [验收记录](doc/v0.11.1-validation.zh-cn.md)。
 
 
 v0.10.1 接入 fluent-rs 宿主提示框架（正式资源仅简体中文），新增默认关闭的游戏国际化；作者显式声明文本/语音语言集合及各自默认值，玩家分别选择，两通道独立回退。接口见 [API 第 36 节](doc/xml-js-api.zh-cn.md#36-v0101-国际化)，设计依据见 [落地方案](doc/v0.10.1-implementation-plan.zh-cn.md)，实际验证与未验项目见 [验收记录](doc/v0.10.1-validation.zh-cn.md)。
@@ -78,7 +76,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.11.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。开启国际化时收集全部已声明语言的清单、FTL、字体与语音；language.json 不进入包或工程监控。
+脚本默认生成 target/package/kakera-avg-v0.11.1，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。开启国际化时收集全部已声明语言的清单、FTL、字体与语音；language.json 不进入包或工程监控。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -135,7 +133,7 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前脚本契约见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api) 与 [XML/JS API](doc/xml-js-api.zh-cn.md)，本轮实际结果见 [v0.11.0 验收记录](doc/js-api-redesign-validation.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前脚本契约见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api) 与 [XML/JS API](doc/xml-js-api.zh-cn.md)，本轮实际结果见 [v0.11.1 验收记录](doc/v0.11.1-validation.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 

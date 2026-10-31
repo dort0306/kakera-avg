@@ -148,7 +148,7 @@ fn game(root: &Path) -> Result<()> {
     std::fs::write(root.join("ui.xml"), UI)?;
     std::fs::write(
         root.join("story.js"),
-        r#"frame('opening').advance(ctx=>{if(ctx.frameId!=='opening')throw Error('alias');return 'question';});frame('question').choice('again', ctx=>{ctx.add('count',1);return 'question';},ctx=>ctx.vars.count<2n);frame('question').choice('end', ()=> 'finish');frame('finish').end();ui('swap').bind('swap', ctx=>ctx.setUi('crop','32,0,32,32'));"#,
+        r#"frame('opening').advance(ctx=>{if(ctx.frameId!=='opening')throw Error('alias');return 'question';});frame('question').choice('again', ctx=>{ctx.add('count',1);return 'question';},ctx=>ctx.vars.count<2n);frame('question').choice('end', ()=> 'finish');frame('finish').end();(event.register('swap', ctx=>ctx.setUi('crop','32,0,32,32')), ui('swap').bind('swap'));"#,
     )?;
     Ok(())
 }

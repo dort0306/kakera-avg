@@ -135,7 +135,7 @@ mod tests {
         )?;
         std::fs::write(
             root.path().join("script.js"),
-            "frame('opening').advance('ending');frame('ending').end();ui('saveButton').bind('save',ctx=>{ctx.setUi('status','saved');ctx.save(1,true);});",
+            "frame('opening').advance('ending');frame('ending').end();(event.register('save', ctx=>{ctx.setUi('status','saved');ctx.save(1,true);}), ui('saveButton').bind('save'));",
         )?;
         let bundle = Bundle::load(
             &package::Snapshot::directory(root.path())?,

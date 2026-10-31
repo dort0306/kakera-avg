@@ -8,6 +8,8 @@
   const registry = new Map();
   // category -> target -> event -> {run, location}; structured keys, never text joins.
   const uiRegistry = new Map();
+  // Independent author events; definitions never require a target control.
+  const eventRegistry = new Map();
   let sealed = false;
   const toString = String;
   const host = "<engine-bridge>";
@@ -83,24 +85,36 @@
     return freeze({
       bind(event, run) {
         const key = name(event);
+        if (run === undefined) {
+          if (id === "$game" || id === "$host" || reserved(key) || key === "screen.open" || key === "screen.close")
+            fail("host-bridge-0032", {"arg0":toString(key)});
+          bind("ui", id, key, () => {});
+          return;
+        }
         if (id === "$game") {
           if (key !== "game.enter") fail("host-bridge-0031", {"arg0":toString(key)});
           bind("game", id, key, run);
           return;
         }
-        if (id === "$host") {
-          if (reserved(key) || key === "screen.open" || key === "screen.close")
-            fail("host-bridge-0032", {"arg0":toString(key)});
-          bind("host", id, key, run);
-          return;
-        }
-        if (reserved(key)) fail("host-bridge-0032", {"arg0":toString(key)});
+        if (id === "$host" || (key !== "screen.open" && key !== "screen.close"))
+          fail("host-bridge-0033", {});
         bind("ui", id, key, run);
       }
     });
   }
   Object.defineProperty(globalThis, "frame", { value: frameSelector, writable: false, configurable: false });
   Object.defineProperty(globalThis, "ui", { value: uiSelector, writable: false, configurable: false });
+  Object.defineProperty(globalThis, "event", { value: freeze({
+    register(id, run) {
+      if (sealed) fail("host-bridge-0006", {});
+      const key = name(id);
+      if (reserved(key) || key === "screen.open" || key === "screen.close")
+        fail("host-bridge-0032", {"arg0":toString(key)});
+      const old = eventRegistry.get(key);
+      if (old) fail("host-bridge-0034", {"arg0":key, "arg1":old.location});
+      eventRegistry.set(key, {run: callback(run), location: location()});
+    }
+  }), writable: false, configurable: false });
   // No host IO or module loader is installed. Remove nondeterministic intrinsics.
   for (const name of ["Date", "WeakRef", "FinalizationRegistry", "SharedArrayBuffer", "Atomics"])
     delete globalThis[name];
@@ -153,7 +167,8 @@
     return events ? events.get(event) : undefined;
   }
   function uiEvent(request) {
-    const handler = lookup(request.category, request.target, request.event);
+    const ordinary = request.category === "host" || (request.category === "ui" && request.event !== "screen.open" && request.event !== "screen.close");
+    const handler = ordinary ? eventRegistry.get(request.event) : lookup(request.category, request.target, request.event);
     if (!handler) fail("host-bridge-0017", {
       "arg0": toString(request.category) + "/" + toString(request.target) + "/" + toString(request.event)
     });
@@ -224,6 +239,8 @@
   }
   function uiManifest() {
     const out = [];
+    for (const [event, handler] of eventRegistry)
+      out.push({category: "registered", target: "", event, location: handler.location});
     for (const [category, targets] of uiRegistry)
       for (const [target, events] of targets)
         for (const [event, handler] of events)

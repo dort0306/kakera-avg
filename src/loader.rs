@@ -661,7 +661,7 @@ pub fn load_game(
     );
     let mut parsed = parse_story(&compiled.xml, &catalog).map_err(|e| compiled.diagnostic(e))?;
     catalog.validate(&parsed.story)?;
-    let logic = crate::script::ScriptLogic::load(&mut parsed.story, source, &parsed.scripts)?;
+    let mut logic = crate::script::ScriptLogic::load(&mut parsed.story, source, &parsed.scripts)?;
     for entry in &parsed.story.entries {
         logic
             .options(
@@ -673,6 +673,7 @@ pub fn load_game(
     let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
     let registrations = logic.ui_registrations()?;
     let interface = ui.parse_localized(&parsed.story, &registrations, catalog)?;
+    logic.bind_interface(&interface);
     let loaded = LoadedStory {
         story: parsed.story,
         scripts: parsed.scripts,
