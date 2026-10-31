@@ -293,6 +293,8 @@ fn effect_preparation_and_mesh_rendering_use_cached_assets_and_fixed_clip() {
         slots: &[],
         settings: &settings,
         complete: false,
+        slot_pages: &[],
+        autosaves: &[],
     });
     let mut player = Player::default();
     player.enter(

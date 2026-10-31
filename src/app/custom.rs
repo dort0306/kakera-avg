@@ -20,6 +20,10 @@ pub(super) struct CustomUi {
     pub data: Data,
     pub slots: Vec<SlotInfo>,
     pub autosaves: Vec<Value>,
+    /// Current explicit slot ranges for paginated `slots` repeats.
+    pub slot_pages: Vec<(String, Vec<SlotInfo>)>,
+    slot_sources: Vec<(String, u16, u16)>,
+    auto_preview: Vec<(String, crate::save_preview::Screenshot)>,
     pub preview_images: Vec<(String, crate::save_preview::Screenshot)>,
 }
 impl CustomUi {
@@ -44,19 +48,29 @@ impl CustomUi {
         };
         let state = State::new(&definition);
         let slots = saves.list_page(story, 1).expect("valid page");
-        let (autosaves, mut preview_images) = saves.auto_metadata(story);
-        for info in &slots {
-            if let crate::save::SlotState::Ready {
-                screenshot: Some(image),
-                ..
-            } = &info.state
-            {
-                preview_images.push((
-                    crate::save_preview::image_id(info.slot.number(), false),
-                    image.clone(),
-                ));
+        let (autosaves, auto_preview) = saves.auto_metadata(story);
+        let slot_sources =
+            crate::interface::pagination::slot_requests(&definition, &state.variables);
+        let slot_pages: Vec<(String, Vec<SlotInfo>)> = slot_sources
+            .iter()
+            .map(|(repeat, start, end)| (repeat.clone(), saves.list_range(story, *start, *end)))
+            .collect();
+        let mut preview_images = auto_preview.clone();
+        for infos in std::iter::once(&slots).chain(slot_pages.iter().map(|(_, infos)| infos)) {
+            for info in infos {
+                if let crate::save::SlotState::Ready {
+                    screenshot: Some(image),
+                    ..
+                } = &info.state
+                {
+                    preview_images.push((
+                        crate::save_preview::image_id(info.slot.number(), false),
+                        image.clone(),
+                    ));
+                }
             }
         }
+        let preview_images = dedup_previews(preview_images);
         let _ = logic;
         Self {
             definition,
@@ -65,6 +79,9 @@ impl CustomUi {
             data: Data::default(),
             slots,
             autosaves,
+            slot_pages,
+            slot_sources,
+            auto_preview,
             preview_images,
         }
     }
@@ -78,13 +95,14 @@ impl PlayerApp {
         base: Option<Plan>,
     ) -> Result<Plan> {
         let custom = &self.custom;
-        let base = base.unwrap_or(host::prepare(
+        let mut base = base.unwrap_or(host::prepare_with_pages(
             &custom.definition,
             &custom.state,
             &self.settings,
             &custom.profile,
             Vec::new(),
             false,
+            Some(&custom.data.page_limits),
         )?);
         let snapshot = Data::build(data::Input {
             definition: &custom.definition,
@@ -96,7 +114,15 @@ impl PlayerApp {
             slots: &custom.slots,
             settings: &base.settings,
             complete: restored || base.settings.text_speed == 0.0,
+            slot_pages: &custom.slot_pages,
+            autosaves: &custom.autosaves,
         });
+        // Natural source shrink is normalized into the same candidate UI int.
+        for (name, value) in &snapshot.pages {
+            base.state
+                .variables
+                .insert(name.clone(), crate::model::VariableValue::Int(*value));
+        }
         let commands = if custom.definition.enter {
             self.logic.ui_event(
                 &crate::interface::Event::game(),
@@ -107,13 +133,14 @@ impl PlayerApp {
         } else {
             Vec::new()
         };
-        let mut plan = host::prepare(
+        let mut plan = host::prepare_with_pages(
             &custom.definition,
             &base.state,
             &base.settings,
             &base.profile,
             commands,
             true,
+            Some(&snapshot.page_limits),
         )?;
         plan.command_count += base.command_count;
         ensure!(
@@ -182,50 +209,99 @@ impl PlayerApp {
                     .saves
                     .list_page(&self.story, custom.state.slot_page)
                     .expect("validated page");
-                let (autosaves, mut images) = self.saves.auto_metadata_with(&self.story, &|id| {
+                let (autosaves, images) = self.saves.auto_metadata_with(&self.story, &|id| {
                     custom.definition.localization.frame_text(
                         &self.story.frames[id],
                         custom.state.languages.text.as_deref(),
                     )
                 });
                 custom.autosaves = autosaves;
-                for info in &custom.slots {
-                    if let crate::save::SlotState::Ready {
-                        screenshot: Some(image),
-                        ..
-                    } = &info.state
-                    {
-                        images.push((
-                            crate::save_preview::image_id(info.slot.number(), false),
-                            image.clone(),
-                        ));
-                    }
-                }
-                custom.preview_images = images;
+                custom.auto_preview = images;
             }
-            custom.data = Data::build(data::Input {
-                definition: &custom.definition,
-                story: &self.story,
-                session: &self.session,
-                available: &self.available,
-                state: &custom.state,
-                profile: &custom.profile,
-                slots: &custom.slots,
-                settings: &self.settings,
-                complete: self.typewriter.complete(),
-            });
-            if !self.effects.has_entered {
-                custom.data.awaiting_start();
+        }
+        let mut pages_changed = self.sync_paged_slots(refresh_slots);
+        if refresh_slots || pages_changed {
+            self.rebuild_preview_images();
+        }
+        let mut data = self.build_custom_data();
+        if !data.pages.is_empty() {
+            for (name, value) in &data.pages {
+                self.custom
+                    .state
+                    .variables
+                    .insert(name.clone(), crate::model::VariableValue::Int(*value));
             }
-            custom
-                .data
-                .lists
-                .insert("autosaves".into(), custom.autosaves.clone());
+            if self.sync_paged_slots(false) {
+                self.rebuild_preview_images();
+                pages_changed = true;
+                data = self.build_custom_data();
+            }
+        }
+        self.custom.data = data;
+        if !self.effects.has_entered {
+            self.custom.data.awaiting_start(&self.custom.definition);
         }
         self.refresh_shortcut_data();
-        if refresh_slots {
+        if refresh_slots || pages_changed {
             self.sync_save_previews();
         }
+    }
+    /// Read only the current page range of every explicitly paginated `slots` repeat.
+    fn sync_paged_slots(&mut self, force: bool) -> bool {
+        let requests = crate::interface::pagination::slot_requests(
+            &self.custom.definition,
+            &self.custom.state.variables,
+        );
+        if !force && requests == self.custom.slot_sources {
+            return false;
+        }
+        self.custom.slot_pages = requests
+            .iter()
+            .map(|(repeat, start, end)| {
+                (
+                    repeat.clone(),
+                    self.saves.list_range(&self.story, *start, *end),
+                )
+            })
+            .collect();
+        self.custom.slot_sources = requests;
+        true
+    }
+    fn rebuild_preview_images(&mut self) {
+        let custom = &mut self.custom;
+        let mut images = custom.auto_preview.clone();
+        for infos in
+            std::iter::once(&custom.slots).chain(custom.slot_pages.iter().map(|(_, infos)| infos))
+        {
+            for info in infos {
+                if let crate::save::SlotState::Ready {
+                    screenshot: Some(image),
+                    ..
+                } = &info.state
+                {
+                    images.push((
+                        crate::save_preview::image_id(info.slot.number(), false),
+                        image.clone(),
+                    ));
+                }
+            }
+        }
+        custom.preview_images = dedup_previews(images);
+    }
+    fn build_custom_data(&self) -> Data {
+        Data::build(data::Input {
+            definition: &self.custom.definition,
+            story: &self.story,
+            session: &self.session,
+            available: &self.available,
+            state: &self.custom.state,
+            profile: &self.custom.profile,
+            slots: &self.custom.slots,
+            settings: &self.settings,
+            complete: self.typewriter.complete(),
+            slot_pages: &self.custom.slot_pages,
+            autosaves: &self.custom.autosaves,
+        })
     }
     pub(super) fn custom_event(&mut self, event: Event) -> Result<()> {
         let custom = &self.custom;
@@ -254,13 +330,14 @@ impl PlayerApp {
         if let Some(id) = &event.sound {
             commands.push(host::Command::PlaySound { id: id.clone() });
         }
-        let plan = host::prepare(
+        let plan = host::prepare_with_pages(
             &custom.definition,
             &custom.state,
             &self.settings,
             &custom.profile,
             commands,
             false,
+            Some(&custom.data.page_limits),
         )?;
         let plan = self.page_lifecycle(plan, &self.session, None)?;
         for text in plan.state.localized_text.values() {
@@ -453,4 +530,14 @@ impl PlayerApp {
         }
         Ok(())
     }
+}
+/// One texture per real save slot, even when several paginated repeats share it.
+fn dedup_previews(
+    items: Vec<(String, crate::save_preview::Screenshot)>,
+) -> Vec<(String, crate::save_preview::Screenshot)> {
+    let mut unique = std::collections::BTreeMap::new();
+    for (id, image) in items {
+        unique.insert(id, image);
+    }
+    unique.into_iter().collect()
 }

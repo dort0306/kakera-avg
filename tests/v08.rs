@@ -32,6 +32,8 @@ fn fullscreen_is_an_xml_bool_binding_with_js_and_atomic_setting_validation() -> 
         slots: &[],
         settings: &settings,
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     });
     assert_eq!(data.values["settings"]["fullscreen"], false);
     let mut fullscreen = Event::ui("fullscreen", "fullscreen");

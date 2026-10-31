@@ -49,6 +49,8 @@ fn fixture(ui: &str) -> Fixture {
         slots: &[],
         settings: &Settings::default(),
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     });
     let assets = PreparedAssets::load_deferred(&loaded.story, &source).unwrap();
     let ctx = egui::Context::default();

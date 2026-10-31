@@ -15,6 +15,11 @@ use std::{
 };
 
 impl ScriptLogic {
+    /// Author composition tags collected from the same isolated script snapshot.
+    pub fn component_library(&self) -> Result<crate::interface::components::Library> {
+        let manifest = self.evaluate(json!({"mode":"component-manifest"}))?;
+        crate::interface::components::Library::parse(&manifest)
+    }
     pub(crate) fn bind_interface(&mut self, definition: &crate::interface::Definition) {
         fn collect(nodes: &[crate::interface::Node], keys: &mut BTreeSet<UiEventKey>) {
             for node in nodes {
@@ -98,6 +103,22 @@ pub struct ScriptLogic {
     files: Vec<(String, String)>,
     frames: BTreeMap<String, (String, String)>,
     ui_keys: BTreeSet<UiEventKey>,
+}
+
+impl crate::interface::components::Expander for ScriptLogic {
+    fn expand(
+        &self,
+        component: &crate::interface::components::Component,
+        props: &Value,
+        children: usize,
+    ) -> Result<String> {
+        self.evaluate(json!({
+            "mode": "component-expand",
+            "tag": component.name,
+            "props": props,
+            "children": children
+        }))
+    }
 }
 
 #[derive(Deserialize)]

@@ -512,7 +512,7 @@ impl Renderer<'_> {
                     motion,
                 )
             }
-            Kind::Panel | Kind::Image => {
+            Kind::Panel => {
                 if let Some(image_id) = image_id {
                     let mut motion = self
                         .input
@@ -687,14 +687,37 @@ impl Renderer<'_> {
                 columns,
                 cell,
                 gap,
+                pagination,
             } => {
-                let Some(items) = self.input.data.lists.get(source) else {
+                // Paginated lists are cached per repeat ID; plain repeats keep the
+                // shared source list. The page is part of the scroll/instance identity.
+                let page = pagination
+                    .as_ref()
+                    .and_then(|_| {
+                        self.input
+                            .data
+                            .values
+                            .get("repeat")?
+                            .get(&node.id)?
+                            .get("page")?
+                            .as_i64()
+                    })
+                    .unwrap_or(1);
+                let key = match pagination {
+                    Some(_) => crate::interface::pagination::list_key(&node.id),
+                    None => source.clone(),
+                };
+                let Some(items) = self.input.data.lists.get(&key) else {
                     return;
                 };
                 ui.scope_builder(egui::UiBuilder::new().max_rect(bounds), |ui| {
                     ui.set_clip_rect(ui.clip_rect().intersect(bounds));
                     egui::ScrollArea::vertical()
-                        .id_salt(&id)
+                        .id_salt(if pagination.is_some() {
+                            format!("{id}:{page}")
+                        } else {
+                            id.clone()
+                        })
                         .max_height(bounds.height())
                         .show(ui, |ui| {
                             let rows = items.len().div_ceil(*columns);
@@ -715,7 +738,7 @@ impl Renderer<'_> {
                                     origin,
                                     item,
                                     enabled,
-                                    &format!("{id}:{index}"),
+                                    &format!("{id}:{page}:{index}"),
                                 );
                             }
                         });

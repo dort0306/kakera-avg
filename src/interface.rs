@@ -8,8 +8,10 @@ use roxmltree::{Document, Node as XmlNode};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod components;
 pub mod data;
 pub mod host;
+pub mod pagination;
 pub mod palette;
 pub mod presentation;
 pub mod render;
@@ -206,8 +208,10 @@ pub struct Screen {
 #[derive(Clone, Debug)]
 pub enum Kind {
     Scene,
+    /// `panel` and `image` share one internal representation; the strict XML parser
+    /// keeps their authoring contracts separate (image requires a picture, rejects
+    /// children and `radius`).
     Panel,
-    Image,
     NinePatch,
     Label,
     Button,
@@ -221,6 +225,7 @@ pub enum Kind {
         columns: usize,
         cell: [f32; 2],
         gap: f32,
+        pagination: Option<pagination::Pagination>,
     },
     ColorPicker {
         alpha: bool,
@@ -326,9 +331,30 @@ impl UiRoute {
 pub struct Data {
     pub values: Value,
     pub lists: BTreeMap<String, Vec<Value>>,
+    /// Normalized page variables for explicitly paginated repeats.
+    pub pages: BTreeMap<String, i64>,
+    /// Current page count for each page variable (write bounds).
+    pub page_limits: BTreeMap<String, i64>,
 }
 impl Data {
     pub fn get<'a>(&'a self, path: &str, item: &'a Value) -> Option<&'a Value> {
+        // Repeat node IDs may contain dots from composition prefixes; resolve the
+        // longest registered ID before splitting the metadata field.
+        if let Some(rest) = path.strip_prefix("repeat.") {
+            let repeats = self.values.get("repeat")?.as_object()?;
+            let mut best: Option<(&String, &Value)> = None;
+            for (id, fields) in repeats {
+                if rest
+                    .strip_prefix(id)
+                    .is_some_and(|tail| tail.starts_with('.'))
+                    && best.is_none_or(|(current, _)| id.len() > current.len())
+                {
+                    best = Some((id, fields));
+                }
+            }
+            let (id, fields) = best?;
+            return fields.get(&rest[id.len() + 1..]);
+        }
         for prefix in ["audio.actor.", "audio.excluded."] {
             if let Some(id) = path.strip_prefix(prefix) {
                 return self
@@ -582,6 +608,18 @@ fn binding(
             _ => None,
         };
     }
+    if let Some(rest) = path.strip_prefix("repeat.") {
+        let (id, field) = rest.rsplit_once('.')?;
+        if id.is_empty() {
+            return None;
+        }
+        return match field {
+            "page" | "pages" | "pageSize" | "total" | "start" | "end" => Some(ValueKind::Number),
+            "canPrev" | "canNext" => Some(ValueKind::Bool),
+            "pageText" => Some(ValueKind::Text),
+            _ => None,
+        };
+    }
     let source = source.map(|s| if s == "autosaves" { "slots" } else { s });
     let field = path.strip_prefix("item.")?;
     match (source?, field) {
@@ -602,13 +640,26 @@ fn binding(
 
 struct Parser<'a> {
     catalog: &'a crate::localization::Catalog,
-    file: &'a str,
+    file: String,
     story: &'a Story,
     vars: &'a BTreeMap<String, VariableDecl>,
     palette: &'a BTreeMap<String, PaletteSlot>,
+    components: &'a components::Library,
+    expander: Option<&'a dyn components::Expander>,
     ids: BTreeSet<String>,
     count: usize,
     pickers: usize,
+    /// Nesting depth of the composition expansion currently in progress.
+    component_depth: usize,
+    /// Nonzero while parsing a generated host fragment; only then is `<author>` legal.
+    generated: usize,
+    expansions: usize,
+    expansion_bytes: usize,
+    component_deadline: std::time::Instant,
+    /// Page variable to the paginated repeat that owns it.
+    page_vars: BTreeMap<String, String>,
+    max_choices: usize,
+    gallery_count: usize,
 }
 impl Parser<'_> {
     fn nodes(
@@ -616,17 +667,60 @@ impl Parser<'_> {
         parent: XmlNode<'_, '_>,
         depth: usize,
         source: Option<&str>,
+        scope: &str,
+        root: Option<&str>,
+        authors: Option<&[Vec<Node>]>,
     ) -> Result<Vec<Node>> {
         let mut nodes = Vec::new();
         for xml in elements(parent) {
-            self.count += 1;
-            if depth > 8 || self.count > 1024 {
-                return Err(error(
-                    self.file,
-                    xml,
-                    crate::i18n::text("host-interface-0031"),
-                ));
+            if xml.tag_name().name() == "author" {
+                let authors = authors.ok_or_else(|| {
+                    error(
+                        self.file(),
+                        xml,
+                        crate::i18n::text("host-interface-components-0036"),
+                    )
+                })?;
+                let index = xml
+                    .attribute("index")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .filter(|index| *index < authors.len())
+                    .ok_or_else(|| {
+                        error(
+                            self.file(),
+                            xml,
+                            crate::i18n::text("host-interface-components-0040"),
+                        )
+                    })?;
+                nodes.extend(authors[index].iter().cloned());
+                continue;
             }
+            nodes.push(self.node(xml, depth, source, scope, root, authors)?);
+        }
+        Ok(nodes)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn node(
+        &mut self,
+        xml: XmlNode<'_, '_>,
+        depth: usize,
+        source: Option<&str>,
+        scope: &str,
+        root: Option<&str>,
+        authors: Option<&[Vec<Node>]>,
+    ) -> Result<Node> {
+        self.count += 1;
+        if depth > 8 || self.count > 1024 {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::text("host-interface-0031"),
+            ));
+        }
+        if self.components.contains(xml.tag_name().name()) {
+            return self.component(xml, depth, source, scope);
+        }
+        {
             let tag = xml.tag_name().name();
             let container = ["panel", "nine-patch", "repeat"].contains(&tag);
             let mut attrs = vec![
@@ -672,11 +766,19 @@ impl Parser<'_> {
                 ]),
                 "slider" => attrs.extend(["value", "min", "max", "event"]),
                 "toggle" => attrs.extend(["text", "value", "event", "font-size", "color-bind"]),
-                "repeat" => attrs.extend(["source", "columns", "item-width", "item-height", "gap"]),
+                "repeat" => attrs.extend([
+                    "source",
+                    "columns",
+                    "item-width",
+                    "item-height",
+                    "gap",
+                    "page-size",
+                    "page-bind",
+                ]),
                 "color-picker" => attrs.extend(["value", "event", "alpha"]),
                 _ => {
                     return Err(error(
-                        self.file,
+                        self.file(),
                         xml,
                         crate::i18n::format("host-interface-0008", &[("arg0", tag.to_string())]),
                     ));
@@ -685,55 +787,91 @@ impl Parser<'_> {
             if matches!(tag, "label" | "button" | "toggle") {
                 attrs.extend(["text-key", "text-key-bind"]);
             }
-            check(
-                self.file,
-                xml,
-                tag,
-                &attrs,
-                if container {
-                    &[
-                        "scene",
-                        "panel",
-                        "image",
-                        "nine-patch",
-                        "label",
-                        "button",
-                        "slider",
-                        "toggle",
-                        "repeat",
-                        "color-picker",
-                    ]
-                } else if matches!(tag, "label" | "button" | "toggle") {
-                    &["text-arg"]
-                } else {
-                    &[]
-                },
-                false,
-            )?;
-            let id = required(self.file, xml, "id")?.to_owned();
+            let mut allowed: Vec<&str> = if container {
+                vec![
+                    "scene",
+                    "panel",
+                    "image",
+                    "nine-patch",
+                    "label",
+                    "button",
+                    "slider",
+                    "toggle",
+                    "repeat",
+                    "color-picker",
+                ]
+            } else if matches!(tag, "label" | "button" | "toggle") {
+                vec!["text-arg"]
+            } else {
+                Vec::new()
+            };
+            if container {
+                allowed.extend(self.components.tags());
+                if self.generated > 0 {
+                    // Only host-generated fragments may carry author-child placeholders.
+                    allowed.push("author");
+                }
+            }
+            check(self.file(), xml, tag, &attrs, &allowed, false)?;
+            let local = required(self.file(), xml, "id")?.to_owned();
+            let id = if local == "$root" {
+                root.map(str::to_owned).ok_or_else(|| {
+                    error(
+                        self.file(),
+                        xml,
+                        crate::i18n::text("host-interface-components-0045"),
+                    )
+                })?
+            } else {
+                if !scope.is_empty()
+                    && (local.contains('.')
+                        || local.starts_with('$')
+                        || local.chars().any(char::is_whitespace))
+                {
+                    return Err(error(
+                        self.file(),
+                        xml,
+                        crate::i18n::format(
+                            "host-interface-components-0060",
+                            &[("arg0", local.to_string())],
+                        ),
+                    ));
+                }
+                format!("{scope}{local}")
+            };
+            if id.len() > 256 {
+                return Err(error(
+                    self.file(),
+                    xml,
+                    crate::i18n::format(
+                        "host-interface-components-0062",
+                        &[("arg0", id.to_string())],
+                    ),
+                ));
+            }
             if reserved_target(&id) {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::format("host-interface-0076", &[("arg0", id.to_string())]),
                 ));
             }
             if !self.ids.insert(id.clone()) {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::format("host-interface-0009", &[("arg0", id.to_string())]),
                 ));
             }
             let rect = [
-                number(self.file, xml, "x", Some(0.0))?,
-                number(self.file, xml, "y", Some(0.0))?,
-                number(self.file, xml, "width", None)?,
-                number(self.file, xml, "height", None)?,
+                number(self.file(), xml, "x", Some(0.0))?,
+                number(self.file(), xml, "y", Some(0.0))?,
+                number(self.file(), xml, "width", None)?,
+                number(self.file(), xml, "height", None)?,
             ];
             if rect[2] <= 0.0 || rect[3] <= 0.0 {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0032"),
                 ));
@@ -742,7 +880,7 @@ impl Parser<'_> {
             let kind = match tag {
                 "scene" => Kind::Scene,
                 "panel" => Kind::Panel,
-                "image" => Kind::Image,
+                "image" => Kind::Panel,
                 "nine-patch" => Kind::NinePatch,
                 "label" => Kind::Label,
                 "button" => Kind::Button,
@@ -751,26 +889,26 @@ impl Parser<'_> {
                     self.pickers += 1;
                     if self.pickers > 8 {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0033"),
                         ));
                     }
                     if source.is_some() {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0034"),
                         ));
                     }
                     if xml.attribute("color").is_some() {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0035"),
                         ));
                     }
-                    let alpha = boolean(self.file, xml, "alpha", true)?;
+                    let alpha = boolean(self.file(), xml, "alpha", true)?;
                     let width = rect[2];
                     let height = rect[3];
                     // The colour disc is min(width, height - reserved row) and needs 128;
@@ -778,7 +916,7 @@ impl Parser<'_> {
                     let reserved = if alpha { 26.0 } else { 0.0 };
                     if width < 128.0 || height - reserved < 128.0 {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0036"),
                         ));
@@ -786,11 +924,11 @@ impl Parser<'_> {
                     Kind::ColorPicker { alpha }
                 }
                 "slider" => {
-                    let min = number(self.file, xml, "min", None)?;
-                    let max = number(self.file, xml, "max", None)?;
+                    let min = number(self.file(), xml, "min", None)?;
+                    let max = number(self.file(), xml, "max", None)?;
                     if min >= max {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0037"),
                         ));
@@ -800,12 +938,12 @@ impl Parser<'_> {
                 "repeat" => {
                     if source.is_some() {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0038"),
                         ));
                     }
-                    let list = required(self.file, xml, "source")?;
+                    let list = required(self.file(), xml, "source")?;
                     if ![
                         "choices",
                         "slots",
@@ -819,43 +957,166 @@ impl Parser<'_> {
                     .contains(&list)
                     {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0039"),
                         ));
                     }
                     child_source = Some(list);
-                    let columns = number(self.file, xml, "columns", Some(1.0))?;
+                    let columns = number(self.file(), xml, "columns", Some(1.0))?;
                     let cell = [
-                        number(self.file, xml, "item-width", None)?,
-                        number(self.file, xml, "item-height", None)?,
+                        number(self.file(), xml, "item-width", None)?,
+                        number(self.file(), xml, "item-height", None)?,
                     ];
-                    let gap = number(self.file, xml, "gap", Some(8.0))?;
+                    let gap = number(self.file(), xml, "gap", Some(8.0))?;
                     if !(1.0..=8.0).contains(&columns)
                         || columns.fract() != 0.0
                         || cell.iter().any(|size| *size <= 0.0)
                         || gap < 0.0
                     {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0040"),
                         ));
                     }
+                    let pagination = match (xml.attribute("page-size"), xml.attribute("page-bind"))
+                    {
+                        (None, None) => None,
+                        (Some(_), None) | (None, Some(_)) => {
+                            return Err(error(
+                                self.file(),
+                                xml,
+                                crate::i18n::text("host-interface-pagination-0003"),
+                            ));
+                        }
+                        (Some(_), Some(bind)) => {
+                            let size = number(self.file(), xml, "page-size", None)?;
+                            if !(1.0..=pagination::MAX_PAGE_SIZE as f32).contains(&size)
+                                || size.fract() != 0.0
+                            {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::text("host-interface-pagination-0002"),
+                                ));
+                            }
+                            let page_size = size as usize;
+                            let variable = bind.strip_prefix("ui.").ok_or_else(|| {
+                                error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0004",
+                                        &[("arg0", bind.to_string())],
+                                    ),
+                                )
+                            })?;
+                            let decl = self.vars.get(variable).ok_or_else(|| {
+                                error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0004",
+                                        &[("arg0", variable.to_string())],
+                                    ),
+                                )
+                            })?;
+                            let VariableValue::Int(initial) = &decl.initial else {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0012",
+                                        &[("arg0", variable.to_string())],
+                                    ),
+                                ));
+                            };
+                            let initial = *initial;
+                            if decl.min != Some(1) {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0005",
+                                        &[("arg0", variable.to_string())],
+                                    ),
+                                ));
+                            }
+                            let maximum = match list {
+                                "choices" => self.max_choices,
+                                "gallery" => self.gallery_count,
+                                "variables" => self.vars.len(),
+                                "textLocales" => self.catalog.texts.len(),
+                                "voiceLocales" => self.catalog.voices.len(),
+                                other => pagination::Totals::legal(other),
+                            };
+                            let needed = pagination::pages(maximum, page_size);
+                            if decl.max.is_none_or(|max| max < needed) {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0006",
+                                        &[
+                                            ("arg0", needed.to_string()),
+                                            ("arg1", variable.to_string()),
+                                        ],
+                                    ),
+                                ));
+                            }
+                            let actual = match list {
+                                "gallery" => Some(self.gallery_count),
+                                "variables" => Some(self.vars.len()),
+                                "textLocales" => Some(self.catalog.texts.len()),
+                                "voiceLocales" => Some(self.catalog.voices.len()),
+                                _ => None,
+                            };
+                            if let Some(actual) = actual
+                                && initial > pagination::pages(actual, page_size)
+                            {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0010",
+                                        &[("arg0", variable.to_string())],
+                                    ),
+                                ));
+                            }
+                            if let Some(first) =
+                                self.page_vars.insert(variable.to_owned(), id.clone())
+                            {
+                                return Err(error(
+                                    self.file(),
+                                    xml,
+                                    crate::i18n::format(
+                                        "host-interface-pagination-0007",
+                                        &[("arg0", variable.to_string()), ("arg1", first)],
+                                    ),
+                                ));
+                            }
+                            Some(pagination::Pagination {
+                                page_size,
+                                variable: variable.to_owned(),
+                            })
+                        }
+                    };
                     Kind::Repeat {
                         source: list.into(),
                         columns: columns as usize,
                         cell,
                         gap,
+                        pagination,
                     }
                 }
                 _ => unreachable!(),
             };
-            let font = number(self.file, xml, "font-size", Some(20.0))?;
-            let radius = number(self.file, xml, "radius", Some(0.0))?;
+            let font = number(self.file(), xml, "font-size", Some(20.0))?;
+            let radius = number(self.file(), xml, "radius", Some(0.0))?;
             if !(8.0..=96.0).contains(&font) || !(0.0..=128.0).contains(&radius) {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0041"),
                 ));
@@ -863,7 +1124,7 @@ impl Parser<'_> {
             let fit = xml.attribute("fit").unwrap_or("stretch").to_owned();
             if !["stretch", "contain", "cover"].contains(&fit.as_str()) {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0042"),
                 ));
@@ -872,7 +1133,7 @@ impl Parser<'_> {
             let image_bind = xml.attribute("image-bind").map(str::to_owned);
             if image_id.is_some() && image_bind.is_some() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0043"),
                 ));
@@ -891,18 +1152,18 @@ impl Parser<'_> {
                         .is_some_and(|a| a.kind == AssetKind::NinePatch)
                     {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0044"),
                         ));
                     }
                 } else {
-                    image(self.file, xml, id, self.story)?;
+                    image(self.file(), xml, id, self.story)?;
                 }
             }
             if matches!(tag, "image" | "nine-patch") && image_id.is_none() && image_bind.is_none() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0045"),
                 ));
@@ -911,11 +1172,11 @@ impl Parser<'_> {
                 .attribute("region")
                 .map(crate::image_layout::Region::parse)
                 .transpose()
-                .map_err(|e| error(self.file, xml, e))?;
+                .map_err(|e| error(self.file(), xml, e))?;
             let region_bind = xml.attribute("region-bind").map(str::to_owned);
             if region.is_some() && region_bind.is_some() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0046"),
                 ));
@@ -925,7 +1186,7 @@ impl Parser<'_> {
                     || binding(path, self.vars, source) != Some(ValueKind::Text))
             {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0047"),
                 ));
@@ -935,7 +1196,7 @@ impl Parser<'_> {
                     || image_bind.as_deref() == Some("item.image"))
             {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0048"),
                 ));
@@ -943,7 +1204,7 @@ impl Parser<'_> {
             let color_bind = xml.attribute("color-bind").map(str::to_owned);
             if color_bind.is_some() && xml.attribute("color").is_some() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0049"),
                 ));
@@ -961,16 +1222,16 @@ impl Parser<'_> {
                 };
                 if !valid {
                     return Err(error(
-                        self.file,
+                        self.file(),
                         xml,
                         crate::i18n::text("host-interface-0050"),
                     ));
                 }
             }
-            let density = number(self.file, xml, "density", Some(1.0))?;
+            let density = number(self.file(), xml, "density", Some(1.0))?;
             if !(0.125..=8.0).contains(&density) {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0051"),
                 ));
@@ -982,7 +1243,7 @@ impl Parser<'_> {
                 .map(str::to_owned);
             if xml.attribute("bind").is_some() && xml.attribute("text").is_some() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0052"),
                 ));
@@ -992,7 +1253,7 @@ impl Parser<'_> {
             for path in [&visible, &enabled] {
                 if binding(path, self.vars, source) != Some(ValueKind::Bool) {
                     return Err(error(
-                        self.file,
+                        self.file(),
                         xml,
                         crate::i18n::format("host-interface-0010", &[("arg0", path.to_string())]),
                     ));
@@ -1010,7 +1271,7 @@ impl Parser<'_> {
                 };
                 if !valid {
                     return Err(error(
-                        self.file,
+                        self.file(),
                         xml,
                         crate::i18n::format("host-interface-0011", &[("arg0", path.to_string())]),
                     ));
@@ -1018,21 +1279,21 @@ impl Parser<'_> {
             }
             if matches!(kind, Kind::Slider { .. } | Kind::Toggle) && bind.is_none() {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0053"),
                 ));
             }
             if let Kind::ColorPicker { .. } = kind {
                 let path = bind.as_deref().ok_or_else(|| {
-                    error(self.file, xml, crate::i18n::text("host-interface-0054"))
+                    error(self.file(), xml, crate::i18n::text("host-interface-0054"))
                 })?;
                 let name = path.strip_prefix("ui.").unwrap_or_default();
                 let initial = match self.vars.get(name).map(|decl| &decl.initial) {
                     Some(VariableValue::String(value)) => value,
                     _ => {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0055"),
                         ));
@@ -1040,7 +1301,7 @@ impl Parser<'_> {
                 };
                 crate::color::Rgba::parse(initial).map_err(|reason| {
                     error(
-                        self.file,
+                        self.file(),
                         xml,
                         crate::i18n::format("host-interface-0012", &[("arg0", reason.to_string())]),
                     )
@@ -1053,7 +1314,7 @@ impl Parser<'_> {
                             && matches!(source, Some("gallery" | "slots" | "autosaves")))))
             {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::text("host-interface-0056"),
                 ));
@@ -1068,7 +1329,7 @@ impl Parser<'_> {
                 .map(|value| {
                     if event.is_some() {
                         return Err(error(
-                            self.file,
+                            self.file(),
                             xml,
                             crate::i18n::text("host-interface-0057"),
                         ));
@@ -1080,7 +1341,7 @@ impl Parser<'_> {
                             .filter(|id| !id.is_empty() && !id.chars().any(char::is_whitespace))
                             .map(|id| UiRoute::Open(id.into()))
                             .ok_or_else(|| {
-                                error(self.file, xml, crate::i18n::text("host-interface-0058"))
+                                error(self.file(), xml, crate::i18n::text("host-interface-0058"))
                             }),
                     }
                 })
@@ -1089,13 +1350,13 @@ impl Parser<'_> {
                 && reserved_event(event)
             {
                 return Err(error(
-                    self.file,
+                    self.file(),
                     xml,
                     crate::i18n::format("host-interface-0077", &[("arg0", event.to_string())]),
                 ));
             }
             let children = if container {
-                self.nodes(xml, depth + 1, child_source)?
+                self.nodes(xml, depth + 1, child_source, scope, None, authors)?
             } else {
                 Vec::new()
             };
@@ -1104,21 +1365,21 @@ impl Parser<'_> {
             } else {
                 [255, 255, 255, 255]
             };
-            let localized = crate::localization::binding(self.file, xml, "text", self.catalog)?;
-            nodes.push(Node {
+            let localized = crate::localization::binding(self.file(), xml, "text", self.catalog)?;
+            Ok(Node {
                 localized,
                 sound,
                 route,
                 location: {
                     let p = xml.document().text_pos_at(xml.range().start);
-                    format!("{}:{}:{}", self.file, p.row, p.col)
+                    format!("{}:{}:{}", self.file(), p.row, p.col)
                 },
                 region,
                 region_bind,
                 color_bind,
                 density,
                 effect: crate::loader::effect_xml::reference(
-                    self.file,
+                    self.file(),
                     xml,
                     "effect",
                     &self.story.effects,
@@ -1126,7 +1387,7 @@ impl Parser<'_> {
                 id,
                 kind,
                 rect,
-                color: color(self.file, xml, default)?,
+                color: color(self.file(), xml, default)?,
                 font,
                 radius,
                 text,
@@ -1140,9 +1401,196 @@ impl Parser<'_> {
                 enabled,
                 event,
                 children,
-            });
+            })
         }
-        Ok(nodes)
+    }
+    /// Expand one registered composition tag into owned host nodes. The host parser
+    /// re-validates the generated fragment exactly like handwritten XML.
+    fn component(
+        &mut self,
+        xml: XmlNode<'_, '_>,
+        depth: usize,
+        source: Option<&str>,
+        scope: &str,
+    ) -> Result<Node> {
+        let tag = xml.tag_name().name();
+        let expander = self.expander.ok_or_else(|| {
+            error(
+                self.file(),
+                xml,
+                crate::i18n::text("host-interface-components-0061"),
+            )
+        })?;
+        if self.component_depth >= components::MAX_NESTING {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0055",
+                    &[("arg0", tag.to_string())],
+                ),
+            ));
+        }
+        let local = required(self.file(), xml, "id")?.to_owned();
+        if local.len() > 64
+            || local.starts_with('$')
+            || local.contains('.')
+            || local.chars().any(char::is_whitespace)
+        {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0054",
+                    &[("arg0", local.to_string())],
+                ),
+            ));
+        }
+        let id = format!("{scope}{local}");
+        if id.len() > 256 || reserved_target(&id) {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0054",
+                    &[("arg0", id.to_string())],
+                ),
+            ));
+        }
+        if xml
+            .children()
+            .any(|child| child.is_text() && !child.text().unwrap_or("").trim().is_empty())
+        {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0059",
+                    &[("arg0", tag.to_string())],
+                ),
+            ));
+        }
+        let position = xml.document().text_pos_at(xml.range().start);
+        let instance = format!("{}:{}:{}", self.file(), position.row, position.col);
+        self.expansions += 1;
+        if self.expansions > components::MAX_INSTANCES {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0056",
+                    &[("arg0", instance.to_string())],
+                ),
+            ));
+        }
+        if std::time::Instant::now() > self.component_deadline {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0058",
+                    &[("arg0", instance.to_string())],
+                ),
+            ));
+        }
+        let attributes: Vec<(String, String)> = xml
+            .attributes()
+            .map(|attribute| (attribute.name().to_owned(), attribute.value().to_owned()))
+            .collect();
+        let authored: Vec<XmlNode<'_, '_>> = elements(xml).collect();
+        let (fragment, definition) = self
+            .components
+            .expand(expander, tag, &attributes, authored.len())
+            .map_err(|cause| {
+                error(
+                    self.file(),
+                    xml,
+                    crate::i18n::format(
+                        "host-interface-components-0018",
+                        &[("arg0", tag.to_string()), ("arg1", format!("{cause:#}"))],
+                    ),
+                )
+            })?;
+        self.expansion_bytes = self.expansion_bytes.saturating_add(fragment.len());
+        if self.expansion_bytes > components::MAX_TOTAL_BYTES {
+            return Err(error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0057",
+                    &[("arg0", instance.to_string())],
+                ),
+            ));
+        }
+        let inner = format!("{id}.");
+        let mut authors = Vec::new();
+        for child in authored {
+            authors.push(vec![self.node(
+                child,
+                depth + 1,
+                source,
+                &inner,
+                None,
+                None,
+            )?]);
+        }
+        let document = Document::parse(&fragment).map_err(|cause| {
+            error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0018",
+                    &[
+                        ("arg0", tag.to_string()),
+                        (
+                            "arg1",
+                            format!(
+                                "{}:{}:{} {cause}",
+                                definition,
+                                cause.pos().row,
+                                cause.pos().col
+                            ),
+                        ),
+                    ],
+                ),
+            )
+        })?;
+        let label = format!("<component {tag} at {instance}; defined at {definition}>");
+        let previous = std::mem::replace(&mut self.file, label);
+        self.generated += 1;
+        self.component_depth += 1;
+        let result = (|| -> Result<Node> {
+            let mut nodes = self.nodes(
+                document.root_element(),
+                depth,
+                source,
+                &inner,
+                Some(&id),
+                Some(&authors),
+            )?;
+            ensure!(
+                nodes.len() == 1,
+                "{}",
+                crate::i18n::text("host-interface-components-0036")
+            );
+            Ok(nodes.pop().expect("one generated root"))
+        })();
+        self.component_depth -= 1;
+        self.generated -= 1;
+        self.file = previous;
+        result.map_err(|cause| {
+            error(
+                self.file(),
+                xml,
+                crate::i18n::format(
+                    "host-interface-components-0018",
+                    &[("arg0", tag.to_string()), ("arg1", format!("{cause:#}"))],
+                ),
+            )
+        })
+    }
+    fn file(&self) -> &str {
+        &self.file
     }
 }
 
@@ -1166,6 +1614,67 @@ fn ui_target_location(screens: &BTreeMap<String, Screen>, id: &str) -> Option<St
         .map(|screen| screen.location.clone())
         .or_else(|| ui_node(screens, id).map(|node| node.location.clone()))
 }
+fn validate_repeat_bindings(screens: &BTreeMap<String, Screen>) -> Result<()> {
+    let mut repeats: BTreeMap<String, bool> = BTreeMap::new();
+    fn collect(nodes: &[Node], repeats: &mut BTreeMap<String, bool>) {
+        for node in nodes {
+            if let Kind::Repeat { pagination, .. } = &node.kind {
+                repeats.insert(node.id.clone(), pagination.is_some());
+            }
+            collect(&node.children, repeats);
+        }
+    }
+    for screen in screens.values() {
+        collect(&screen.nodes, &mut repeats);
+    }
+    fn walk(nodes: &[Node], repeats: &BTreeMap<String, bool>) -> Result<()> {
+        for node in nodes {
+            for path in [&node.visible, &node.enabled]
+                .into_iter()
+                .chain(node.bind.iter())
+            {
+                let path = path.strip_prefix("not:").unwrap_or(path);
+                let Some(rest) = path.strip_prefix("repeat.") else {
+                    continue;
+                };
+                let matched = repeats
+                    .iter()
+                    .filter_map(|(id, paginated)| {
+                        rest.strip_prefix(&format!("{id}."))
+                            .map(|field| (id, *paginated, field))
+                    })
+                    .max_by_key(|(id, _, _)| id.len());
+                match matched {
+                    None => {
+                        return Err(anyhow::anyhow!(
+                            "{}",
+                            crate::i18n::format(
+                                "host-interface-pagination-0013",
+                                &[("arg0", format!("{}: {}", node.location, path))]
+                            )
+                        ));
+                    }
+                    Some((id, false, field)) => {
+                        return Err(anyhow::anyhow!(
+                            "{}",
+                            crate::i18n::format(
+                                "host-interface-pagination-0008",
+                                &[("arg0", id.to_string()), ("arg1", field.to_string())]
+                            )
+                        ));
+                    }
+                    Some((_, true, _)) => {}
+                }
+            }
+            walk(&node.children, repeats)?;
+        }
+        Ok(())
+    }
+    for screen in screens.values() {
+        walk(&screen.nodes, &repeats)?;
+    }
+    Ok(())
+}
 pub fn parse(
     text: &str,
     file: &str,
@@ -1177,6 +1686,8 @@ pub fn parse(
         file,
         story,
         registrations,
+        &components::Library::default(),
+        None,
         std::sync::Arc::new(crate::localization::Catalog::default()),
     )
 }
@@ -1185,6 +1696,8 @@ pub fn parse_localized(
     file: &str,
     story: &Story,
     registrations: &[Registration],
+    components: &components::Library,
+    expander: Option<&dyn components::Expander>,
     mut catalog: crate::localization::SharedCatalog,
 ) -> Result<Definition> {
     ensure!(
@@ -1355,13 +1868,28 @@ pub fn parse_localized(
     }
     let mut parser = Parser {
         catalog: &catalog,
-        file,
+        file: file.to_owned(),
         story,
         vars: &variables,
         palette: &palette,
+        components,
+        expander,
         ids: BTreeSet::new(),
         count: 0,
         pickers: 0,
+        component_depth: 0,
+        generated: 0,
+        expansions: 0,
+        expansion_bytes: 0,
+        component_deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+        page_vars: BTreeMap::new(),
+        max_choices: story
+            .frames
+            .values()
+            .map(|frame| frame.options.len())
+            .max()
+            .unwrap_or(0),
+        gallery_count: gallery.len(),
     };
     for (id, asset) in &story.assets {
         if asset.kind == AssetKind::Cg {
@@ -1386,6 +1914,19 @@ pub fn parse_localized(
     }
     let mut screens = BTreeMap::new();
     for screen in elements(root).filter(|node| node.has_tag_name("screen")) {
+        let mut screen_children = vec![
+            "scene",
+            "panel",
+            "image",
+            "nine-patch",
+            "label",
+            "button",
+            "slider",
+            "toggle",
+            "repeat",
+            "color-picker",
+        ];
+        screen_children.extend(components.tags());
         check(
             file,
             screen,
@@ -1398,18 +1939,7 @@ pub fn parse_localized(
                 "background-right-click",
                 "sequence",
             ],
-            &[
-                "scene",
-                "panel",
-                "image",
-                "nine-patch",
-                "label",
-                "button",
-                "slider",
-                "toggle",
-                "repeat",
-                "color-picker",
-            ],
+            &screen_children,
             false,
         )?;
         let id = required(file, screen, "id")?.to_owned();
@@ -1447,7 +1977,7 @@ pub fn parse_localized(
             pause: boolean(file, screen, "pause", true)?,
             background_click: event("background-click")?,
             background_right_click: event("background-right-click")?,
-            nodes: parser.nodes(screen, 1, None)?,
+            nodes: parser.nodes(screen, 1, None, "", None, None)?,
         };
         if screens.insert(id.clone(), value).is_some() {
             return Err(error(
@@ -1485,6 +2015,7 @@ pub fn parse_localized(
     if !screens.get(&initial).is_some_and(|s| !s.modal) {
         return Err(error(file, root, crate::i18n::text("host-interface-0071")));
     }
+    validate_repeat_bindings(&screens)?;
     // `ui(id)` has one namespace: a screen and a control may never share an ID.
     for (id, screen) in &screens {
         if let Some(node) = ui_node(&screens, id) {

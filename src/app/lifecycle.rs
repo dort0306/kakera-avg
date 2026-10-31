@@ -173,6 +173,8 @@ impl PlayerApp {
             slots: &self.custom.slots,
             settings: &plan.settings,
             complete: true,
+            slot_pages: &self.custom.slot_pages,
+            autosaves: &self.custom.autosaves,
         });
         let commands = self.logic.ui_event(
             &interface::Event {
@@ -202,13 +204,14 @@ impl PlayerApp {
                 crate::i18n::format("host-app-lifecycle-0007", &[("arg0", phase.to_string())])
             );
         }
-        let extra = host::prepare(
+        let extra = host::prepare_with_pages(
             &self.custom.definition,
             &plan.state,
             &plan.settings,
             &plan.profile,
             commands,
             false,
+            Some(&snapshot.page_limits),
         )?;
         self.merge_lifecycle(plan, extra)
     }
@@ -1738,6 +1741,8 @@ mod tests {
             slots: &[],
             settings: &app.settings,
             complete: true,
+            slot_pages: &[],
+            autosaves: &[],
         });
         assert_eq!(data.values["cg"]["total"], 1);
         assert_eq!(data.values["cg"]["unlocked"], 1);

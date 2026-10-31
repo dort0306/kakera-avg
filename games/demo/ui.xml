@@ -16,6 +16,7 @@
   <include src="ui/gallery.xml" />
   <include src="ui/cg-view.xml" />
   <include src="ui/effects.xml" />
+  <include src="ui/composition.xml" />
   <include src="ui/portrait-stage.xml" />
   <include src="ui/autosaves.xml" />
   <include src="ui/skins.xml" />

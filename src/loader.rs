@@ -672,7 +672,15 @@ pub fn load_game(
     }
     let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
     let registrations = logic.ui_registrations()?;
-    let interface = ui.parse_localized(&parsed.story, &registrations, catalog)?;
+    let components = logic.component_library()?;
+    let interface = ui.parse_localized(
+        &parsed.story,
+        &registrations,
+        &components,
+        Some(&logic),
+        catalog,
+    )?;
+    validate_initial_pages(&interface, &parsed.story)?;
     logic.bind_interface(&interface);
     let loaded = LoadedStory {
         story: parsed.story,
@@ -682,6 +690,55 @@ pub fn load_game(
     initial_ui_plans(&loaded, &logic)?;
     Ok((loaded, logic))
 }
+/// Initial pages must fit the startup candidate; only natural later shrink clamps.
+fn validate_initial_pages(
+    def: &crate::interface::Definition,
+    story: &crate::model::Story,
+) -> Result<()> {
+    use crate::interface::pagination;
+    let has_pages = def.screens.values().any(|screen| {
+        fn walk(nodes: &[crate::interface::Node]) -> bool {
+            nodes.iter().any(|node| {
+                matches!(
+                    node.kind,
+                    crate::interface::Kind::Repeat {
+                        pagination: Some(_),
+                        ..
+                    }
+                ) || walk(&node.children)
+            })
+        }
+        walk(&screen.nodes)
+    });
+    if !has_pages {
+        return Ok(());
+    }
+    let totals = pagination::Totals {
+        choices: 0,
+        history: 0,
+        gallery: def.gallery.len(),
+        variables: story.variables.len(),
+        text_locales: def.localization.texts.len(),
+        voice_locales: def.localization.voices.len(),
+        autosaves: 0,
+        slots: crate::save::SLOT_COUNT as usize,
+    };
+    let variables = def.initial_variables();
+    let (plans, normalized) = pagination::plans(def, &variables, &totals);
+    for plan in plans {
+        if normalized.contains_key(&plan.variable) {
+            anyhow::bail!(
+                "{}",
+                crate::i18n::format(
+                    "host-interface-pagination-0010",
+                    &[("arg0", plan.variable.clone())]
+                )
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Evaluate the entry lifecycle against a fresh, IO-free snapshot for startup validation.
 pub fn initial_ui_plans(
     loaded: &LoadedStory,
@@ -712,6 +769,8 @@ pub fn initial_ui_plans(
                 slots: &[],
                 settings: &settings,
                 complete: false,
+                slot_pages: &[],
+                autosaves: &[],
             });
             let commands = logic.ui_event(
                 &crate::interface::Event::game(),
@@ -719,7 +778,15 @@ pub fn initial_ui_plans(
                 &state.variables,
                 &data.values,
             )?;
-            let plan = host::prepare(def, &state, &settings, &profile, commands, true)?;
+            let plan = host::prepare_with_pages(
+                def,
+                &state,
+                &settings,
+                &profile,
+                commands,
+                true,
+                Some(&data.page_limits),
+            )?;
             crate::effects::validate_portraits(
                 &loaded.story.frames[&session.frame_id],
                 &plan.portraits,

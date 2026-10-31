@@ -39,6 +39,8 @@ fn data(loaded: &loader::LoadedStory, state: &host::State) -> Data {
         slots: &[],
         settings: &Settings::default(),
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     })
 }
 #[test]
@@ -202,6 +204,8 @@ fn history_variable_gallery_and_last_page_slot_metadata_use_current_text() -> Re
         slots: &slots,
         settings: &Settings::default(),
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     });
     assert_eq!(values.lists["history"][0]["text"], "LINE-B");
     assert_eq!(values.lists["history"][0]["speaker"], "HERO-B");

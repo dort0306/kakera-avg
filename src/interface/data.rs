@@ -1,13 +1,14 @@
 use super::{
-    Data, Definition,
+    Data, Definition, Kind,
     host::{Profile, State},
+    pagination,
 };
 use crate::{
     model::{Route, Session, Story, VariableValue, Variables},
     save::{SlotInfo, SlotState},
     settings::Settings,
 };
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub struct Input<'a> {
     pub definition: &'a Definition,
@@ -19,6 +20,10 @@ pub struct Input<'a> {
     pub slots: &'a [SlotInfo],
     pub settings: &'a Settings,
     pub complete: bool,
+    /// Rows already loaded for each explicitly paginated `slots` repeat.
+    pub slot_pages: &'a [(String, Vec<SlotInfo>)],
+    /// Auto-save metadata (already ordered and localized by the host).
+    pub autosaves: &'a [Value],
 }
 pub fn values(vars: &Variables) -> Value {
     Value::Object(
@@ -47,9 +52,53 @@ fn display_value(value: &VariableValue) -> String {
         value => value.to_string(),
     }
 }
+fn slot_row(
+    story: &Story,
+    info: &SlotInfo,
+    catalog: &crate::localization::Catalog,
+    locale: Option<&str>,
+) -> Value {
+    // Slot metadata never exposes internal frame ids; previews are text only.
+    let (preview, exists, loadable, saved_at, has_image) = match &info.state {
+        SlotState::Empty => (
+            crate::i18n::text("host-interface-data-0007").into(),
+            false,
+            false,
+            String::new(),
+            false,
+        ),
+        SlotState::Ready {
+            preview,
+            saved_at_unix_ms,
+            screenshot,
+            frame_id,
+        } => {
+            let text = story
+                .frames
+                .get(frame_id)
+                .map(|frame| catalog.frame_text(frame, locale))
+                .unwrap_or_else(|| preview.clone());
+            (
+                text,
+                true,
+                true,
+                crate::save_preview::saved_at(*saved_at_unix_ms),
+                screenshot.is_some(),
+            )
+        }
+        SlotState::Invalid(error) => (
+            crate::i18n::format("host-interface-data-0003", &[("arg0", error.to_string())]),
+            true,
+            false,
+            String::new(),
+            false,
+        ),
+    };
+    json!({"slot":info.slot.number(),"title":crate::i18n::format("host-interface-data-0004",&[("arg0",format!("{}",info.slot.number()))]),"excerpt":crate::save_preview::excerpt(&preview),"preview":preview,"exists":exists,"loadable":loadable,"savedAt":saved_at,"hasScreenshot":has_image,"image":if has_image {crate::save_preview::image_id(info.slot.number(),false)} else {String::new()}})
+}
 impl Data {
     /// Hide the internal validation checkpoint until a story has actually been entered.
-    pub fn awaiting_start(&mut self) {
+    pub fn awaiting_start(&mut self, definition: &Definition) {
         self.values["game"]["frameId"] = json!("");
         self.values["game"]["cgId"] = json!("");
         self.values["game"]["speaker"] = json!("");
@@ -60,6 +109,36 @@ impl Data {
         self.values["game"]["continueText"] = json!(crate::i18n::text("host-interface-data-0006"));
         self.lists.insert("choices".into(), Vec::new());
         self.lists.insert("history".into(), Vec::new());
+        // Paginated copies of the story-derived sources are hidden with their originals.
+        pagination::for_each(definition, |node| {
+            if let Kind::Repeat {
+                source,
+                pagination: Some(_),
+                ..
+            } = &node.kind
+                && matches!(source.as_str(), "choices" | "history")
+            {
+                self.lists
+                    .insert(pagination::list_key(&node.id), Vec::new());
+                if let Some(meta) = self
+                    .values
+                    .get_mut("repeat")
+                    .and_then(|repeat| repeat.get_mut(&node.id))
+                {
+                    meta["page"] = json!(1);
+                    meta["pages"] = json!(1);
+                    meta["total"] = json!(0);
+                    meta["start"] = json!(0);
+                    meta["end"] = json!(0);
+                    meta["canPrev"] = json!(false);
+                    meta["canNext"] = json!(false);
+                    meta["pageText"] = json!(crate::i18n::format(
+                        "host-interface-pagination-0001",
+                        &[("arg0", "1".to_string()), ("arg1", "1".to_string())]
+                    ));
+                }
+            }
+        });
     }
     pub fn build(input: Input<'_>) -> Self {
         let Input {
@@ -72,6 +151,8 @@ impl Data {
             slots,
             settings,
             complete,
+            slot_pages,
+            autosaves,
         } = input;
         let frame = &story.frames[&session.frame_id];
         let speaker = frame
@@ -80,9 +161,29 @@ impl Data {
             .and_then(|id| story.characters.get(id))
             .map(String::as_str)
             .unwrap_or("");
+        let totals = pagination::Totals {
+            choices: available.len(),
+            history: session.history.len(),
+            gallery: definition.gallery.len(),
+            variables: story.variables.len(),
+            text_locales: definition.localization.texts.len(),
+            voice_locales: definition.localization.voices.len(),
+            autosaves: autosaves.len(),
+            slots: crate::save::SLOT_COUNT as usize,
+        };
+        let (plans, normalized) = pagination::plans(definition, &state.variables, &totals);
+        let mut variables = state.variables.clone();
+        for (name, value) in &normalized {
+            variables.insert(name.clone(), VariableValue::Int(*value));
+        }
         let mut data = Self {
-            values: json!({"game":{"frameId":frame.reference(),"speaker":speaker,"text":frame.text},"settings":settings,"ui":values(&state.variables)}),
+            values: json!({"game":{"frameId":frame.reference(),"speaker":speaker,"text":frame.text},"settings":settings,"ui":values(&variables)}),
             lists: Default::default(),
+            pages: normalized,
+            page_limits: plans
+                .iter()
+                .map(|plan| (plan.variable.clone(), plan.pages))
+                .collect(),
         };
         data.values["game"]["cgId"] = json!(
             frame
@@ -133,38 +234,15 @@ impl Data {
                 .map(|option| json!({"id":option.id,"text":option.text}))
                 .collect(),
         );
+        let locale = state.languages.text.as_deref();
         data.lists.insert(
             "slots".into(),
             slots
                 .iter()
-                .map(|info| {
-                    // Slot metadata never exposes internal frame ids; previews are text only.
-                    let (preview, exists, loadable, saved_at, has_image) = match &info.state {
-                        SlotState::Empty => (crate::i18n::text("host-interface-data-0007").into(), false, false, String::new(), false),
-                        SlotState::Ready {
-                            preview,
-                            saved_at_unix_ms,
-                            screenshot,
-                            ..
-                        } => (
-                            preview.clone(),
-                            true,
-                            true,
-                            crate::save_preview::saved_at(*saved_at_unix_ms),
-                            screenshot.is_some(),
-                        ),
-                        SlotState::Invalid(error) => (
-                            crate::i18n::format("host-interface-data-0003",&[("arg0",error.to_string())]),
-                            true,
-                            false,
-                            String::new(),
-                            false,
-                        ),
-                    };
-                    json!({"slot":info.slot.number(),"title":crate::i18n::format("host-interface-data-0004",&[("arg0",format!("{}",info.slot.number()))]),"excerpt":crate::save_preview::excerpt(&preview),"preview":preview,"exists":exists,"loadable":loadable,"savedAt":saved_at,"hasScreenshot":has_image,"image":if has_image {crate::save_preview::image_id(info.slot.number(),false)} else {String::new()}})
-                })
+                .map(|info| slot_row(story, info, &definition.localization, locale))
                 .collect(),
         );
+        data.lists.insert("autosaves".into(), autosaves.to_vec());
         data.lists.insert("gallery".into(),definition.gallery.iter().map(|(id,cg)|json!({"id":id,"title":cg.title,"image":cg.image,"unlocked":profile.unlocked.contains(id)})).collect());
         data.lists.insert("variables".into(),story.variables.iter().map(|(id,decl)|json!({"id":id,"label":decl.label,"value":display_value(&session.variables[id])})).collect());
         data.lists.insert("history".into(),session.history.iter().enumerate().map(|(index,entry)|{
@@ -173,7 +251,61 @@ impl Data {
             json!({"id":format!("{} · {}",index+1,frame.reference()),"speaker":speaker,"text":frame.text,"choice":choice})
         }).collect());
         crate::localization::project_data(&mut data, definition, state, story, session, slots);
+        data.apply_pagination(definition, story, &plans, slot_pages);
         data
+    }
+    fn apply_pagination(
+        &mut self,
+        definition: &Definition,
+        story: &Story,
+        plans: &[pagination::Plan],
+        slot_pages: &[(String, Vec<SlotInfo>)],
+    ) {
+        let mut metadata = Map::new();
+        for plan in plans {
+            let rows: Vec<Value> = if plan.source == "slots" {
+                let locale = self.values["locale"]["text"].as_str().map(str::to_owned);
+                slot_pages
+                    .iter()
+                    .find(|(id, _)| id == &plan.repeat)
+                    .map(|(_, infos)| {
+                        infos
+                            .iter()
+                            .map(|info| {
+                                slot_row(story, info, &definition.localization, locale.as_deref())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                let source = self.lists.get(&plan.source).cloned().unwrap_or_default();
+                match plan.range() {
+                    Some((start, end)) => source
+                        .iter()
+                        .skip(start.saturating_sub(1))
+                        .take(end.saturating_sub(start).saturating_add(1))
+                        .cloned()
+                        .collect(),
+                    None => Vec::new(),
+                }
+            };
+            self.lists.insert(pagination::list_key(&plan.repeat), rows);
+            metadata.insert(
+                plan.repeat.clone(),
+                json!({
+                    "page": plan.page,
+                    "pages": plan.pages,
+                    "pageSize": plan.page_size,
+                    "total": plan.total,
+                    "start": plan.start,
+                    "end": plan.end,
+                    "canPrev": plan.can_prev(),
+                    "canNext": plan.can_next(),
+                    "pageText": plan.page_text()
+                }),
+            );
+        }
+        self.values["repeat"] = Value::Object(metadata);
     }
     pub fn progress(&mut self, complete: bool, route: &Route, empty: bool) {
         self.values["game"]["transitioning"] = json!(false);

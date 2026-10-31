@@ -10,6 +10,8 @@
   const uiRegistry = new Map();
   // Independent author events; definitions never require a target control.
   const eventRegistry = new Map();
+  // Load-time composition tags; each definition is expanded into host nodes once.
+  const componentRegistry = new Map();
   let sealed = false;
   const toString = String;
   const host = "<engine-bridge>";
@@ -102,6 +104,96 @@
       }
     });
   }
+  function plainObject(value) {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      fail("host-bridge-0038", {});
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) fail("host-bridge-0038", {});
+    return value;
+  }
+  // Structural validation of one expansion result. Author child tokens are opaque
+  // frozen objects supplied by the host, never author-invented descriptors.
+  function expansionTree(root, tokens) {
+    const used = [];
+    let total = 0;
+    function walk(value, depth) {
+      if (depth > 8) fail("host-bridge-0039", {});
+      const node = plainObject(value);
+      const keys = Object.keys(node);
+      for (const key of keys) {
+        if (key !== "tag" && key !== "attrs" && key !== "children")
+          fail("host-bridge-0040", {"arg0": toString(key)});
+        const descriptor = Object.getOwnPropertyDescriptor(node, key);
+        if (!descriptor || !("value" in descriptor))
+          fail("host-bridge-0041", {"arg0": toString(key)});
+      }
+      const tag = node.tag;
+      if (typeof tag !== "string" || tag.length === 0) fail("host-bridge-0042", {});
+      if (tag === "$author") {
+        if (depth === 1) fail("host-bridge-0043", {});
+        if (node.attrs === undefined || node.children !== undefined) fail("host-bridge-0044", {});
+        const attrs = plainObject(node.attrs);
+        const names = Object.keys(attrs);
+        if (names.length !== 1 || names[0] !== "index") fail("host-bridge-0044", {});
+        const index = attrs.index;
+        if (!Number.isSafeInteger(index) || index < 0 || index >= tokens.length)
+          fail("host-bridge-0045", {});
+        if (tokens[index] !== value) fail("host-bridge-0046", {});
+        used.push(index);
+        return {tag, attrs: {index}};
+      }
+      total += 1;
+      if (total > 1024) fail("host-bridge-0047", {});
+      const result = {tag};
+      if (node.attrs !== undefined) {
+        const attrs = plainObject(node.attrs);
+        const names = Object.keys(attrs);
+        if (names.length > 64) fail("host-bridge-0048", {});
+        const copy = {};
+        for (const attribute of names) {
+          const descriptor = Object.getOwnPropertyDescriptor(attrs, attribute);
+          if (!descriptor || !("value" in descriptor))
+            fail("host-bridge-0041", {"arg0": toString(attribute)});
+          const item = descriptor.value;
+          if (typeof item === "string" || typeof item === "boolean") copy[attribute] = item;
+          else if (typeof item === "number" && Number.isFinite(item)) copy[attribute] = item;
+          else fail("host-bridge-0049", {"arg0": toString(attribute)});
+        }
+        result.attrs = copy;
+      }
+      if (node.children !== undefined) {
+        if (!Array.isArray(node.children) || node.children.length > 256) fail("host-bridge-0050", {});
+        result.children = node.children.map(child => walk(child, depth + 1));
+      }
+      return result;
+    }
+    const tree = walk(root, 1);
+    if (tree.tag !== "panel" && tree.tag !== "nine-patch") fail("host-bridge-0051", {});
+    if (!tree.attrs || tree.attrs.id !== "$root") fail("host-bridge-0052", {});
+    for (let index = 0; index < used.length; index += 1)
+      if (used[index] !== index) fail("host-bridge-0053", {});
+    if (used.length !== tokens.length) fail("host-bridge-0054", {});
+    return tree;
+  }
+  function componentManifest() {
+    return stringify([...componentRegistry].map(([tag, definition]) => ({
+      name: tag, props: definition.props, expand: typeof definition.expand === "function",
+      location: definition.location
+    })));
+  }
+  function componentExpand(request) {
+    const definition = componentRegistry.get(request.tag);
+    if (!definition) fail("host-bridge-0055", {"arg0": toString(request.tag)});
+    const tokens = [];
+    for (let index = 0; index < request.children; index += 1)
+      tokens.push(freeze({tag: "$author", attrs: freeze({index})}));
+    const props = plainObject(request.props);
+    const result = definition.expand(freeze({props: freeze(props), children: freeze(tokens)}));
+    if (result instanceof Promise) fail("host-bridge-0056", {});
+    const json = stringify(expansionTree(result, tokens));
+    if (json.length > 262144) fail("host-bridge-0057", {});
+    return json;
+  }
   Object.defineProperty(globalThis, "frame", { value: frameSelector, writable: false, configurable: false });
   Object.defineProperty(globalThis, "ui", { value: uiSelector, writable: false, configurable: false });
   Object.defineProperty(globalThis, "event", { value: freeze({
@@ -113,6 +205,30 @@
       const old = eventRegistry.get(key);
       if (old) fail("host-bridge-0034", {"arg0":key, "arg1":old.location});
       eventRegistry.set(key, {run: callback(run), location: location()});
+    }
+  }), writable: false, configurable: false });
+  Object.defineProperty(globalThis, "component", { value: freeze({
+    register(tagName, definition) {
+      if (sealed) fail("host-bridge-0006", {});
+      const tag = name(tagName);
+      if (tag.length > 64 || !/^x-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(tag))
+        fail("host-bridge-0058", {"arg0": toString(tag)});
+      const config = plainObject(definition);
+      for (const key of Object.keys(config)) {
+        if (key !== "props" && key !== "expand")
+          fail("host-bridge-0059", {"arg0": toString(key)});
+        const descriptor = Object.getOwnPropertyDescriptor(config, key);
+        if (!descriptor || !("value" in descriptor))
+          fail("host-bridge-0041", {"arg0": toString(key)});
+      }
+      if (typeof config.expand !== "function") fail("host-bridge-0060", {});
+      const props = plainObject(config.props);
+      if (componentRegistry.has(tag)) fail("host-bridge-0061", {"arg0": toString(tag)});
+      const copy = {};
+      for (const key of Object.keys(props)) copy[key] = props[key];
+      componentRegistry.set(tag, freeze({
+        props: freeze(copy), expand: config.expand, location: location()
+      }));
     }
   }), writable: false, configurable: false });
   // No host IO or module loader is installed. Remove nondeterministic intrinsics.
@@ -181,6 +297,7 @@
     const snapshot = readonly(request.snapshot);
     const ctx = freeze({
       game: snapshot.game, settings: snapshot.settings, saves: snapshot.saves,
+      repeats: snapshot.repeat ?? freeze({}),
       localeInfo: snapshot.localeInfo,
       locale(channel, locale) { emit({type:"locale", channel, locale}); },
       shortcuts: snapshot.shortcuts, colors: snapshot.colors, vars: context(request, false).ctx.vars,
@@ -252,6 +369,8 @@
     const request = parse(requestJson);
     if (request.mode === "ui-manifest") return stringify(uiManifest());
     if (request.mode === "ui") return uiEvent(request);
+    if (request.mode === "component-manifest") return componentManifest();
+    if (request.mode === "component-expand") return componentExpand(request);
     if (request.mode === "manifest") return stringify([...registry.values()].map(route => ({
       frame: route.frame, kind: route.kind, options: [...route.options.keys()],
       location: route.location, routes: route.routes

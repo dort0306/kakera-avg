@@ -4,6 +4,7 @@
     <panel id="effectsPanel" x="80" y="30" width="1120" height="660" image="ui.panel">
       <label id="effectsTitle" x="30" y="20" width="900" height="40" text="内置转场与图片效果" font-size="28" color="#F0CA89" />
       <button id="openSkinDemo" x="470" y="22" width="210" height="38" text="点九 / 图集" event="open-skins" image="ui.button"/>
+      <button id="openComposition" x="690" y="22" width="112" height="38" text="组合 / 分页" route="open:composition" image="ui.button" font-size="16"/>
       <button id="effectsClose" x="1000" y="22" width="88" height="38" text="返回" event="close" image="ui.button" />
       <button id="effectsPausePreview" x="810" y="22" width="170" height="38" text="暂停预览" event="fx-pause" image="ui.button" />
       <image id="effectsPreview" x="30" y="90" width="480" height="270" image="bg.room" fit="contain" />

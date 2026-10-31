@@ -109,6 +109,8 @@ fn snapshot(f: &Fixture, session: &Session, complete: bool) -> Data {
         slots: &f.slots,
         settings: &f.settings,
         complete,
+        slot_pages: &[],
+        autosaves: &[],
     })
 }
 fn commands(f: &Fixture, name: &str, item: Value, value: Value) -> Vec<Command> {
@@ -143,7 +145,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 19);
+    assert_eq!(f.definition.screens.len(), 20);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));

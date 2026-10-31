@@ -2751,3 +2751,110 @@ frame/ui/event 为不可写、不可配置全局入口，event 对象及选择�
 迁移 v0.11.0 普通 `ui(id).bind(name, fn)`：独立注册 `event.register(name, fn)`，再按需 `ui(id).bind(name)` 或保留 XML event 引用。多个同名回调必须由作者明确合并为一个共享函数，或重命名为不同事件 ID，禁止最后一个覆盖前一个。不再要求每个已注册函数有一个控件目标。幕路由及两种目标参数不变，生命周期入口不变，旧 on.* 仍拒绝。
 
 story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2 与 demo content-version=11 不变；纯语法迁移不写入存档或更改历史。完整落地及验证见 [v0.11.1 方案](v0.11.1-implementation-plan.zh-cn.md) 和 [验收记录](v0.11.1-validation.zh-cn.md)。
+
+## 38. v0.11.2 组合标签与通用分页
+
+本节描述已实现能力；设计背景见 [组合标签交接](ui-composition-tags-handoff.zh-cn.md)、[分页交接](repeat-pagination-handoff.zh-cn.md) 与 [总方案](v0.11.2-implementation-plan.zh-cn.md)。
+
+### 38.1 image/panel 内部归一
+
+`image` 与 `panel` 现在共用同一内部节点类型，作者契约没有放宽：
+
+- `image` 仍需 `image` 或 `image-bind` 之一（互斥），不接受子节点、`radius` 或 panel 专有属性。
+- `panel` 可省略图片，可包含子节点、`radius`，并保留父级坐标与裁剪能力。
+- 两者的 `fit`、`region`、`region-bind`、`effect`、`color-bind`、资源类型、纹理/滤镜缓存和镜像/动画路径完全一致；错误仍指向原始 XML 文件与行列。
+- 只读节点不会因内部归一获得按钮事件权限；toggle 的 XML、绑定和值事件行为不变。
+
+### 38.2 JS 组合标签 `component.register`
+
+脚本在装配阶段用以下接口注册**加载期**组合标签：
+
+```javascript
+component.register('x-card', {
+  props: {
+    title: { type: 'string', required: true },
+    expanded: { type: 'binding', valueType: 'bool', required: true }
+  },
+  expand({ props, children }) {
+    return {
+      tag: 'panel',
+      attrs: { id: '$root', width: 600, height: 360 },
+      children: [
+        { tag: 'label', attrs: { id: 'title', width: 560, height: 40, text: props.title } },
+        { tag: 'panel', attrs: { id: 'body', y: 50, width: 600, height: 310, visible: props.expanded }, children }
+      ]
+    };
+  }
+});
+```
+
+```xml
+<x-card id="helpCard" x="40" y="60" width="600" height="360"
+        title="帮助" expanded="ui.cardExpanded">
+  <label id="helpText" width="550" height="200" text="帮助正文" />
+</x-card>
+```
+
+- 标签名必须为 `x-` 前缀的小写 ASCII（可含数字与单个连字符），最长 64 字节；不能覆盖宿主标签。每个标签只能注册一次，最多 128 个；`component.register` 在脚本装配后封存，运行期不能注册。
+- `props` 是严格属性表：每项必须声明 `type`，类型为 `string`、`bool`、`int`、`number`、`binding`、`event`，并**恰好**声明 `required: true` 或类型匹配的 `default` 之一。`int/number` 可加 `min/max`，`string` 可加 `maxLength`（1–32768），`binding` 必须声明 `valueType`（`bool`/`int`/`number`/`string`），`event` 为事件 ID 字符串。`id/x/y/width/height/visible/enabled` 是保留的实例布局属性，不能声明为 prop。
+- 实例属性由宿主按声明转换；未声明属性、缺少必需属性、类型/范围/长度不符都报错，不会把原始字符串交给作者解释。
+- `expand` 必须同步返回**恰好一个**节点描述 `{ tag, attrs?, children? }`；只允许这三个键。`attrs` 是字符串/布尔/有限数值的普通对象，最多 64 项；`children` 是有界数组。禁止 Promise、函数、访问器、自定义原型、循环对象、未知键和隐式字符串化。
+- 根必须是 `panel` 或 `nine-patch`，且根 `attrs.id` 必须为 `$root`。可输出 `scene`、`panel`、`image`、`nine-patch`、`label`、`button`、`slider`、`toggle`、`repeat`、`color-picker` 及已注册的其他组合标签；不能生成 `ui/screen/include/variables/gallery/palette/ui-media` 等根级声明，也不能新增宿主命令、路径或 IO。
+- 实例的 `id` 映射为展开根 `$root`；其他局部 ID 变成 `实例ID.局部ID`，嵌套组件继续追加前缀，例如 `helpCard.title`、`helpCard.body`、`helpCard.helpText`。实例的 `x/y/width/height/visible/enabled` 覆盖展开根对应属性（`id` 由 `$root` 映射，不按普通属性覆盖）。
+- `children` 里的对象是宿主提供的不透明占位；必须按原顺序各插入一次，丢弃、复制、调换或自造占位都拒绝。作者子节点先完整解析，再插回展开树，因此错误仍指向原 XML。
+- 展开在独立、受限 QuickJS 中执行；每次实例重新加载同一固定脚本快照，不继承上一次实例的全局副作用，也不能访问 `ctx`、会话、玩家偏好、时钟、随机、网络或文件。展开结果重新进入与手写 XML 完全相同的严格节点/资源/国际化/事件/动画/路由校验。
+- 预算：组件嵌套最多 8 层，整个 UI 最多 1024 个展开实例，累计描述字节最多 1MiB，单实例描述最多 256KiB；最终节点仍最多 1024、深度 8，源 UI 与合并 UI 各 1MiB、include 128 文件/16 层不变。每次展开受现有解释器时间/内存/堆栈限制，整个候选另有累计时间上限。
+- 注册、事件定义与控件绑定都允许前向引用（脚本总在 UI 之前装配）；`ui('helpCard.someButton').bind(...)` 与 XML `event` 在展开后的完整 ID 上校验。组件根不会自动变成可点击控件；repeat 模板内组件的 ID 按模板静态 ID 生成，真实行仍由 `ctx.item` 区分。
+- 工程热更、`--check` 与两种 KPAK 都走同一条展开流水线；包内保留原始组件 XML 和脚本，独立重载时重新展开。源工程不改写，具体依赖/许可仍按原发布规则收集。
+
+### 38.3 repeat 通用分页
+
+任意 repeat 可以显式声明分页：
+
+```xml
+<!-- variables 中：<int id="galleryPage" initial="1" min="1" max="3" /> -->
+<repeat id="galleryCards" x="40" y="100" width="1000" height="450"
+        source="gallery" columns="3" item-width="300" item-height="200"
+        page-size="6" page-bind="ui.galleryPage">
+  <label id="galleryCardTitle" width="280" height="32" bind="item.title" />
+</repeat>
+<label id="galleryPagerText" width="300" height="32" bind="repeat.galleryCards.pageText" />
+<button id="galleryPrev" width="120" height="40" text="上一页"
+        enabled="repeat.galleryCards.canPrev" event="gallery-prev" />
+<button id="galleryNext" width="120" height="40" text="下一页"
+        enabled="repeat.galleryCards.canNext" event="gallery-next" />
+```
+
+- `page-size` 与 `page-bind` 必须同时出现或同时省略。`page-size` 是 1–200 的静态整数；省略时保持原 repeat 行为，不自动分页。
+- `page-bind` 只能引用已声明的 UI int，且该变量必须 `min="1"`、`max` 不小于数据源法定最大页数；初始值还必须落在启动候选的实际页数内，空数据初页为 1。一个页变量只能绑定一个分页 repeat；不允许两个 repeat 共享造成隐式导航。
+- 支持全部现有数据源：`choices`、`slots`、`autosaves`、`history`、`gallery`、`variables`、`textLocales`、`voiceLocales`。源顺序、`ctx.item` 身份与既有可见性规则不变；分页不会替玩家选择选项，也不新增任意 JS 数组数据源、筛选或排序。
+- 分页 repeat 的模板行来自宿主按 repeat ID 保存的页缓存，不覆盖共享源列表；未分页 repeat 继续按原共享列表读取。换页只重置该 repeat 的滚动位置；行交互身份包含 repeat、页面和真实条目。
+- 新增只读元数据绑定 `repeat.<完整节点ID>.<字段>`（节点引用按最终完整 ID 精确匹配，支持组件前缀中的点）：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `page` / `pages` | Number | 当前页 / 总页，均从 1 起 |
+| `pageSize` / `total` | Number | 固定每页上限 / 源记录总数 |
+| `start` / `end` | Number | 本页在完整源中的一基序号，空集为 0 |
+| `canPrev` / `canNext` | bool | 是否存在相邻页 |
+| `pageText` | string | 宿主“第 x / y 页”文本（经引擎 i18n） |
+
+- JS 侧同名只读快照为 `ctx.repeats[完整ID]`：
+
+```javascript
+event.register('gallery-next', ctx => {
+  const p = ctx.repeats.galleryCards;
+  if (p.canNext) ctx.setUi('galleryPage', p.page + 1);
+});
+```
+
+  该快照在本事件开始时读取；同一批 `ctx.setUi` 不会让快照同步改变，作者需用局部变量计算。未声明分页的 repeat 不出现在 `ctx.repeats` 中。
+- 页数公式为 `max(1, ceil(total / pageSize))`。空集固定第 1 页、无行、不能翻页。源因剧情推进、读档、语言或 profile 变化而缩短时，准备阶段把原页夹取到最后一页，并把归一化结果写回同一候选 UI int；列表大小不变时保留当前页，不强制回第 1 页。
+- 作者在事件中显式写入页码时，整批按当前候选页数校验：`0`、负数、非整数、超过当前 `pages` 或超出变量 `min/max` 都使整批失败，不会先提交再修正；同批其他 UI/剧情/IO 与音频、缓存保持旧状态。
+- `slots` 分页直接使用全局槽号 1–200 和该 repeat 自己的页变量，只按范围读取当前页的槽元信息；它不读写 `saves.page`，也不先扫描全部 200 槽。原 `ctx.slotsPage`/固定十槽 `saves.page` 用法与显式分页 `slots` repeat 可以同屏共存、互不影响。
+- 缩略图只准备已挂载页面栈当前可见的槽范围；同槽去重，隐藏页面不会触发全槽扫描；预算不足明确失败，不在绘制时读盘。
+- 页码、页缓存、滚动、焦点与纹理都不入剧情槽或隐藏交接文件；隐藏交接按原 UI 变量快照恢复后重新校验并夹取。`--check` 验证声明、变量独占、容量、前向引用和空源行为，但不读取玩家存档，不能代替真实分页效果验收。
+
+### 38.4 兼容与示例
+
+story 8 / UI 3 / save 9 / profile 1 / read 1 / 隐藏槽 1 / KPAK 1、2 与 demo content-version=11 不变；没有旧格式迁移或回退分支。demo 在“效果演示 → 组合 / 分页”提供组件展开、画廊独立分页与手动槽独立分页示例（`games/demo/ui/composition.xml`、`games/demo/scripts/ui.js`）。

@@ -95,6 +95,8 @@ fn snapshot(f: &Fixture, state: &State, session: &Session) -> Data {
         slots: &[],
         settings: &f.settings,
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     })
 }
 fn run_event(
@@ -442,7 +444,7 @@ fn viewer_layout_is_one_contain_image_over_black_and_comes_from_an_include() {
     let image_nodes: Vec<_> = screen
         .nodes
         .iter()
-        .filter(|node| matches!(node.kind, interface::Kind::Image))
+        .filter(|node| node.image_bind.as_deref() == Some("ui.cgImage"))
         .collect();
     assert_eq!(image_nodes.len(), 1, "one fixed image node, not one per CG");
     assert_eq!(image_nodes[0].id, "cgFull");
@@ -885,7 +887,7 @@ fn non_modal_single_image_root_returns_by_an_explicit_author_route() {
         definition.screens["solo"]
             .nodes
             .iter()
-            .filter(|node| matches!(node.kind, interface::Kind::Image))
+            .filter(|node| node.image_bind.as_deref() == Some("ui.pic"))
             .count(),
         1
     );

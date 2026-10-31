@@ -30,6 +30,10 @@
     <string id="dialogueBgDraft" initial="#10253BFF" />
     <string id="dialogueTextDraft" initial="#F4EAD8FF" />
     <string id="colorStatus" initial="" />
+    <bool id="tabGallery" initial="true" />
+    <bool id="tabSlots" initial="false" />
+    <int id="galleryPage" initial="1" min="1" max="3" />
+    <int id="slotPage" initial="1" min="1" max="20" />
   </variables>
   <palette>
     <color id="dialogue_background" initial="#10253BFF" />

@@ -628,7 +628,7 @@ impl PlayerApp {
                             serde_json::json!(crate::i18n::text("host-app-0014"));
                     }
                     if !self.effects.has_entered {
-                        custom.data.awaiting_start();
+                        custom.data.awaiting_start(&custom.definition);
                     }
                     intent = crate::interface::render::draw(
                         ui,

@@ -299,6 +299,8 @@ fn regions_share_one_texture_and_switch_uv_without_uploading_images() -> Result<
             slots: &[],
             settings: &settings,
             complete: true,
+            slot_pages: &[],
+            autosaves: &[],
         });
         ctx.run(
             eframe::egui::RawInput {

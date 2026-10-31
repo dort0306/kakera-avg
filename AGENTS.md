@@ -54,6 +54,8 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
+测试范围按改动裁剪：每次只测试与改动有关的必要部分，尽量减少单元测试。只为能真实捕捉本轮回归的路径（边界输入、失败回滚、契约拒绝）新增或保留用例；不为无关模块补写测试，不重复穷举已验收的历史行为。本条优先于后文各版本“验证时覆盖……/修改时覆盖……”的穷举清单，按本次改动的实际风险取舍。
+
 控制流变化验证条件组合、首命中/兜底、隐藏选项伪造、变量回滚、分支、历史、自循环、非法输入与结束；加载器变化验证仅接受 story 8/UI 3、拒绝旧 schema/flow，并保留位置诊断；存档变化验证变量类型/范围、检查点裁剪重放、槽位隔离、旧档拒绝、原子覆盖与失败保留旧档。GUI 变化实际检查中文、稳定换行、16:9、补全/推进仲裁、菜单暂停，以及保存后完全退出再重启恢复位置、变量、条件选项与历史。音频纯计划和解码测试不依赖设备；实际设备流与主观听感分别报告。不要仅凭核心测试通过就声称 GUI 或听感已验收。
 
 交付时明确已验证项和未验证项，更新 `readme.md` 的启动、数据契约和限制说明。不擅自删除用户文件、提交或推送 Git 变更。
@@ -215,3 +217,12 @@ story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/demo content-version=11 不变。W
 ## v0.11.1 独立事件与可选控件绑定
 
 依据 doc/v0.11.1-implementation-plan.zh-cn.md 与 doc/v0.11.1-validation.zh-cn.md，API 第 37 节。普通事件用 event.register(id, callback) 独立注册，可未被引用；控件用 ui(id).bind(eventId) 或 XML event 引用，允许省略/空事件，绑定支持前向引用。事件 ID 唯一、重复定义/绑定、未知目标/非空引用、route 冲突拒绝；XML 与 JS 同时声明须相同，不允许静默覆盖。未绑定控件仍阻挡背景，不自动提交业务值。捕获 resultEvent 直接引用独立事件，不再要求 $host 注册；生命周期专用入口、frame 路由两种目标、ctx 权限及数据格式保持不变。旧 on.* 与普通两参数 bind 无兼容别名。检查 demo、生成器、现行示例和宿主隔离/预算/回滚；历史验收不冒充本轮复测。
+
+## v0.11.2 UI 组合与通用分页
+
+依据 doc/v0.11.2-implementation-plan.zh-cn.md、doc/ui-composition-tags-handoff.zh-cn.md、doc/repeat-pagination-handoff.zh-cn.md、doc/v0.11.2-validation.zh-cn.md 与 API 第 38 节。
+
+- image 与 panel 共用内部节点类型；解析器仍分别执行严格作者契约：image 必须有图片、禁止子节点/radius，panel 可选图片并可含子节点。所有节点类型匹配、渲染/图集/颜色/滤镜/动画目标/事件来源与只读权限一并审计，纹理与缓存路径不变。
+- `component.register('x-名称', { props, expand })` 只在脚本装配阶段注册，最多 128 个，封存后不可注册；属性表严格（string/bool/int/number/binding/event，required 或类型匹配 default 二选一，保留布局属性不可声明）。`expand` 同步返回单个 `panel`/`nine-patch` 根（根 id=`$root`）及有界节点描述；实例 ID 映射根，局部 ID 前缀化，嵌套追加前缀，作者子节点以宿主不透明占位按原序各插入一次。展开在受限 QuickJS 中执行，不接触 ctx/IO/时间/随机；结果重新走严格节点/资源/国际化/事件/动画/路由校验；单实例 256KiB、累计 1MiB、1024 实例、8 层嵌套与累计时间上限。热更、--check、两种 KPAK 与独立包重载共用同一流水线，源工程不改写。
+- repeat 的 `page-size`/`page-bind` 支持全部八种源；页变量必须 UI int、min=1、max 足够、独占且初始值落在启动候选页数内。`repeat.<完整ID>.<字段>` 与 `ctx.repeats[完整ID]` 只读，页数/范围/空源规则固定；源缩短时准备阶段夹取并写回候选 UI int，显式越界写页整批拒绝。分页列表按 repeat ID 缓存，不覆盖共享源，不读非当前范围的手动槽，不读写 saves.page；换页重置该 repeat 的滚动/交互身份，缩略图按真实槽去重。页状态不入剧情档/隐藏交接/偏好，--check 不读玩家存档。
+- story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2 与 demo content-version=11 不变；demo 在“效果演示 → 组合 / 分页”提供 x-section、画廊独立分页与手动槽独立分页示例。GUI、DPI、设备与穷举槽位组合需另行实机验收，不以 311 项自动化测试或历史窗口记录替代。

@@ -274,35 +274,44 @@ impl SaveStore {
             crate::i18n::format("host-save-0007", &[])
         );
         Ok(((page - 1) * PAGE_SIZE + 1..=page * PAGE_SIZE)
-            .map(|number| {
-                let slot = SlotId::new(number).expect("bounded page");
-                let path = self.slot_path(slot);
-                let state = if !path.exists() {
-                    SlotState::Empty
-                } else {
-                    match read_json_bytes(&path).and_then(|data| {
-                        serde_json::from_slice::<Snapshot>(&data).map_err(Into::into)
-                    }) {
-                        Ok(s)
-                            if s.schema_version == 9
-                                && s.story_id == story.id
-                                && s.content_version == story.content_version
-                                && story.frames.contains_key(&s.frame_id)
-                                && valid_screenshot(&s) =>
-                        {
-                            SlotState::Ready {
-                                preview: story.frames[&s.frame_id].text.clone(),
-                                frame_id: s.frame_id,
-                                saved_at_unix_ms: s.saved_at_unix_ms,
-                                screenshot: s.screenshot,
-                            }
-                        }
-                        _ => SlotState::Invalid(crate::i18n::text("host-save-0018").into()),
-                    }
-                };
-                SlotInfo { slot, state }
-            })
+            .map(|number| self.slot_info(story, SlotId::new(number).expect("bounded page")))
             .collect())
+    }
+    /// Load metadata for an explicit one-based slot range. Only these slots are read;
+    /// the other 200 slots stay untouched for paginated `slots` repeats.
+    pub fn list_range(&self, story: &Story, start: u16, end: u16) -> Vec<SlotInfo> {
+        let start = start.clamp(1, SLOT_COUNT);
+        let end = end.clamp(start, SLOT_COUNT);
+        (start..=end)
+            .map(|number| self.slot_info(story, SlotId::new(number).expect("clamped slot")))
+            .collect()
+    }
+    fn slot_info(&self, story: &Story, slot: SlotId) -> SlotInfo {
+        let path = self.slot_path(slot);
+        let state = if !path.exists() {
+            SlotState::Empty
+        } else {
+            match read_json_bytes(&path)
+                .and_then(|data| serde_json::from_slice::<Snapshot>(&data).map_err(Into::into))
+            {
+                Ok(s)
+                    if s.schema_version == 9
+                        && s.story_id == story.id
+                        && s.content_version == story.content_version
+                        && story.frames.contains_key(&s.frame_id)
+                        && valid_screenshot(&s) =>
+                {
+                    SlotState::Ready {
+                        preview: story.frames[&s.frame_id].text.clone(),
+                        frame_id: s.frame_id,
+                        saved_at_unix_ms: s.saved_at_unix_ms,
+                        screenshot: s.screenshot,
+                    }
+                }
+                _ => SlotState::Invalid(crate::i18n::text("host-save-0018").into()),
+            }
+        };
+        SlotInfo { slot, state }
     }
     pub fn settings_path(&self) -> PathBuf {
         self.directory.join("settings.json")

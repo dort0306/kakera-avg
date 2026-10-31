@@ -120,6 +120,8 @@ impl CompiledUi {
         self.parse_localized(
             story,
             registrations,
+            &super::components::Library::default(),
+            None,
             std::sync::Arc::new(crate::localization::Catalog::default()),
         )
     }
@@ -127,11 +129,20 @@ impl CompiledUi {
         &self,
         story: &crate::model::Story,
         registrations: &[super::Registration],
+        components: &super::components::Library,
+        expander: Option<&dyn super::components::Expander>,
         catalog: crate::localization::SharedCatalog,
     ) -> Result<super::Definition> {
-        let mut definition =
-            super::parse_localized(&self.xml, &self.entry, story, registrations, catalog)
-                .map_err(|e| anyhow::anyhow!(self.remap(&format!("{e:#}"))))?;
+        let mut definition = super::parse_localized(
+            &self.xml,
+            &self.entry,
+            story,
+            registrations,
+            components,
+            expander,
+            catalog,
+        )
+        .map_err(|e| anyhow::anyhow!(self.remap(&format!("{e:#}"))))?;
         definition.window_title.location = self.remap(&definition.window_title.location);
         if let Some(binding) = &mut definition.localized_title {
             binding.location = self.remap(&binding.location);

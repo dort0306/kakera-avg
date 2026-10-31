@@ -373,6 +373,19 @@ pub fn prepare(
     commands: Vec<Command>,
     entering: bool,
 ) -> Result<Plan> {
+    prepare_with_pages(def, state, settings, profile, commands, entering, None)
+}
+/// Same transaction with the current page counts of every paginated repeat. An
+/// explicit page write beyond the current candidate page count rejects the batch.
+pub fn prepare_with_pages(
+    def: &Definition,
+    state: &State,
+    settings: &Settings,
+    profile: &Profile,
+    commands: Vec<Command>,
+    entering: bool,
+    page_limits: Option<&BTreeMap<String, i64>>,
+) -> Result<Plan> {
     ensure!(
         commands.len() <= 32,
         "{}",
@@ -605,7 +618,7 @@ pub fn prepare(
                         (!repeated
                             && n.id == target
                             && (matches!(n.kind, super::Kind::Scene)
-                                || matches!(n.kind, super::Kind::Image | super::Kind::Panel)
+                                || matches!(n.kind, super::Kind::Panel)
                                     && (n.image.is_some() || n.image_bind.is_some())))
                             || valid(
                                 &n.children,
@@ -669,6 +682,19 @@ pub fn prepare(
                 })?;
                 let value = value.value()?;
                 rules::validate_value(decl, &value).map_err(anyhow::Error::msg)?;
+                if let (Some(limits), crate::model::VariableValue::Int(page)) =
+                    (page_limits, &value)
+                    && let Some(pages) = limits.get(&name)
+                {
+                    ensure!(
+                        *page <= *pages,
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-pagination-0011",
+                            &[("arg0", page.to_string()), ("arg1", pages.to_string())]
+                        )
+                    );
+                }
                 plan.state.variables.insert(name, value);
             }
             Command::CaptureShortcut {

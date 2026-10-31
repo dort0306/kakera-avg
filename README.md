@@ -1,4 +1,43 @@
-# Kakera AVG Rust · v0.11.1
+# Kakera AVG Rust · v0.11.2
+
+v0.11.2 实现三项 UI 组合能力：`image` 与 `panel` 统一内部节点表示（作者契约不变）；脚本可用 `component.register('x-名称', { props, expand })` 注册加载期组合标签，实例展开为宿主节点并支持局部 ID 前缀、作者子节点、嵌套与前向事件引用；任意 repeat 可用 `page-size`/`page-bind` 分页，并通过 `repeat.<节点ID>.*` 绑定与 `ctx.repeats` 读取页码/页数/范围，`slots` 只按当前页范围读取槽元信息。接口、预算与限制见 [API 第 38 节](doc/xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页)，设计依据见 [交接总方案](doc/v0.11.2-implementation-plan.zh-cn.md)、[组合标签设计](doc/ui-composition-tags-handoff.zh-cn.md)、[通用分页设计](doc/repeat-pagination-handoff.zh-cn.md)，实际检查与未验项见 [v0.11.2 验收记录](doc/v0.11.2-validation.zh-cn.md)。demo 在“效果演示 → 组合 / 分页”提供可运行示例。story 8/UI 3/save 9/profile 1/read 1 与 demo content-version=11 不变，无旧格式迁移。
+
+组合标签与分页的最小写法（完整语法、预算与限制见 [API 第 38 节](doc/xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页)）：
+
+```javascript
+component.register('x-card', {
+  props: {
+    title: { type: 'string', required: true },
+    expanded: { type: 'binding', valueType: 'bool', required: true }
+  },
+  expand({ props, children }) {
+    return {
+      tag: 'panel',
+      attrs: { id: '$root', width: 600, height: 360 },
+      children: [
+        { tag: 'label', attrs: { id: 'title', width: 560, height: 40, text: props.title } },
+        { tag: 'panel', attrs: { id: 'body', y: 50, width: 600, height: 310, visible: props.expanded }, children }
+      ]
+    };
+  }
+});
+```
+
+```xml
+<!-- variables: <bool id="helpOpen" initial="true"/> <int id="galleryPage" initial="1" min="1" max="3"/> -->
+<x-card id="helpCard" x="40" y="60" width="600" height="360" title="帮助" expanded="ui.helpOpen">
+  <label id="helpText" width="550" height="200" text="帮助正文" />
+</x-card>
+<repeat id="galleryCards" x="40" y="440" width="640" height="240" source="gallery"
+        columns="2" item-width="300" item-height="200" page-size="2" page-bind="ui.galleryPage">
+  <label id="galleryCardTitle" width="280" height="32" bind="item.title" />
+</repeat>
+<label id="galleryPager" width="300" height="32" bind="repeat.galleryCards.pageText" />
+<button id="galleryNext" width="120" height="40" text="下一页"
+        enabled="repeat.galleryCards.canNext" event="gallery-next" />
+```
+
+组件在加载期展开：实例 ID 映射根 `$root`，局部 ID 变成 `helpCard.title`、`helpCard.helpText`，作者子节点按原序插回且只插一次。分页 repeat 的 `repeat.<完整ID>.*` 与 `ctx.repeats` 提供 `page/pages/pageSize/total/start/end/canPrev/canNext/pageText` 只读元数据，页码存在普通 UI int 中。
 
 v0.11.1 将事件定义与控件彻底解耦：用 `event.register('事件ID', callback)` 独立定义函数，再用 `ui('控件ID').bind('事件ID')` 或 XML `event="事件ID"` 引用。控件事件可省略/为空，函数可独立存在，绑定支持前向引用；共享事件只注册一次。旧普通控件 `.bind(event, callback)` 和捕获结果 $host 注册入口已删除，生命周期专用入口保持不变。剧情继续使用 `frame(id).advance(targetOrRun)/choice(option, targetOrRun, when?)/end()`，字符串目标和函数目标均支持；ctx、权限、预算及数据格式不变。见 [API 第 37 节](doc/xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)、[落地方案](doc/v0.11.1-implementation-plan.zh-cn.md) 与 [验收记录](doc/v0.11.1-validation.zh-cn.md)。
 
@@ -48,6 +87,8 @@ v0.9.0 将视频统一到 UI，frame 不再接受 video。新增幕/页面生命
 | 手动/自动档 | schema 9；demo content-version=11 |
 | KPAK / profile / read | KPAK 2（流式）与 1（小包兼容）；profile/read 为 1 |
 
+v0.11.2 只在 UI 3 内新增显式语法：已注册的 `x-` 组合标签与 repeat 的 `page-size`/`page-bind`；story/UI/save/KPAK 容器版本均不变，旧播放器仍应拒绝未知标签/属性。组合标签展开、页缓存和页码都是瞬时状态，不写入剧情槽、隐藏交接槽或偏好文件。
+
 从 v0.8 起删除旧 story/flow 解析、声明式路由、无 XML UI 的兼容菜单、旧档导入、默认旧执行器和旧设置字段补齐。旧内容/槽位明确拒绝，不自动迁移或覆盖；旧格式只在 [v0.7.3 归档](doc/archive/v0.7.3-xml-js-api.zh-cn.md) 与历史 doc 中说明。settings.json 必须包含完整字段（含 skip_all、fullscreen）；坏文件提示后使用默认值。save 9 的 screenshot 字段必需，可为 null（无窗口工具快照），图像坏时拒绝。
 
 ## 启动
@@ -76,7 +117,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.11.1，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。开启国际化时收集全部已声明语言的清单、FTL、字体与语音；language.json 不进入包或工程监控。
+脚本默认生成 target/package/kakera-avg-v0.11.2，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。开启国际化时收集全部已声明语言的清单、FTL、字体与语音；language.json 不进入包或工程监控。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -122,7 +163,7 @@ KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见
 
 Windows 原生 D3D11 负责窗口、滤镜与 Live2D 网格/蒙版合成，GPU 结果直接注册原生纹理；CPU fallback 保留，窗口仍由 D3D11/WARP 呈现。视频使用 Windows Media Foundation，Core 参数/形变仍为 CPU。GPU 失败报告并回退，设备失效最多一次 WARP 重建。
 
-demo 为 31 场景/4 变量/3 JS/19 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
+demo 为 31 场景/4 变量/3 JS/20 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
 
 ## 验证与限制
 
@@ -133,7 +174,9 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前脚本契约见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api) 与 [XML/JS API](doc/xml-js-api.zh-cn.md)，本轮实际结果见 [v0.11.1 验收记录](doc/v0.11.1-validation.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前脚本与 UI 契约见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api)、[第 38 节](doc/xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页) 与 [XML/JS API](doc/xml-js-api.zh-cn.md)，本轮实际结果见 [v0.11.2 验收记录](doc/v0.11.2-validation.zh-cn.md)，前一基线见 [v0.11.1 验收记录](doc/v0.11.1-validation.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+
+v0.11.2 的完整回归为 315 项通过、2 项忽略、0 失败；`--check` 显示 demo 31 场景、4 变量、3 JS 文件、20 UI 页面与 2 视频、1 模型。组合标签只在加载期展开为宿主节点，不是常驻实例、自定义渲染器、DOM 或插槽；分页只覆盖现有八种数据源，不提供任意 JS 数组源、筛选、排序或自动分页器；`ctx.repeats` 是事件开始时的快照，`--check` 不读取玩家存档。组件与分页的 GUI 点击、全部 DPI、128 组件/1024 实例/8 层嵌套及全槽翻页压力项未逐项实机执行，不计入通过。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 

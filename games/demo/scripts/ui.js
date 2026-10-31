@@ -294,3 +294,42 @@ ui("story-intro").bind("screen.close", ctx => ctx.resume());
 frame("credits").enter(ctx => ctx.open("story-credits"));
 ui("story-credits").bind("screen.open", ctx => ctx.sequence("story.credits"));
 ui("story-credits").bind("screen.close", ctx => ctx.resume("opening"));
+
+// v0.11.2: author composition tags expand once into plain host nodes. The prefix
+// comes from the instance id, so nested local ids stay predictable.
+component.register("x-section", {
+  props: {
+    heading: { type: "string", required: true },
+    open: { type: "binding", valueType: "bool", required: true }
+  },
+  expand({ props, children }) {
+    return {
+      tag: "panel",
+      attrs: { id: "$root", color: "#0E1E30F2", visible: props.open },
+      children: [
+        { tag: "label", attrs: { id: "heading", x: 14, y: 10, width: 500, height: 30, text: props.heading, "font-size": 20, color: "#F0CA89" } },
+        { tag: "panel", attrs: { id: "body", x: 12, y: 44, width: 536, height: 488 }, children }
+      ]
+    };
+  }
+});
+
+// Generic repeat paging: each repeat has its own UI int and metadata snapshot.
+event.register("demo-tab-gallery", ctx => { ctx.setUi("tabGallery", true); ctx.setUi("tabSlots", false); });
+event.register("demo-tab-slots", ctx => { ctx.setUi("tabGallery", false); ctx.setUi("tabSlots", true); });
+event.register("demo-gallery-prev", ctx => {
+  const p = ctx.repeats["galleryTab.demoGallery"];
+  if (p.canPrev) ctx.setUi("galleryPage", p.page - 1);
+});
+event.register("demo-gallery-next", ctx => {
+  const p = ctx.repeats["galleryTab.demoGallery"];
+  if (p.canNext) ctx.setUi("galleryPage", p.page + 1);
+});
+event.register("demo-slot-prev", ctx => {
+  const p = ctx.repeats["slotsTab.demoSlots"];
+  if (p.canPrev) ctx.setUi("slotPage", p.page - 1);
+});
+event.register("demo-slot-next", ctx => {
+  const p = ctx.repeats["slotsTab.demoSlots"];
+  if (p.canNext) ctx.setUi("slotPage", p.page + 1);
+});

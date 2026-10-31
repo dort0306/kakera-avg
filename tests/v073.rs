@@ -44,6 +44,8 @@ fn slot_metadata_previews_never_expose_frame_ids() -> Result<()> {
         slots: &slots,
         settings: &Settings::default(),
         complete: true,
+        slot_pages: &[],
+        autosaves: &[],
     });
     let text = &story.frames["opening"].text;
     let slot = data.lists["slots"].first().expect("slot 1");
