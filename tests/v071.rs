@@ -42,8 +42,8 @@ const TWO: &str = r#"<story schema="8"><visuals><visual id="room" background="bg
 fn source() -> Memory {
     Memory([
         ("story.xml", ENTRY), ("chapters/one.xml", ONE), ("chapters/two.xml", TWO),
-        ("scripts/main.js", "on.advance('opening',ctx=>{ctx.add('trust',1);return 'ending';});"),
-        ("scripts/end.js", "on.end('ending');"),
+        ("scripts/main.js", "frame('opening').advance(ctx=>{ctx.add('trust',1);return 'ending';});"),
+        ("scripts/end.js", "frame('ending').end();"),
         ("ui.xml", r#"<ui schema="3" width="1280" height="720" initial="hud"><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#),
     ].into_iter().map(|(p,s)| (p.to_owned(),s.as_bytes().to_vec())).collect())
 }
@@ -57,6 +57,7 @@ fn fail(source: &Memory) -> String {
             .err()
             .expect("must reject invalid chain")
     )
+    .replace(['\u{2068}', '\u{2069}'], "")
 }
 
 #[test]

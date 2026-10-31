@@ -11,9 +11,9 @@ use kakera_avg::{
 };
 use std::{collections::BTreeMap, path::Path};
 const STORY: &str = r#"<story schema="8" id="presentation" content-version="8" entry="start"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/><audio id="voice.a" src="a.wav"/><audio id="knock" src="b.wav"/><video id="intro" src="v.mp4"/></assets><characters><character id="a" name="甲"/></characters><visuals/><frames><frame id="start"><text>开始。</text></frame></frames><next end="true"/></story>"#;
-const UI: &str = r#"<ui schema="3" initial="hud"><include src="ui/media.xml"/><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="single" width="100" height="40" sound="voice.a" text="单音效"/><button id="random" width="100" height="40" sound="bank" text="随机"/><toggle id="role" width="100" height="40" value="audio.actor.a" event="role"/></screen><screen id="menu" sequence="opening"><label id="title" width="400" height="50" text="欢迎"/></screen></ui>"#;
+const UI: &str = r#"<ui schema="3" initial="hud"><include src="ui/media.xml"/><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="single" width="100" height="40" sound="voice.a" text="单音效"/><button id="random" width="100" height="40" sound="bank" text="随机"/><button id="run" width="100" height="40" text="运行" event="run"/><toggle id="role" width="100" height="40" value="audio.actor.a" event="role"/></screen><screen id="menu" sequence="opening"><label id="title" width="400" height="50" text="欢迎"/></screen></ui>"#;
 const MEDIA: &str = r#"<ui schema="3"><ui-media><sequence id="opening" finish="open:hud"><fade target="title" duration="10"/><sound ref="bank"/><video asset="intro"/></sequence><sound id="bank"><clip asset="voice.a" actor="a" weight="2"/><clip asset="knock" weight="1"/></sound></ui-media></ui>"#;
-const JS: &str = "on.end('start');on.ui('role',ctx=>ctx.soundActor('a',ctx.value));on.ui('run',ctx=>{ctx.playSound('bank');ctx.sequence('opening');ctx.soundExclude('voice.a',true);});";
+const JS: &str = "frame('start').end();ui('role').bind('role', ctx=>ctx.soundActor('a',ctx.value));ui('run').bind('run', ctx=>{ctx.playSound('bank');ctx.sequence('opening');ctx.soundExclude('voice.a',true);});";
 struct Memory(BTreeMap<String, Vec<u8>>);
 impl ContentSource for Memory {
     fn read(&self, path: &Path) -> Result<Vec<u8>> {
@@ -143,13 +143,7 @@ fn js_commands_validate_atomically_and_lifecycle_cannot_start_media() -> Result<
     let state = State::new(d);
     let profile = Profile::new("presentation", d);
     let settings = Settings::default();
-    let event = interface::Event {
-        sound: None,
-        route: None,
-        name: "run".into(),
-        item: serde_json::Value::Null,
-        value: serde_json::Value::Null,
-    };
+    let event = interface::Event::ui("run", "run");
     let commands = logic.ui_event(
         &event,
         &loaded.story.start(),

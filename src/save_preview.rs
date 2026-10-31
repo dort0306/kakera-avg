@@ -27,14 +27,16 @@ impl Screenshot {
                 && h <= 8192
                 && w * h <= 16 * 1024 * 1024
                 && image.pixels.len() == w * h,
-            "窗口截图尺寸或像素预算错误"
+            "{}",
+            crate::i18n::format("host-save-preview-0001", &[])
         );
         let data: Vec<u8> = image
             .pixels
             .iter()
             .flat_map(|p| p.to_srgba_unmultiplied())
             .collect();
-        let source = RgbaImage::from_raw(w as u32, h as u32, data).context("窗口像素格式")?;
+        let source = RgbaImage::from_raw(w as u32, h as u32, data)
+            .context(crate::i18n::text("host-save-preview-0015"))?;
         let scale = (SIZE[0] as f64 / w as f64).min(SIZE[1] as f64 / h as f64);
         let scaled = image::imageops::thumbnail(
             &source,
@@ -55,7 +57,11 @@ impl Screenshot {
             SIZE[1],
             image::ExtendedColorType::Rgba8,
         )?;
-        ensure!(png.len() <= MAX_PNG, "截图 PNG 超过 256KiB");
+        ensure!(
+            png.len() <= MAX_PNG,
+            "{}",
+            crate::i18n::format("host-save-preview-0002", &[])
+        );
         Ok(Self {
             format: "png".into(),
             width: SIZE[0],
@@ -66,16 +72,22 @@ impl Screenshot {
     pub fn decode(&self) -> Result<RgbaImage> {
         ensure!(
             self.format == "png" && [self.width, self.height] == SIZE,
-            "存档截图格式/尺寸错误"
+            "{}",
+            crate::i18n::format("host-save-preview-0003", &[])
         );
         ensure!(
             self.png_base64.len() <= MAX_PNG.div_ceil(3) * 4,
-            "截图 Base64 超过预算"
+            "{}",
+            crate::i18n::format("host-save-preview-0004", &[])
         );
         let bytes = STANDARD
             .decode(&self.png_base64)
-            .context("截图 Base64 无效")?;
-        ensure!(bytes.len() <= MAX_PNG, "截图 PNG 超过预算");
+            .context(crate::i18n::text("host-save-preview-0016"))?;
+        ensure!(
+            bytes.len() <= MAX_PNG,
+            "{}",
+            crate::i18n::format("host-save-preview-0005", &[])
+        );
         validate_chunks(&bytes)?;
         let mut reader =
             image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
@@ -84,55 +96,80 @@ impl Screenshot {
         limits.max_image_height = Some(SIZE[1]);
         limits.max_alloc = Some(1024 * 1024);
         reader.limits(limits);
-        let image = reader.decode().context("存档截图 PNG 无效")?.to_rgba8();
+        let image = reader
+            .decode()
+            .context(crate::i18n::text("host-save-preview-0017"))?
+            .to_rgba8();
         ensure!(
             [image.width(), image.height()] == SIZE,
-            "截图 PNG 实际尺寸与声明不一致"
+            "{}",
+            crate::i18n::format("host-save-preview-0006", &[])
         );
         Ok(image)
     }
 }
 fn validate_chunks(bytes: &[u8]) -> Result<()> {
-    ensure!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "截图不是 PNG");
+    ensure!(
+        bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "{}",
+        crate::i18n::format("host-save-preview-0007", &[])
+    );
     let mut cursor = 8usize;
     let mut header = false;
     let mut data = false;
     while cursor < bytes.len() {
-        ensure!(bytes.len() - cursor >= 12, "PNG 块截断");
+        ensure!(
+            bytes.len() - cursor >= 12,
+            "{}",
+            crate::i18n::format("host-save-preview-0008", &[])
+        );
         let length = u32::from_be_bytes(bytes[cursor..cursor + 4].try_into()?) as usize;
         let end = cursor
             .checked_add(12)
             .and_then(|v| v.checked_add(length))
-            .context("PNG 块长度溢出")?;
-        ensure!(end <= bytes.len(), "PNG 块越界");
+            .context(crate::i18n::text("host-save-preview-0018"))?;
+        ensure!(
+            end <= bytes.len(),
+            "{}",
+            crate::i18n::format("host-save-preview-0009", &[])
+        );
         match &bytes[cursor + 4..cursor + 8] {
             b"IHDR" => {
-                ensure!(!header && cursor == 8 && length == 13, "PNG 头错误");
+                ensure!(
+                    !header && cursor == 8 && length == 13,
+                    "{}",
+                    crate::i18n::format("host-save-preview-0010", &[])
+                );
                 header = true;
             }
             b"IDAT" => {
-                ensure!(header, "PNG 数据前没有头");
+                ensure!(
+                    header,
+                    "{}",
+                    crate::i18n::format("host-save-preview-0011", &[])
+                );
                 data = true;
             }
             b"IEND" => {
                 ensure!(
                     header && data && length == 0 && end == bytes.len(),
-                    "PNG 结束或尾随数据错误"
+                    "{}",
+                    crate::i18n::format("host-save-preview-0012", &[])
                 );
                 return Ok(());
             }
-            _ => anyhow::bail!("截图 PNG 不接受额外元数据块"),
+            _ => anyhow::bail!("{}", crate::i18n::format("host-save-preview-0013", &[])),
         }
         cursor = end;
     }
-    anyhow::bail!("PNG 缺少结束块")
+    anyhow::bail!("{}", crate::i18n::format("host-save-preview-0014", &[]))
 }
 pub fn saved_at(milliseconds: u64) -> String {
     i64::try_from(milliseconds)
         .ok()
         .and_then(|value| Local.timestamp_millis_opt(value).single())
         .map(|date| date.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| "无效时间".into())
+        .unwrap_or_else(|| crate::i18n::text("host-save-preview-0019").into())
 }
 pub fn image_id(slot: u16, automatic: bool) -> String {
     format!("$save:{}:{slot}", if automatic { "auto" } else { "manual" })

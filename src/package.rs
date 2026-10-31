@@ -55,8 +55,16 @@ impl ContentSource for Snapshot {
         validate_path(path)?;
         let (offset, length) = self
             .files
-            .get(path.to_str().context("路径必须 UTF-8")?)
-            .with_context(|| format!("包中缺少 {}", path.display()))?;
+            .get(
+                path.to_str()
+                    .context(crate::i18n::text("host-package-0031"))?,
+            )
+            .with_context(|| {
+                crate::i18n::format(
+                    "host-package-0001",
+                    &[("arg0", format!("{}", path.display()))],
+                )
+            })?;
         Ok(self.data[*offset..offset + length].to_vec())
     }
 }
@@ -79,6 +87,7 @@ pub(crate) fn excluded(name: &str, directory: bool) -> bool {
                 | "flow-checkpoint.json"
                 | "keybindings.json"
                 | "ui-colors.json"
+                | "language.json"
         )
         || (lower.ends_with(".json") && (lower.starts_with("slot-") || lower.starts_with("auto-")))
 }
@@ -90,22 +99,28 @@ fn files_with_limit(root: &Path, limit: usize) -> Result<Vec<PathBuf>> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let kind = entry.file_type()?;
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| anyhow::anyhow!("工程文件名必须 UTF-8"))?;
+            let name = entry.file_name().into_string().map_err(|_| {
+                anyhow::anyhow!("{}", crate::i18n::format("host-package-0002", &[]))
+            })?;
             if excluded(&name, kind.is_dir()) {
                 continue;
             }
             ensure!(
                 !kind.is_symlink(),
-                "工程不允许符号链接：{}",
-                entry.path().display()
+                "{}",
+                crate::i18n::format(
+                    "host-package-0003",
+                    &[("arg0", format!("{}", entry.path().display()))]
+                )
             );
             if kind.is_dir() {
                 visit(root, &entry.path(), result, limit)?;
             } else {
-                ensure!(kind.is_file(), "工程包含特殊文件");
+                ensure!(
+                    kind.is_file(),
+                    "{}",
+                    crate::i18n::format("host-package-0004", &[])
+                );
                 let path = PathBuf::from(
                     entry
                         .path()
@@ -115,7 +130,11 @@ fn files_with_limit(root: &Path, limit: usize) -> Result<Vec<PathBuf>> {
                 );
                 validate_path(&path)?;
                 result.push(path);
-                ensure!(result.len() <= limit, "工程文件超过 {limit}");
+                ensure!(
+                    result.len() <= limit,
+                    "{}",
+                    crate::i18n::format("host-package-0005", &[("arg0", limit.to_string())])
+                );
             }
         }
         Ok(())
@@ -128,8 +147,8 @@ fn files_with_limit(root: &Path, limit: usize) -> Result<Vec<PathBuf>> {
     for p in &result {
         ensure!(
             case.insert(p.to_string_lossy().to_lowercase()),
-            "路径大小写碰撞：{}",
-            p.display()
+            "{}",
+            crate::i18n::format("host-package-0006", &[("arg0", format!("{}", p.display()))])
         );
     }
     Ok(result)
@@ -139,21 +158,33 @@ impl Snapshot {
         Self::directory_selected(root, &files(root)?)
     }
     pub fn directory_selected(root: &Path, paths: &[PathBuf]) -> Result<Self> {
-        ensure!(paths.len() <= MAX_FILES, "工程文件超过 {MAX_FILES}");
+        ensure!(
+            paths.len() <= MAX_FILES,
+            "{}",
+            crate::i18n::format("host-package-0007", &[("arg0", MAX_FILES.to_string())])
+        );
         selection::validate_selected(root, paths)?;
         let source = DirectorySource::new(root)?;
         let mut data = Vec::new();
         let mut table = BTreeMap::new();
         for path in paths {
             let bytes = source.read(path)?;
-            ensure!(data.len() + bytes.len() <= MAX_TOTAL, "工程展开超过 512MiB");
+            ensure!(
+                data.len() + bytes.len() <= MAX_TOTAL,
+                "{}",
+                crate::i18n::format("host-package-0008", &[])
+            );
             table.insert(
                 path.to_str().context("UTF-8")?.to_owned(),
                 (data.len(), bytes.len()),
             );
             data.extend(bytes);
         }
-        ensure!(table.contains_key("story.xml"), "工程缺少 story.xml");
+        ensure!(
+            table.contains_key("story.xml"),
+            "{}",
+            crate::i18n::format("host-package-0009", &[])
+        );
         Ok(Self {
             data: Arc::new(data),
             files: table,
@@ -185,8 +216,16 @@ impl Snapshot {
             } else {
                 &self.data[*offset..offset + len]
             };
-            ensure!(bytes.len() <= MAX_FILE, "合并后的单文件超过 128MiB");
-            ensure!(data.len() + bytes.len() <= MAX_TOTAL, "发布内容超过 512MiB");
+            ensure!(
+                bytes.len() <= MAX_FILE,
+                "{}",
+                crate::i18n::format("host-package-0010", &[])
+            );
+            ensure!(
+                data.len() + bytes.len() <= MAX_TOTAL,
+                "{}",
+                crate::i18n::format("host-package-0011", &[])
+            );
             files.insert(path.clone(), (data.len(), bytes.len()));
             data.extend(bytes);
         }
@@ -205,7 +244,11 @@ impl Snapshot {
         self.files.values().map(|(_, len)| len).sum()
     }
     pub fn encode(&self, level: i32) -> Result<Vec<u8>> {
-        ensure!((1..=22).contains(&level), "压缩级别须在 1–22");
+        ensure!(
+            (1..=22).contains(&level),
+            "{}",
+            crate::i18n::format("host-package-0012", &[])
+        );
         let mut payload = Vec::new();
         payload.extend((self.files.len() as u32).to_le_bytes());
         let mut blocks = Vec::<Vec<u8>>::new();
@@ -214,7 +257,11 @@ impl Snapshot {
             let bytes = &self.data[*offset..offset + len];
             let hash: [u8; 32] = Sha256::digest(bytes).into();
             let block = if let Some(index) = hashes.get(&hash) {
-                ensure!(blocks[*index] == bytes, "内容摘要碰撞");
+                ensure!(
+                    blocks[*index] == bytes,
+                    "{}",
+                    crate::i18n::format("host-package-0013", &[])
+                );
                 *index
             } else {
                 let index = blocks.len();
@@ -222,7 +269,11 @@ impl Snapshot {
                 hashes.insert(hash, index);
                 index
             };
-            ensure!(path.len() <= 1024, "路径超过 1024 字节");
+            ensure!(
+                path.len() <= 1024,
+                "{}",
+                crate::i18n::format("host-package-0014", &[])
+            );
             payload.extend((path.len() as u16).to_le_bytes());
             payload.extend(path.as_bytes());
             payload.extend((block as u32).to_le_bytes());
@@ -232,7 +283,11 @@ impl Snapshot {
             payload.extend((bytes.len() as u64).to_le_bytes());
             payload.extend(bytes);
         }
-        ensure!(payload.len() <= MAX_TOTAL, "包展开超过 512MiB");
+        ensure!(
+            payload.len() <= MAX_TOTAL,
+            "{}",
+            crate::i18n::format("host-package-0015", &[])
+        );
         let compressed = zstd::bulk::compress(&payload, level)?;
         let mut result = Vec::with_capacity(HEADER + compressed.len());
         result.extend(MAGIC);
@@ -249,41 +304,70 @@ impl Snapshot {
         std::fs::File::open(path)?
             .take((MAX_TOTAL + HEADER + 1) as u64)
             .read_to_end(&mut bytes)?;
-        Self::decode(&bytes).with_context(|| format!("资源包 {}", path.display()))
+        Self::decode(&bytes).with_context(|| {
+            crate::i18n::format(
+                "host-package-0016",
+                &[("arg0", format!("{}", path.display()))],
+            )
+        })
     }
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         ensure!(
             bytes.len() >= HEADER && &bytes[..8] == MAGIC,
-            "KPAK magic/头错误"
+            "{}",
+            crate::i18n::format("host-package-0017", &[])
         );
         let u32at = |i| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         let u64at = |i| u64::from_le_bytes(bytes[i..i + 8].try_into().unwrap());
-        ensure!(u32at(8) == 1 && u32at(12) == 0, "不支持的 KPAK 版本/flags");
+        ensure!(
+            u32at(8) == 1 && u32at(12) == 0,
+            "{}",
+            crate::i18n::format("host-package-0018", &[])
+        );
         let packed = usize::try_from(u64at(16))?;
         let expanded = usize::try_from(u64at(24))?;
         ensure!(
             packed <= MAX_TOTAL && expanded <= MAX_TOTAL && bytes.len() == HEADER + packed,
-            "资源包长度或预算错误"
+            "{}",
+            crate::i18n::format("host-package-0019", &[])
         );
-        let frame_size = zstd::zstd_safe::find_frame_compressed_size(&bytes[HEADER..])
-            .map_err(|e| anyhow::anyhow!("zstd 帧错误：{e:?}"))?;
-        ensure!(frame_size == packed, "包包含尾随压缩数据");
+        let frame_size =
+            zstd::zstd_safe::find_frame_compressed_size(&bytes[HEADER..]).map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::format("host-package-0020", &[("arg0", format!("{:?}", e))])
+                )
+            })?;
+        ensure!(
+            frame_size == packed,
+            "{}",
+            crate::i18n::format("host-package-0021", &[])
+        );
         let payload = zstd::bulk::decompress(&bytes[HEADER..], expanded)?;
         ensure!(
             payload.len() == expanded && Sha256::digest(&payload)[..] == bytes[32..64],
-            "包摘要/展开长度不匹配"
+            "{}",
+            crate::i18n::format("host-package-0022", &[])
         );
         let mut cursor = Cursor {
             bytes: &payload,
             pos: 0,
         };
         let count = cursor.u32()? as usize;
-        ensure!(count > 0 && count <= MAX_FILES, "文件数错误");
+        ensure!(
+            count > 0 && count <= MAX_FILES,
+            "{}",
+            crate::i18n::format("host-package-0023", &[])
+        );
         let mut names = Vec::new();
         let mut case = BTreeSet::new();
         for _ in 0..count {
             let length = cursor.u16()? as usize;
-            ensure!(length > 0 && length <= 1024, "路径长度错误");
+            ensure!(
+                length > 0 && length <= 1024,
+                "{}",
+                crate::i18n::format("host-package-0024", &[])
+            );
             let name = std::str::from_utf8(cursor.take(length)?)?.to_owned();
             validate_path(Path::new(&name))?;
             ensure!(
@@ -291,34 +375,54 @@ impl Snapshot {
                     .last()
                     .is_none_or(|(prev, _): &(String, usize)| prev < &name)
                     && case.insert(name.to_lowercase()),
-                "路径重复、大小写碰撞或排序错误"
+                "{}",
+                crate::i18n::format("host-package-0025", &[])
             );
             names.push((name, cursor.u32()? as usize));
         }
         let blocks = cursor.u32()? as usize;
-        ensure!(blocks > 0 && blocks <= count, "块数错误");
+        ensure!(
+            blocks > 0 && blocks <= count,
+            "{}",
+            crate::i18n::format("host-package-0026", &[])
+        );
         let mut spans = Vec::new();
         for _ in 0..blocks {
             let len = usize::try_from(cursor.u64()?)?;
-            ensure!(len <= MAX_FILE, "单文件超过 128MiB");
+            ensure!(
+                len <= MAX_FILE,
+                "{}",
+                crate::i18n::format("host-package-0027", &[])
+            );
             let offset = cursor.pos;
             cursor.take(len)?;
             spans.push((offset, len));
         }
-        ensure!(cursor.pos == payload.len(), "包包含尾随数据");
+        ensure!(
+            cursor.pos == payload.len(),
+            "{}",
+            crate::i18n::format("host-package-0028", &[])
+        );
         let mut files = BTreeMap::new();
         let mut used = BTreeSet::new();
         for (name, index) in names {
-            files.insert(name, *spans.get(index).context("非法块引用")?);
+            files.insert(
+                name,
+                *spans
+                    .get(index)
+                    .context(crate::i18n::text("host-package-0032"))?,
+            );
             used.insert(index);
         }
         ensure!(
             files.values().map(|(_, len)| *len as u64).sum::<u64>() <= MAX_TOTAL as u64,
-            "逻辑展开总量超预算"
+            "{}",
+            crate::i18n::format("host-package-0029", &[])
         );
         ensure!(
             used.len() == blocks && files.contains_key("story.xml"),
-            "存在孤立块或缺少 story.xml"
+            "{}",
+            crate::i18n::format("host-package-0030", &[])
         );
         Ok(Self {
             data: Arc::new(payload),
@@ -332,8 +436,14 @@ struct Cursor<'a> {
 }
 impl<'a> Cursor<'a> {
     fn take(&mut self, len: usize) -> Result<&'a [u8]> {
-        let end = self.pos.checked_add(len).context("包长度溢出")?;
-        let result = self.bytes.get(self.pos..end).context("资源包截断")?;
+        let end = self
+            .pos
+            .checked_add(len)
+            .context(crate::i18n::text("host-package-0033"))?;
+        let result = self
+            .bytes
+            .get(self.pos..end)
+            .context(crate::i18n::text("host-package-0034"))?;
         self.pos = end;
         Ok(result)
     }

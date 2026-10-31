@@ -36,21 +36,46 @@ fn relative(base: &Path, text: &str) -> Result<std::path::PathBuf> {
 }
 fn json(source: &dyn ContentSource, path: &Path) -> Result<serde_json::Value> {
     let bytes = source.read(path)?;
-    ensure!(bytes.len() <= 8 * 1024 * 1024, "模型 JSON 超过 8MiB");
+    ensure!(
+        bytes.len() <= 8 * 1024 * 1024,
+        "{}",
+        crate::i18n::format("host-live2d-0001", &[])
+    );
     serde_json::from_slice(&bytes).with_context(|| path.display().to_string())
 }
 impl ModelAsset {
     pub fn load(source: &dyn ContentSource, path: &Path) -> Result<Self> {
         let value = json(source, path)?;
-        ensure!(value["Version"] == 3, "需要 model3 Version 3");
-        let base = path.parent().context("model3 路径")?;
+        ensure!(
+            value["Version"] == 3,
+            "{}",
+            crate::i18n::format("host-live2d-0002", &[])
+        );
+        let base = path
+            .parent()
+            .context(crate::i18n::text("host-live2d-0022"))?;
         let refs = &value["FileReferences"];
-        let moc = source.read(&relative(base, refs["Moc"].as_str().context("缺少 Moc")?)?)?;
+        let moc = source.read(&relative(
+            base,
+            refs["Moc"]
+                .as_str()
+                .context(crate::i18n::text("host-live2d-0023"))?,
+        )?)?;
         let mut textures = Vec::new();
         let mut bytes = 0usize;
-        for v in refs["Textures"].as_array().context("缺少 Textures")? {
-            ensure!(textures.len() < 16, "模型贴图超过 16 张");
-            let path = relative(base, v.as_str().context("贴图路径")?)?;
+        for v in refs["Textures"]
+            .as_array()
+            .context(crate::i18n::text("host-live2d-0024"))?
+        {
+            ensure!(
+                textures.len() < 16,
+                "{}",
+                crate::i18n::format("host-live2d-0003", &[])
+            );
+            let path = relative(
+                base,
+                v.as_str().context(crate::i18n::text("host-live2d-0025"))?,
+            )?;
             let mut reader = image::ImageReader::new(std::io::Cursor::new(source.read(&path)?))
                 .with_guessed_format()?;
             let mut limits = image::Limits::default();
@@ -59,11 +84,23 @@ impl ModelAsset {
             reader.limits(limits);
             let image = reader.decode()?.to_rgba8();
             bytes += image.as_raw().len();
-            ensure!(bytes <= 128 * 1024 * 1024, "模型贴图超过 128MiB");
-            ensure!(image.width() > 0 && image.height() > 0, "空贴图");
+            ensure!(
+                bytes <= 128 * 1024 * 1024,
+                "{}",
+                crate::i18n::format("host-live2d-0004", &[])
+            );
+            ensure!(
+                image.width() > 0 && image.height() > 0,
+                "{}",
+                crate::i18n::format("host-live2d-0005", &[])
+            );
             textures.push(image);
         }
-        ensure!(!textures.is_empty(), "模型没有贴图");
+        ensure!(
+            !textures.is_empty(),
+            "{}",
+            crate::i18n::format("host-live2d-0006", &[])
+        );
         let mut motions = BTreeMap::new();
         let mut segment_budget = 0usize;
         let mut curve_budget = 0usize;
@@ -71,12 +108,21 @@ impl ModelAsset {
             for (group, entries) in groups {
                 for (index, entry) in entries
                     .as_array()
-                    .context("Motions 列表")?
+                    .context(crate::i18n::text("host-live2d-0026"))?
                     .iter()
                     .enumerate()
                 {
-                    ensure!(motions.len() < 256, "模型动作超过 256 项");
-                    let path = relative(base, entry["File"].as_str().context("动作 File")?)?;
+                    ensure!(
+                        motions.len() < 256,
+                        "{}",
+                        crate::i18n::format("host-live2d-0007", &[])
+                    );
+                    let path = relative(
+                        base,
+                        entry["File"]
+                            .as_str()
+                            .context(crate::i18n::text("host-live2d-0027"))?,
+                    )?;
                     let motion = motion::Motion::parse(&source.read(&path)?)
                         .with_context(|| path.display().to_string())?;
                     curve_budget += motion.curves.len();
@@ -87,7 +133,8 @@ impl ModelAsset {
                         .sum::<usize>();
                     ensure!(
                         curve_budget <= 16384 && segment_budget <= 200000,
-                        "模型动作总曲线/片段预算耗尽"
+                        "{}",
+                        crate::i18n::format("host-live2d-0008", &[])
                     );
                     if let Some(sound) = entry["Sound"].as_str() {
                         source.read(&relative(base, sound)?)?;
@@ -99,9 +146,21 @@ impl ModelAsset {
         let mut expressions = BTreeMap::new();
         if let Some(list) = refs["Expressions"].as_array() {
             for entry in list {
-                ensure!(expressions.len() < 128, "表情超过 128 项");
-                let id = entry["Name"].as_str().context("表情 Name")?.to_owned();
-                let path = relative(base, entry["File"].as_str().context("表情 File")?)?;
+                ensure!(
+                    expressions.len() < 128,
+                    "{}",
+                    crate::i18n::format("host-live2d-0009", &[])
+                );
+                let id = entry["Name"]
+                    .as_str()
+                    .context(crate::i18n::text("host-live2d-0028"))?
+                    .to_owned();
+                let path = relative(
+                    base,
+                    entry["File"]
+                        .as_str()
+                        .context(crate::i18n::text("host-live2d-0029"))?,
+                )?;
                 let expression = motion::Expression::parse(&source.read(&path)?)
                     .with_context(|| path.display().to_string())?;
                 ensure!(
@@ -111,19 +170,27 @@ impl ModelAsset {
                         .sum::<usize>()
                         + expression.0.len()
                         <= 8192,
-                    "模型表情参数总量超过 8192"
+                    "{}",
+                    crate::i18n::format("host-live2d-0010", &[])
                 );
-                ensure!(expressions.insert(id, expression).is_none(), "表情重名");
+                ensure!(
+                    expressions.insert(id, expression).is_none(),
+                    "{}",
+                    crate::i18n::format("host-live2d-0011", &[])
+                );
             }
         }
         let mut groups = BTreeMap::new();
         if let Some(list) = value["Groups"].as_array() {
             for group in list {
                 if group["Target"] == "Parameter" {
-                    let name = group["Name"].as_str().context("模型 Group Name")?.into();
+                    let name = group["Name"]
+                        .as_str()
+                        .context(crate::i18n::text("host-live2d-0030"))?
+                        .into();
                     let ids = group["Ids"]
                         .as_array()
-                        .context("模型 Group Ids")?
+                        .context(crate::i18n::text("host-live2d-0031"))?
                         .iter()
                         .map(|v| v.as_str().map(str::to_owned).context("Group Id"))
                         .collect::<Result<Vec<_>>>()?;
@@ -131,7 +198,8 @@ impl ModelAsset {
                         groups.len() < 32
                             && ids.len() <= 4096
                             && ids.iter().all(|s| s.len() <= 256),
-                        "模型参数组超出预算"
+                        "{}",
+                        crate::i18n::format("host-live2d-0012", &[])
                     );
                     groups.insert(name, ids);
                 }
@@ -142,7 +210,11 @@ impl ModelAsset {
             let pose = json(source, &relative(base, pose)?)?;
             if let Some(list) = pose["Groups"].as_array() {
                 for group in list {
-                    ensure!(pose_groups.len() < 128, "Pose 组超过 128 项");
+                    ensure!(
+                        pose_groups.len() < 128,
+                        "{}",
+                        crate::i18n::format("host-live2d-0013", &[])
+                    );
                     let mut parts = Vec::new();
                     for p in group.as_array().context("Pose group")? {
                         let id = p["Id"].as_str().context("Pose Id")?.into();
@@ -156,7 +228,8 @@ impl ModelAsset {
                             .unwrap_or_default();
                         ensure!(
                             parts.len() < 128 && links.len() <= 128,
-                            "Pose 部件/链接超过 128 项"
+                            "{}",
+                            crate::i18n::format("host-live2d-0014", &[])
                         );
                         parts.push((id, links));
                     }
@@ -197,7 +270,11 @@ impl PreparedLive2D {
         let mut cache_bytes = 0usize;
         for (id, a) in &story.assets {
             if a.kind == AssetKind::Live2D {
-                ensure!(models.len() < 8, "Live2D 模型超过 8 项");
+                ensure!(
+                    models.len() < 8,
+                    "{}",
+                    crate::i18n::format("host-live2d-0015", &[])
+                );
                 let model =
                     ModelAsset::load(source, &a.path).with_context(|| format!("Live2D {id}"))?;
                 cache_bytes += model.moc.len()
@@ -208,13 +285,16 @@ impl PreparedLive2D {
                         .sum::<usize>();
                 ensure!(
                     cache_bytes <= 256 * 1024 * 1024,
-                    "Live2D moc3/贴图总缓存超过 256MiB"
+                    "{}",
+                    crate::i18n::format("host-live2d-0016", &[])
                 );
                 models.insert(id.clone(), Arc::new(model));
             }
         }
         let core = if !models.is_empty() && !disabled {
-            Some(core::Core::load(dll.context("模型需要 Cubism Core；使用 --cubism-core <DLL路径> 或将 DLL 放在程序旁；--no-live2d 可显式使用 fallback")?)?)
+            Some(core::Core::load(
+                dll.context(crate::i18n::text("host-live2d-0032"))?,
+            )?)
         } else {
             None
         };
@@ -244,24 +324,43 @@ impl PreparedLive2D {
         Ok(result)
     }
     fn validate_pose(&self, pose: &Live2DPose, raw: &core::Model) -> Result<()> {
-        let asset = self.models.get(&pose.model).context("未知 Live2D 模型")?;
+        let asset = self
+            .models
+            .get(&pose.model)
+            .context(crate::i18n::text("host-live2d-0033"))?;
         if let Some(m) = &pose.motion {
-            ensure!(asset.motions.contains_key(m), "未知 Live2D 动作 {m}");
+            ensure!(
+                asset.motions.contains_key(m),
+                "{}",
+                crate::i18n::format("host-live2d-0017", &[("arg0", m.to_string())])
+            );
         }
         if let Some(e) = &pose.expression {
-            ensure!(asset.expressions.contains_key(e), "未知 Live2D 表情 {e}");
+            ensure!(
+                asset.expressions.contains_key(e),
+                "{}",
+                crate::i18n::format("host-live2d-0018", &[("arg0", e.to_string())])
+            );
         }
         for (id, v) in &pose.parameters {
             let p = raw
                 .parameters
                 .iter()
                 .find(|p| p.id == *id)
-                .with_context(|| format!("未知 Live2D 参数 {id}"))?;
+                .with_context(|| {
+                    crate::i18n::format("host-live2d-0019", &[("arg0", id.to_string())])
+                })?;
             ensure!(
                 (p.min..=p.max).contains(v),
-                "Live2D 参数 {id} 超出 {}–{}",
-                p.min,
-                p.max
+                "{}",
+                crate::i18n::format(
+                    "host-live2d-0020",
+                    &[
+                        ("arg0", id.to_string()),
+                        ("arg1", p.min.to_string()),
+                        ("arg2", p.max.to_string())
+                    ]
+                )
             );
         }
         Ok(())
@@ -274,12 +373,13 @@ impl PreparedLive2D {
                 .iter()
                 .find(|p| p.slot == *slot)
                 .and_then(|p| p.live2d.as_ref())
-                .context("目标槽没有 Live2D 立绘")?;
+                .context(crate::i18n::text("host-live2d-0034"))?;
             ensure!(
                 self.models
                     .get(&p.model)
                     .is_some_and(|a| a.motions.contains_key(motion)),
-                "模型没有动作 {motion}"
+                "{}",
+                crate::i18n::format("host-live2d-0021", &[("arg0", motion.to_string())])
             );
         }
         Ok(())
@@ -393,13 +493,13 @@ impl Live2DPlayer {
                 let asset = prepared
                     .models
                     .get(&pose.model)
-                    .context("Live2D 资源缺失")?
+                    .context(crate::i18n::text("host-live2d-0035"))?
                     .clone();
                 let raw = core::Model::new(
                     prepared
                         .core
                         .as_ref()
-                        .context("Cubism Core 不可用")?
+                        .context(crate::i18n::text("host-live2d-0036"))?
                         .clone(),
                     &asset.moc,
                     asset.textures.len(),

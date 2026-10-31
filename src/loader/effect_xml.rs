@@ -16,10 +16,27 @@ fn number(
         .attribute(key)
         .map(str::parse::<f32>)
         .transpose()
-        .map_err(|_| error(file, node, format!("{key} 必须为数值")))?
+        .map_err(|_| {
+            error(
+                file,
+                node,
+                crate::i18n::format("host-loader-effect-xml-0001", &[("arg0", key.to_string())]),
+            )
+        })?
         .unwrap_or(default);
     if !value.is_finite() || !(min..=max).contains(&value) {
-        return Err(error(file, node, format!("{key} 超出 {min}–{max}")));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::format(
+                "host-loader-effect-xml-0002",
+                &[
+                    ("arg0", key.to_string()),
+                    ("arg1", min.to_string()),
+                    ("arg2", max.to_string()),
+                ],
+            ),
+        ));
     }
     Ok(value)
 }
@@ -33,7 +50,11 @@ fn integer(
 ) -> Result<u32> {
     let value = number(file, node, key, default as f32, min as f32, max as f32)?;
     if value.fract() != 0.0 {
-        return Err(error(file, node, format!("{key} 需要整数")));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::format("host-loader-effect-xml-0003", &[("arg0", key.to_string())]),
+        ));
     }
     Ok(value as u32)
 }
@@ -43,14 +64,25 @@ fn enum_value<T: serde::de::DeserializeOwned>(
     key: &str,
     default: &str,
 ) -> Result<T> {
-    serde_json::from_value(serde_json::json!(node.attribute(key).unwrap_or(default)))
-        .map_err(|_| error(file, node, format!("未知 {key}")))
+    serde_json::from_value(serde_json::json!(node.attribute(key).unwrap_or(default))).map_err(
+        |_| {
+            error(
+                file,
+                node,
+                crate::i18n::format("host-loader-effect-xml-0004", &[("arg0", key.to_string())]),
+            )
+        },
+    )
 }
 fn boolean(file: &str, node: Node<'_, '_>, key: &str) -> Result<bool> {
     match node.attribute(key) {
         None | Some("false") => Ok(false),
         Some("true") => Ok(true),
-        _ => Err(error(file, node, format!("{key} 需要 true/false"))),
+        _ => Err(error(
+            file,
+            node,
+            crate::i18n::format("host-loader-effect-xml-0005", &[("arg0", key.to_string())]),
+        )),
     }
 }
 pub fn portrait(
@@ -69,13 +101,17 @@ pub fn portrait(
         ..enter
     };
     if !enter.kind.accepts(pose) {
-        return Err(error(file, node, "立绘 enter 与最终 pose 不兼容"));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::text("host-loader-effect-xml-0008"),
+        ));
     }
     if exit.kind != PortraitActionKind::None && !exit.kind.is_exit() {
         return Err(error(
             file,
             node,
-            "exit 仅允许 none/fade-out/exit-left/right/up/down",
+            crate::i18n::text("host-loader-effect-xml-0009"),
         ));
     }
     Ok((pose, enter, exit))
@@ -135,22 +171,35 @@ pub fn presets(root: Node<'_, '_>) -> Result<BTreeMap<String, ImageEffect>> {
             "sepia" => Filter::Sepia,
             "blur" => Filter::Blur(integer(file, node, "blur", 4, 1, 12)? as u8),
             "pixelate" => Filter::Pixelate(integer(file, node, "pixel-size", 16, 1, 64)? as u8),
-            _ => return Err(error(file, node, "未知图片 filter")),
+            _ => {
+                return Err(error(
+                    file,
+                    node,
+                    crate::i18n::text("host-loader-effect-xml-0010"),
+                ));
+            }
         };
         if node.attribute("blur").is_some() && !matches!(filter, Filter::Blur(_))
             || node.attribute("pixel-size").is_some() && !matches!(filter, Filter::Pixelate(_))
         {
-            return Err(error(file, node, "blur/pixel-size 仅可用于对应 filter"));
+            return Err(error(
+                file,
+                node,
+                crate::i18n::text("host-loader-effect-xml-0011"),
+            ));
         }
         let mut tint = [255; 4];
         if let Some(text) = node.attribute("tint") {
             let hex = text
                 .strip_prefix('#')
                 .filter(|s| s.is_ascii() && [6, 8].contains(&s.len()))
-                .ok_or_else(|| error(file, node, "tint 需要 #RRGGBB/#RRGGBBAA"))?;
+                .ok_or_else(|| {
+                    error(file, node, crate::i18n::text("host-loader-effect-xml-0012"))
+                })?;
             for (i, v) in tint.iter_mut().enumerate().take(hex.len() / 2) {
-                *v = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
-                    .map_err(|_| error(file, node, "tint 格式错误"))?;
+                *v = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|_| {
+                    error(file, node, crate::i18n::text("host-loader-effect-xml-0013"))
+                })?;
             }
         }
         let effect = ImageEffect {
@@ -169,7 +218,11 @@ pub fn presets(root: Node<'_, '_>) -> Result<BTreeMap<String, ImageEffect>> {
             },
         };
         if result.insert(id.clone(), effect).is_some() || result.len() > 64 {
-            return Err(error(file, node, format!("重复效果或超过 64 项：{id}")));
+            return Err(error(
+                file,
+                node,
+                crate::i18n::format("host-loader-effect-xml-0006", &[("arg0", id.to_string())]),
+            ));
         }
     }
     Ok(result)
@@ -182,10 +235,13 @@ pub fn reference(
 ) -> Result<ImageEffect> {
     node.attribute(key)
         .map(|id| {
-            presets
-                .get(id)
-                .cloned()
-                .ok_or_else(|| error(file, node, format!("未知图片效果：{id}")))
+            presets.get(id).cloned().ok_or_else(|| {
+                error(
+                    file,
+                    node,
+                    crate::i18n::format("host-loader-effect-xml-0007", &[("arg0", id.to_string())]),
+                )
+            })
         })
         .unwrap_or_else(|| Ok(ImageEffect::default()))
 }

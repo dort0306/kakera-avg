@@ -6,27 +6,33 @@ use image::RgbaImage;
 pub struct Region(pub [u32; 4]);
 impl Region {
     pub fn parse(text: &str) -> Result<Self> {
-        ensure!(text.len() <= 128, "region 超过 128 字节");
+        ensure!(
+            text.len() <= 128,
+            "{}",
+            crate::i18n::format("host-image-layout-0001", &[])
+        );
         let values = text
             .split(',')
             .map(|v| {
                 let v = v.trim();
                 ensure!(
                     !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()),
-                    "region 需要 x,y,width,height 四个非负整数"
+                    "{}",
+                    crate::i18n::format("host-image-layout-0002", &[])
                 );
                 Ok(v.parse::<u32>()?)
             })
             .collect::<Result<Vec<_>>>()?;
-        let rect: [u32; 4] = values
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("region 需要四个整数"))?;
+        let rect: [u32; 4] = values.try_into().map_err(|_| {
+            anyhow::anyhow!("{}", crate::i18n::format("host-image-layout-0003", &[]))
+        })?;
         ensure!(
             rect[2] > 0
                 && rect[3] > 0
                 && rect[0].checked_add(rect[2]).is_some()
                 && rect[1].checked_add(rect[3]).is_some(),
-            "region 宽高须为正且坐标不能溢出"
+            "{}",
+            crate::i18n::format("host-image-layout-0004", &[])
         );
         Ok(Self(rect))
     }
@@ -37,9 +43,14 @@ impl Region {
                 && y.checked_add(h).is_some_and(|b| b <= size[1])
                 && w > 0
                 && h > 0,
-            "region 超出源图 {}×{}",
-            size[0],
-            size[1]
+            "{}",
+            crate::i18n::format(
+                "host-image-layout-0005",
+                &[
+                    ("arg0", format!("{}", size[0])),
+                    ("arg1", format!("{}", size[1]))
+                ]
+            )
         );
         Ok(())
     }
@@ -74,7 +85,8 @@ struct Span {
 fn black(pixel: [u8; 4]) -> Result<bool> {
     ensure!(
         pixel == [0, 0, 0, 255] || pixel == [255; 4] || pixel[3] == 0,
-        ".9.png 边框只允许不透明黑、白或全透明像素"
+        "{}",
+        crate::i18n::format("host-image-layout-0006", &[])
     );
     Ok(pixel == [0, 0, 0, 255])
 }
@@ -99,9 +111,17 @@ fn runs(pixels: impl Iterator<Item = [u8; 4]>) -> Result<Vec<[u32; 2]>> {
 impl NinePatch {
     pub fn parse(image: RgbaImage) -> Result<(Self, RgbaImage)> {
         let (w, h) = image.dimensions();
-        ensure!(w >= 3 && h >= 3, ".9.png 至少为 3×3（含边框）");
+        ensure!(
+            w >= 3 && h >= 3,
+            "{}",
+            crate::i18n::format("host-image-layout-0007", &[])
+        );
         for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
-            ensure!(!black(image[(x, y)].0)?, ".9.png 角点不能是黑色标记");
+            ensure!(
+                !black(image[(x, y)].0)?,
+                "{}",
+                crate::i18n::format("host-image-layout-0008", &[])
+            );
         }
         let horizontal = runs((1..w - 1).map(|x| image[(x, 0)].0))?;
         let vertical = runs((1..h - 1).map(|y| image[(0, y)].0))?;
@@ -110,13 +130,15 @@ impl NinePatch {
                 && !vertical.is_empty()
                 && horizontal.len() <= 8
                 && vertical.len() <= 8,
-            ".9.png 每轴须有 1–8 段伸缩标记"
+            "{}",
+            crate::i18n::format("host-image-layout-0009", &[])
         );
         let bottom = runs((1..w - 1).map(|x| image[(x, h - 1)].0))?;
         let right = runs((1..h - 1).map(|y| image[(w - 1, y)].0))?;
         ensure!(
             bottom.len() <= 1 && right.len() <= 1,
-            ".9.png 内容区每轴至多一段"
+            "{}",
+            crate::i18n::format("host-image-layout-0010", &[])
         );
         let x = bottom
             .first()

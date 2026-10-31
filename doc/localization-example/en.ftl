@@ -1,0 +1,10 @@
+title = KAKERA Localization Example
+guide = Guide
+opening = Text and voice are selected independently. Changing text completes this line; voice changes take effect at the next scene entry.
+ending = End of the example. Loading a story slot keeps the player's language preferences.
+finish = Finish the example
+start = Start from the opening
+languages = Languages
+apply = Apply
+cancel = Cancel
+counter = Argument example: { $n }

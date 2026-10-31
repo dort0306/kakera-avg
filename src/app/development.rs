@@ -16,6 +16,16 @@ impl PlayerApp {
             .install_render(&self.context, &self.renderer);
         let previous = std::mem::replace(&mut self.assets, rebuilt);
         self.assets.restore_streams_from(&previous);
+        if let Some(locale) = self
+            .custom
+            .state
+            .languages
+            .text
+            .as_ref()
+            .and_then(|id| self.custom.definition.localization.texts.get(id))
+        {
+            self.cpu_assets.set_font_order(&self.context, &locale.fonts);
+        }
         if !self.effects.has_entered {
             self.revision = self.revision.wrapping_add(1);
             return Ok(());
@@ -35,7 +45,11 @@ impl PlayerApp {
         }
         Ok(())
     }
-    fn replace_content(&mut self, bundle: crate::runtime::Bundle, session: Session) -> Result<()> {
+    pub(super) fn replace_content(
+        &mut self,
+        bundle: crate::runtime::Bundle,
+        session: Session,
+    ) -> Result<()> {
         self.renderer.borrow_mut().clear();
         let crate::runtime::Bundle {
             loaded,
@@ -45,7 +59,10 @@ impl PlayerApp {
         let available = logic
             .options(&loaded.story, &session)
             .map_err(anyhow::Error::msg)?;
-        let frame = loaded.story.frame(&session).context("热更新场景")?;
+        let frame = loaded
+            .story
+            .frame(&session)
+            .context(crate::i18n::text("host-app-development-0009"))?;
         let live2d = crate::live2d::Live2DPlayer::prepare_with(
             frame,
             &runtime.live2d,
@@ -58,7 +75,8 @@ impl PlayerApp {
                 .overrides
                 .keys()
                 .all(|id| loaded.interface.palette.contains_key(id)),
-            "热更新删除了玩家已覆盖的配色槽位，请先恢复默认配色或重启"
+            "{}",
+            crate::i18n::format("host-app-development-0001", &[])
         );
         let custom = CustomUi::new(
             loaded.interface,
@@ -68,8 +86,53 @@ impl PlayerApp {
             &mut warnings,
         );
         let mut custom = custom;
+        let retained_ui =
+            self.custom.definition.localization.enabled()
+                && custom.definition.localization.enabled()
+                && self.custom.state.stack.iter().all(|id| {
+                    custom.definition.screens.get(id).is_some_and(|screen| {
+                        screen.modal == self.custom.definition.screens[id].modal
+                    })
+                })
+                && self.custom.state.variables.iter().all(|(id, value)| {
+                    custom.definition.variables.get(id).is_some_and(|decl| {
+                        crate::model::rules::validate_value(decl, value).is_ok()
+                    })
+                });
+        if retained_ui {
+            custom.state.stack = self.custom.state.stack.clone();
+            custom.state.slot_page = self.custom.state.slot_page;
+            custom
+                .state
+                .variables
+                .extend(self.custom.state.variables.clone());
+        }
         custom.state.keybindings = self.custom.state.keybindings;
         custom.state.colors = colors;
+        if !self.custom.definition.localization.enabled()
+            && custom.definition.localization.enabled()
+        {
+            Self::load_languages(
+                &self.saves,
+                &loaded.story.id,
+                &custom.definition,
+                &mut custom.state,
+                &mut warnings,
+            )?;
+        } else {
+            custom.state.languages = custom.definition.localization.selection(
+                self.custom.state.languages.requests.clone(),
+                self.custom.state.languages.system.clone(),
+            );
+            if custom.definition.localization.enabled()
+                && (custom.state.languages.text_source == "default"
+                    && custom.state.languages.requests.text.is_some()
+                    || custom.state.languages.voice_source == "default"
+                        && custom.state.languages.requests.voice.is_some())
+            {
+                warnings.push(crate::i18n::text("host-language-fallback").into());
+            }
+        }
         custom.state.refresh(&custom.definition)?;
         let cpu_assets = runtime.images.clone();
         let mut candidate = Self {
@@ -120,7 +183,7 @@ impl PlayerApp {
         };
         let started = self.effects.has_entered;
         candidate.lifecycle_ready = started;
-        let mut plan = if started {
+        let mut plan = if started && !retained_ui {
             candidate.prepare_ui_entry(&candidate.session, &candidate.available, true, None)?
         } else {
             candidate.empty_ui_plan()?
@@ -135,27 +198,59 @@ impl PlayerApp {
             plan.transition = None;
         }
         // No fallible content validation or persistence follows font/texture replacement.
+        for text in plan.state.localized_text.values() {
+            candidate.cpu_assets.validate_text(text)?;
+        }
+        candidate
+            .cpu_assets
+            .validate_text(&plan.state.window_title)?;
         candidate.assets = runtime
             .images
             .install_render(&candidate.context, &candidate.renderer);
-        let (audio, warning) = AudioEngine::new(runtime.audio, candidate.no_audio);
-        candidate.audio = audio;
-        if let Some(warning) = warning {
-            warnings.push(warning);
+        let voice_changed =
+            candidate.custom.state.languages.voice != self.custom.state.languages.voice;
+        std::mem::swap(&mut candidate.audio, &mut self.audio);
+        candidate.audio.replace_prepared(runtime.audio);
+        if voice_changed {
+            candidate.audio.stop_voice();
+        }
+        if let Some(locale) = candidate
+            .custom
+            .state
+            .languages
+            .text
+            .as_ref()
+            .and_then(|id| candidate.custom.definition.localization.texts.get(id))
+        {
+            candidate
+                .cpu_assets
+                .set_font_order(&candidate.context, &locale.fonts);
         }
         let frame = &candidate.story.frames[&candidate.session.frame_id];
         if started {
             candidate
                 .effects
                 .enter_scene(None, frame, frame.transition, true);
-            candidate.typewriter = Typewriter::new(&frame.text, true);
-            candidate.audio.enter(&frame.audio, true);
+            candidate.typewriter = Typewriter::new(
+                &candidate
+                    .custom
+                    .definition
+                    .localization
+                    .frame_text(frame, candidate.custom.state.languages.text.as_deref()),
+                true,
+            );
         }
         {
             candidate.commit_ui(plan, true);
         }
         if !warnings.is_empty() {
-            eprintln!("工程更新：{}", warnings.join("\n"));
+            eprintln!(
+                "{}",
+                crate::i18n::format(
+                    "host-app-development-0002",
+                    &[("arg0", warnings.join("\n").to_string())]
+                )
+            );
         }
         candidate.ui_media.scope = candidate.custom.state.stack.last().cloned();
         candidate.project = self.project.take();
@@ -163,10 +258,15 @@ impl PlayerApp {
         candidate.debug_changed();
         *self = candidate;
         println!(
-            "工程热更新成功：场景 {}，历史 {} 条，后端 {}",
-            self.session.frame_id,
-            self.session.history.len(),
-            self.renderer.borrow().name()
+            "{}",
+            crate::i18n::format(
+                "host-app-development-0003",
+                &[
+                    ("arg0", self.session.frame_id.to_string()),
+                    ("arg1", format!("{}", self.session.history.len())),
+                    ("arg2", self.renderer.borrow().name().to_string())
+                ]
+            )
         );
         Ok(())
     }
@@ -191,28 +291,37 @@ impl PlayerApp {
                         Ok(()) => {
                             reloaded = true;
                             monitor.error = None;
-                            monitor.status = "热更新成功，已保留当前位置与历史".into();
+                            monitor.status = crate::i18n::text("host-app-development-0010").into();
                         }
                         Err(e) => {
-                            monitor.error = Some(format!("候选进入失败，保留旧状态：{e:#}"));
+                            monitor.error = Some(crate::i18n::format(
+                                "host-app-development-0004",
+                                &[("arg0", format!("{:#}", e))],
+                            ));
                         }
                     },
                     Err(e) => {
-                        monitor.error = Some(format!("当前剧情与修改不兼容：{e:#}"));
+                        monitor.error = Some(crate::i18n::format(
+                            "host-app-development-0005",
+                            &[("arg0", format!("{:#}", e))],
+                        ));
                         monitor.pending = Some(bundle);
                     }
                 },
                 Err(e) => {
-                    monitor.error = Some(format!("资源/脚本更新失败，保留旧状态：{e:#}"));
+                    monitor.error = Some(crate::i18n::format(
+                        "host-app-development-0006",
+                        &[("arg0", format!("{:#}", e))],
+                    ));
                 }
             }
         }
         let mut force = false;
         let mut retry = false;
         egui::Window::new(if monitor.error.is_some() {
-            "工程状态 · 更新失败"
+            crate::i18n::text("host-app-development-0011")
         } else {
-            "工程状态"
+            crate::i18n::text("host-app-development-0012")
         })
         .id(egui::Id::new("project-monitor"))
         .default_pos(egui::pos2(8.0, 88.0))
@@ -220,35 +329,45 @@ impl PlayerApp {
         .default_open(false)
         .show(ctx, |ui| {
             ui.label(&monitor.status);
-            ui.label(format!("像素后端：{}", self.renderer.borrow().name()));
+            ui.label(crate::i18n::format(
+                "host-app-development-0007",
+                &[("arg0", self.renderer.borrow().name().to_string())],
+            ));
             if let Some(error) = &monitor.error {
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
-            retry = ui.button("重新验证资源").clicked();
+            retry = ui
+                .button(crate::i18n::text("host-app-development-0013"))
+                .clicked();
             force = ui
                 .add_enabled(
                     monitor.pending.is_some(),
-                    egui::Button::new("从入口重新载入（丢弃当前进度）"),
+                    egui::Button::new(crate::i18n::text("host-app-development-0014")),
                 )
                 .clicked();
         });
         if force && let Some(bundle) = monitor.pending.take() {
             if bundle.loaded.story.id != self.story.id {
-                monitor.error = Some("story_id 已变化，请重启并使用独立存档目录".into());
+                monitor.error = Some(crate::i18n::text("host-app-development-0015").into());
             } else {
                 let session = bundle.loaded.story.start();
                 match self.replace_content(bundle, session) {
                     Ok(()) => {
                         reloaded = true;
                         monitor.error = None;
-                        monitor.status = "已从修改后的入口重新载入".into();
+                        monitor.status = crate::i18n::text("host-app-development-0016").into();
                     }
-                    Err(e) => monitor.error = Some(format!("重载失败：{e:#}")),
+                    Err(e) => {
+                        monitor.error = Some(crate::i18n::format(
+                            "host-app-development-0008",
+                            &[("arg0", format!("{:#}", e))],
+                        ))
+                    }
                 }
             }
         }
         if monitor.error.is_some() {
-            monitor.status = "更新失败，继续使用旧内容".into();
+            monitor.status = crate::i18n::text("host-app-development-0017").into();
         }
         if retry {
             monitor.request();
@@ -284,7 +403,7 @@ mod tests {
             game.path().join("ui.xml"),
             r#"<ui schema="3" width="1280" height="720" initial="hud"><variables><string id="status" initial=""/></variables><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#,
         )?;
-        let script = "on.advance('opening',()=> 'question');on.end('question');on.ui('game.enter',ctx=>{ctx.setUi('status','原状态');});";
+        let script = "frame('opening').advance(()=> 'question');frame('question').end();ui('$game').bind('game.enter',ctx=>{ctx.setUi('status','原状态');});";
         std::fs::write(game.path().join("story.js"), script)?;
         let options = LoadOptions {
             core: None,

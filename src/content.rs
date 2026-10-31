@@ -16,8 +16,11 @@ pub trait ContentSource {
         let bytes = std::io::copy(&mut self.open(path)?.take(MAX_STREAM_BYTES + 1), output)?;
         ensure!(
             bytes <= MAX_STREAM_BYTES,
-            "流式内容超过 64GiB：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-content-0001",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         Ok(bytes)
     }
@@ -39,14 +42,22 @@ pub fn validate_path(path: &Path) -> Result<()> {
             && path
                 .components()
                 .all(|part| matches!(part, Component::Normal(_))),
-        "内容路径必须为游戏内相对路径：{}",
-        path.display()
+        "{}",
+        crate::i18n::format(
+            "host-content-0002",
+            &[("arg0", format!("{}", path.display()))]
+        )
     );
     Ok(())
 }
 
 pub fn text(source: &dyn ContentSource, path: &Path) -> Result<String> {
-    String::from_utf8(source.read(path)?).with_context(|| format!("{} 不是 UTF-8", path.display()))
+    String::from_utf8(source.read(path)?).with_context(|| {
+        crate::i18n::format(
+            "host-content-0003",
+            &[("arg0", format!("{}", path.display()))],
+        )
+    })
 }
 
 pub struct DirectorySource {
@@ -56,9 +67,12 @@ pub struct DirectorySource {
 impl DirectorySource {
     pub fn new(root: &Path) -> Result<Self> {
         Ok(Self {
-            root: root
-                .canonicalize()
-                .with_context(|| format!("游戏目录 {}", root.display()))?,
+            root: root.canonicalize().with_context(|| {
+                crate::i18n::format(
+                    "host-content-0004",
+                    &[("arg0", format!("{}", root.display()))],
+                )
+            })?,
         })
     }
 }
@@ -68,15 +82,21 @@ impl ContentSource for DirectorySource {
         let file = self.file(path)?;
         ensure!(
             file.metadata()?.len() <= MAX_READ_BYTES,
-            "内容超过 128MiB：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-content-0005",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         let mut bytes = Vec::new();
         file.take(MAX_READ_BYTES + 1).read_to_end(&mut bytes)?;
         ensure!(
             bytes.len() as u64 <= MAX_READ_BYTES,
-            "内容超过 128MiB：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-content-0006",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         Ok(bytes)
     }
@@ -89,22 +109,36 @@ impl ContentSource for DirectorySource {
 impl DirectorySource {
     fn file(&self, path: &Path) -> Result<std::fs::File> {
         validate_path(path)?;
-        let resolved = self
-            .root
-            .join(path)
-            .canonicalize()
-            .with_context(|| format!("读取内容 {}", path.display()))?;
+        let resolved = self.root.join(path).canonicalize().with_context(|| {
+            crate::i18n::format(
+                "host-content-0007",
+                &[("arg0", format!("{}", path.display()))],
+            )
+        })?;
         ensure!(
             resolved.starts_with(&self.root),
-            "内容路径越出游戏目录：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-content-0008",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
-        ensure!(resolved.is_file(), "内容不是普通文件：{}", path.display());
+        ensure!(
+            resolved.is_file(),
+            "{}",
+            crate::i18n::format(
+                "host-content-0009",
+                &[("arg0", format!("{}", path.display()))]
+            )
+        );
         let file = std::fs::File::open(&resolved)?;
         ensure!(
             file.metadata()?.len() <= MAX_STREAM_BYTES,
-            "内容超过 64GiB：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-content-0010",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         Ok(file)
     }

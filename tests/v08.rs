@@ -9,7 +9,7 @@ use kakera_avg::{
     save::{SaveStore, SlotId, Snapshot},
     settings::Settings,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 
 #[test]
 fn fullscreen_is_an_xml_bool_binding_with_js_and_atomic_setting_validation() -> anyhow::Result<()> {
@@ -34,18 +34,9 @@ fn fullscreen_is_an_xml_bool_binding_with_js_and_atomic_setting_validation() -> 
         complete: true,
     });
     assert_eq!(data.values["settings"]["fullscreen"], false);
-    let commands = logic.ui_event(
-        &Event {
-            sound: None,
-            route: None,
-            name: "fullscreen".into(),
-            item: Value::Null,
-            value: json!(true),
-        },
-        &session,
-        &state.variables,
-        &data.values,
-    )?;
+    let mut fullscreen = Event::ui("fullscreen", "fullscreen");
+    fullscreen.value = json!(true);
+    let commands = logic.ui_event(&fullscreen, &session, &state.variables, &data.values)?;
     let plan = host::prepare(def, &state, &settings, &profile, commands, false)?;
     assert!(plan.settings.fullscreen);
     assert_eq!(plan.operation, Operation::Settings);
@@ -78,7 +69,7 @@ fn fullscreen_is_an_xml_bool_binding_with_js_and_atomic_setting_validation() -> 
         let xml = format!(
             "<ui schema=\"{schema}\" initial=\"hud\"><screen id=\"hud\" modal=\"false\"/></ui>"
         );
-        assert!(interface::parse(&xml, "ui.xml", &loaded.story, &Default::default()).is_err());
+        assert!(interface::parse(&xml, "ui.xml", &loaded.story, &[]).is_err());
     }
     Ok(())
 }

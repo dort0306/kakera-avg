@@ -124,7 +124,7 @@ fn region_is_bounded_pixel_geometry_with_texel_safe_uvs() -> Result<()> {
     Ok(())
 }
 
-const UI: &str = r#"<ui schema="3" initial="hud"><variables><string id="crop" initial="0,0,32,32"/><string id="sheet" initial="atlas"/></variables><screen id="hud" modal="false" pause="false"><nine-patch id="bubble" image="bubble" width="300" height="90"><label id="text" width="250" height="30" text="点九图"/></nine-patch><image id="sprite" x="320" width="64" height="64" image-bind="ui.sheet" region-bind="ui.crop"/><image id="second" x="400" width="64" height="64" image="atlas" region="32,0,32,32"/></screen></ui>"#;
+const UI: &str = r#"<ui schema="3" initial="hud"><variables><string id="crop" initial="0,0,32,32"/><string id="sheet" initial="atlas"/></variables><screen id="hud" modal="false" pause="false"><button id="swap" width="100" height="40" text="切换" event="swap"/><nine-patch id="bubble" image="bubble" width="300" height="90"><label id="text" width="250" height="30" text="点九图"/></nine-patch><image id="sprite" x="320" width="64" height="64" image-bind="ui.sheet" region-bind="ui.crop"/><image id="second" x="400" width="64" height="64" image="atlas" region="32,0,32,32"/></screen></ui>"#;
 fn game(root: &Path) -> Result<()> {
     std::fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo/assets/fonts/chinese.otf"),
@@ -148,7 +148,7 @@ fn game(root: &Path) -> Result<()> {
     std::fs::write(root.join("ui.xml"), UI)?;
     std::fs::write(
         root.join("story.js"),
-        r#"on.advance('opening',ctx=>{if(ctx.frameId!=='opening')throw Error('alias');return 'question';});on.choice('question','again',ctx=>{ctx.add('count',1);return 'question';},ctx=>ctx.vars.count<2n);on.choice('question','end',()=> 'finish');on.end('finish');on.ui('swap',ctx=>ctx.setUi('crop','32,0,32,32'));"#,
+        r#"frame('opening').advance(ctx=>{if(ctx.frameId!=='opening')throw Error('alias');return 'question';});frame('question').choice('again', ctx=>{ctx.add('count',1);return 'question';},ctx=>ctx.vars.count<2n);frame('question').choice('end', ()=> 'finish');frame('finish').end();ui('swap').bind('swap', ctx=>ctx.setUi('crop','32,0,32,32'));"#,
     )?;
     Ok(())
 }
@@ -205,13 +205,7 @@ fn js_bound_regions_are_cached_and_entire_ui_plans_roll_back() -> Result<()> {
     let settings = Settings::default();
     assert_eq!(state.regions["sprite"], Region([0, 0, 32, 32]));
     let commands = bundle.logic.ui_event(
-        &interface::Event {
-            sound: None,
-            route: None,
-            name: "swap".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        },
+        &interface::Event::ui("swap", "swap"),
         &bundle.loaded.story.start(),
         &state.variables,
         &serde_json::json!({"game":{}}),

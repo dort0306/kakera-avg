@@ -114,7 +114,15 @@ fn real_demo_loads_all_assets_from_package_without_directory_access() -> Result<
     );
     assert_eq!(bundle.assets.media.videos.len(), 2);
     assert_eq!(bundle.assets.live2d.models.len(), 1);
-    assert_eq!(bundle.logic.ui_handlers()?, logic.ui_handlers()?);
+    let keys = |logic: &kakera_avg::script::ScriptLogic| {
+        logic
+            .ui_registrations()
+            .unwrap()
+            .into_iter()
+            .map(|item| item.key)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys(&bundle.logic), keys(&logic));
     Ok(())
 }
 #[test]
@@ -151,7 +159,10 @@ fn project_notifications_reload_valid_content_and_reject_invalid_script_without_
         temp.path().join("ui.xml"),
         r#"<ui schema="3" width="1280" height="720" initial="hud"><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#,
     )?;
-    std::fs::write(temp.path().join("scripts/story.js"), "on.end('opening');")?;
+    std::fs::write(
+        temp.path().join("scripts/story.js"),
+        "frame('opening').end();",
+    )?;
     let options = LoadOptions {
         core: None,
         no_live2d: true,
@@ -189,7 +200,10 @@ fn project_notifications_reload_valid_content_and_reject_invalid_script_without_
     std::fs::write(temp.path().join("scripts/story.js"), "syntax !!!")?;
     assert!(wait(&mut monitor).is_err());
     assert_eq!(session, old);
-    std::fs::write(temp.path().join("scripts/new.js"), "on.end('opening');")?;
+    std::fs::write(
+        temp.path().join("scripts/new.js"),
+        "frame('opening').end();",
+    )?;
     std::fs::rename(
         temp.path().join("scripts/new.js"),
         temp.path().join("scripts/story.js"),

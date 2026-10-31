@@ -45,7 +45,11 @@ impl PlayerApp {
         {
             return self.commit_page_plan(plan);
         }
-        ensure!(self.handoff.is_none(), "交接期间不能退出末幕");
+        ensure!(
+            self.handoff.is_none(),
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0001", &[])
+        );
         plan = self.lifecycle_hook(plan, &self.session, "frame.exit", &self.session.frame_id)?;
         plan = self.page_lifecycle(plan, &self.session, None)?;
         if plan.state.stack != self.custom.state.stack
@@ -53,7 +57,8 @@ impl PlayerApp {
         {
             ensure!(
                 matches!(plan.operation, Operation::None | Operation::Present),
-                "末幕退出不能混合返回操作"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0002", &[])
             );
             let prepared = self.prepare_ui_media(&plan)?;
             let mut checkpoint = self.checkpoint(&self.session, &plan)?;
@@ -93,7 +98,8 @@ impl PlayerApp {
         {
             ensure!(
                 a.is_none() || b.is_none() || a == b,
-                "关闭回调与原返回目标冲突"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0003", &[])
             );
             Some(Operation::Resume(a.clone().or(b.clone())))
         } else {
@@ -103,10 +109,15 @@ impl PlayerApp {
             combined.is_some()
                 || matches!(base.operation, Operation::None)
                 || matches!(extra.operation, Operation::None),
-            "生命周期与原事件的操作冲突"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0004", &[])
         );
         base.command_count += extra.command_count;
-        ensure!(base.command_count <= 32, "生命周期整批命令超过 32");
+        ensure!(
+            base.command_count <= 32,
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0005", &[])
+        );
         base.state = extra.state;
         base.settings = extra.settings;
         base.profile = extra.profile;
@@ -128,7 +139,8 @@ impl PlayerApp {
                 .filter(|a| matches!(a, Action::Sequence(_)))
                 .count()
                 <= 1,
-            "一次生命周期只能启动一个演出"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0006", &[])
         );
         Ok(base)
     }
@@ -139,7 +151,7 @@ impl PlayerApp {
         phase: &str,
         id: &str,
     ) -> Result<Plan> {
-        let Some(event) = self
+        let Some(key) = self
             .custom
             .definition
             .lifecycle
@@ -166,7 +178,7 @@ impl PlayerApp {
             &interface::Event {
                 sound: None,
                 route: None,
-                name: event.clone(),
+                key: key.clone(),
                 item: serde_json::Value::Null,
                 value: serde_json::Value::Null,
             },
@@ -186,7 +198,8 @@ impl PlayerApp {
                         | Command::Sequence { .. }
                         | Command::Present { .. }
                 ) || (phase == "screen.close" && matches!(command, Command::Resume { .. })),
-                "生命周期 {phase} 不允许此命令"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0007", &[("arg0", phase.to_string())])
             );
         }
         let extra = host::prepare(
@@ -209,7 +222,11 @@ impl PlayerApp {
         let mut budget = 0;
         while current != plan.state.stack {
             budget += 1;
-            ensure!(budget <= 16, "页面生命周期循环或超过 16 次派发");
+            ensure!(
+                budget <= 16,
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0008", &[])
+            );
             let common = current
                 .iter()
                 .zip(&plan.state.stack)
@@ -252,11 +269,16 @@ impl PlayerApp {
         plan: Plan,
         origin: Vec<String>,
     ) -> Result<()> {
-        ensure!(self.handoff.is_none(), "不允许嵌套剧情交接");
+        ensure!(
+            self.handoff.is_none(),
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0009", &[])
+        );
         let mut plan = plan;
         ensure!(
             matches!(plan.operation, Operation::None | Operation::Present),
-            "交接不能混合其他 IO 或返回操作"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0010", &[])
         );
         plan.operation = Operation::None;
         let prepared = self.prepare_ui_media(&plan)?;
@@ -294,7 +316,8 @@ impl PlayerApp {
         ensure!(
             self.handoff.is_none()
                 && matches!(plan.operation, Operation::None | Operation::Present),
-            "进入幕不能嵌套交接或混合持久 IO"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0011", &[])
         );
         plan.operation = Operation::None;
         let mut checkpoint = self.checkpoint(&session, &plan)?;
@@ -329,7 +352,8 @@ impl PlayerApp {
         };
         ensure!(
             matches!(plan.operation, Operation::None),
-            "交接期间不能混入持久 IO"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0012", &[])
         );
         checkpoint.stack = plan.state.stack.clone();
         checkpoint.variables = plan.state.variables.clone();
@@ -369,7 +393,8 @@ impl PlayerApp {
         }
         ensure!(
             matches!(plan.operation, Operation::None),
-            "页面演出不能混合其他 IO"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0013", &[])
         );
         let video = plan.ui_actions.iter().any(|a| {
             if let Action::Sequence(id) = a {
@@ -398,9 +423,13 @@ impl PlayerApp {
         Ok(())
     }
     fn resume_handoff(&mut self, mut plan: Plan, target: Option<String>) -> Result<()> {
-        ensure!(plan.ui_actions.is_empty(), "返回剧情不能同时启动演出或音效");
+        ensure!(
+            plan.ui_actions.is_empty(),
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0014", &[])
+        );
         if !self.effects.has_entered {
-            let target = target.context("首次进入游戏必须显式指定起始幕或载入存档")?;
+            let target = target.context(crate::i18n::text("host-app-lifecycle-0033"))?;
             let session = self.story.start_at(&target).map_err(anyhow::Error::msg)?;
             plan.operation = Operation::None;
             return self.enter_planned(session, false, true, Some(plan));
@@ -417,17 +446,26 @@ impl PlayerApp {
             )?)?;
             ensure!(
                 checkpoint.schema == 1 && checkpoint.active,
-                "隐藏槽已消耗或格式错误"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0015", &[])
             );
             let (source, _, _) = self.validated_checkpoint(&checkpoint)?;
-            ensure!(source == self.session, "隐藏槽来源已改变");
+            ensure!(
+                source == self.session,
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0016", &[])
+            );
         } else {
             let path = self.saves.directory().join("flow-checkpoint.json");
             if path.exists() {
                 checkpoint = serde_json::from_slice(&crate::save::read_json_bytes(&path)?)?;
                 self.validated_checkpoint(&checkpoint)?;
             } else {
-                ensure!(target.is_some(), "没有可恢复的隐藏槽，请显式指定起始幕");
+                ensure!(
+                    target.is_some(),
+                    "{}",
+                    crate::i18n::format("host-app-lifecycle-0017", &[])
+                );
             }
         }
         let mut target = target;
@@ -438,7 +476,8 @@ impl PlayerApp {
                 if let (Some(original), Some(closing)) = (&target, frame) {
                     ensure!(
                         self.story.resolve_frame(original) == self.story.resolve_frame(closing),
-                        "关闭回调与指定起始幕冲突"
+                        "{}",
+                        crate::i18n::format("host-app-lifecycle-0018", &[])
                     );
                 }
                 target = target.or_else(|| frame.clone());
@@ -451,7 +490,7 @@ impl PlayerApp {
             let actual = self
                 .story
                 .resolve_frame(&target)
-                .context("返回目标场景不存在")?;
+                .context(crate::i18n::text("host-app-lifecycle-0034"))?;
             if actual != session.frame_id {
                 session = controller::transition_with(
                     &self.story,
@@ -486,7 +525,8 @@ impl PlayerApp {
         }
         ensure!(
             matches!(entry_plan.operation, Operation::None | Operation::Present),
-            "返回剧情的 enter 不能混合持久 IO"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0019", &[])
         );
         let next_handoff = entry_plan.state.stack != return_stack
             || entry_plan
@@ -499,7 +539,8 @@ impl PlayerApp {
         }
         ensure!(
             matches!(entry_plan.operation, Operation::None | Operation::Present),
-            "返回后页面不能再次同时返回剧情"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0020", &[])
         );
         entry_plan.operation = Operation::None;
         let prepared_ui = self.prepare_ui_media(&entry_plan)?;
@@ -541,12 +582,17 @@ impl PlayerApp {
     }
 
     fn validated_checkpoint(&self, c: &Checkpoint) -> Result<(Session, Session, State)> {
-        ensure!(c.schema == 1, "未知隐藏槽 schema");
+        ensure!(
+            c.schema == 1,
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0021", &[])
+        );
         let source = c.source.restore_with(&self.story, &self.logic)?;
         let continuation = c.continuation.restore_with(&self.story, &self.logic)?;
         ensure!(
             !c.entered || (source == continuation && !c.exited),
-            "隐藏已进入标记不一致"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0022", &[])
         );
         ensure!(
             c.exited == (source != continuation)
@@ -557,7 +603,8 @@ impl PlayerApp {
                         self.story.routes[&source.frame_id],
                         crate::model::Route::End
                     )),
-            "隐藏槽离幕标记不一致"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0023", &[])
         );
         if source != continuation {
             let previous = continuation
@@ -565,10 +612,11 @@ impl PlayerApp {
                 .iter()
                 .rev()
                 .nth(1)
-                .context("隐藏续接历史缺少来源")?;
+                .context(crate::i18n::text("host-app-lifecycle-0035"))?;
             ensure!(
                 previous.frame_id == source.frame_id && previous.resume_to.is_none(),
-                "隐藏续接不是普通剧情交接"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0024", &[])
             );
             let intent = previous
                 .choice_id
@@ -578,31 +626,50 @@ impl PlayerApp {
             let expected = controller::transition_with(&self.story, &source, intent, &self.logic)?;
             ensure!(
                 expected.entered && expected.session == continuation,
-                "隐藏源状态与续接状态不一致"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0025", &[])
             );
         }
         let d = &self.custom.definition;
-        ensure!(c.variables.len() == d.variables.len(), "隐藏 UI 变量不完整");
+        ensure!(
+            c.variables.len() == d.variables.len(),
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0026", &[])
+        );
         for (id, decl) in &d.variables {
             crate::model::rules::validate_value(
                 decl,
-                c.variables.get(id).context("隐藏 UI 变量缺失")?,
+                c.variables
+                    .get(id)
+                    .context(crate::i18n::text("host-app-lifecycle-0036"))?,
             )
             .map_err(anyhow::Error::msg)?;
         }
         for stack in [&c.stack, &c.origin] {
-            ensure!(!stack.is_empty() && stack.len() <= 8, "隐藏 UI 栈超限");
+            ensure!(
+                !stack.is_empty() && stack.len() <= 8,
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0027", &[])
+            );
             let mut seen = std::collections::BTreeSet::new();
             for (i, id) in stack.iter().enumerate() {
-                let page = d.screens.get(id).context("隐藏页面不存在")?;
-                ensure!(seen.insert(id) && page.modal == (i > 0), "隐藏 UI 栈非法");
+                let page = d
+                    .screens
+                    .get(id)
+                    .context(crate::i18n::text("host-app-lifecycle-0037"))?;
+                ensure!(
+                    seen.insert(id) && page.modal == (i > 0),
+                    "{}",
+                    crate::i18n::format("host-app-lifecycle-0028", &[])
+                );
             }
         }
         ensure!(
             c.sequence
                 .as_ref()
                 .is_none_or(|id| d.media.sequences.contains_key(id)),
-            "隐藏演出不存在"
+            "{}",
+            crate::i18n::format("host-app-lifecycle-0029", &[])
         );
         let mut state = State::new(d);
         state.stack = c.stack.clone();
@@ -625,7 +692,11 @@ impl PlayerApp {
         let result = (|| -> Result<bool> {
             let checkpoint: Checkpoint =
                 serde_json::from_slice(&crate::save::read_json_bytes(&path)?)?;
-            ensure!(checkpoint.schema == 1, "未知隐藏槽 schema");
+            ensure!(
+                checkpoint.schema == 1,
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0030", &[])
+            );
             if !checkpoint.active {
                 return Ok(false);
             }
@@ -658,7 +729,8 @@ impl PlayerApp {
             }
             ensure!(
                 matches!(plan.operation, Operation::None),
-                "恢复页面生命周期不能更改剧情"
+                "{}",
+                crate::i18n::format("host-app-lifecycle-0031", &[])
             );
             let available = self
                 .logic
@@ -691,7 +763,10 @@ impl PlayerApp {
             Ok(value) => Ok(value),
             Err(error) => {
                 self.lifecycle_ready = true;
-                let text = format!("隐藏交接槽无效，未恢复：{error:#}");
+                let text = crate::i18n::format(
+                    "host-app-lifecycle-0032",
+                    &[("arg0", format!("{:#}", error))],
+                );
                 self.message = Some(
                     self.message
                         .take()
@@ -708,6 +783,30 @@ impl PlayerApp {
 mod tests {
     use super::*;
     use std::path::Path;
+    /// Generates the XML controls a test script registers, so every named target exists.
+    fn probes(script: &str) -> String {
+        let mut out = String::new();
+        let mut rest = script;
+        while let Some(at) = rest.find("ui('") {
+            rest = &rest[at + 4..];
+            let Some(end) = rest.find("')") else { break };
+            let target = &rest[..end];
+            rest = &rest[end + 2..];
+            let Some(bound) = rest.strip_prefix(".bind('") else {
+                continue;
+            };
+            let Some(eend) = bound.find('\'') else { break };
+            let event = &bound[..eend];
+            rest = &bound[eend + 1..];
+            if target.starts_with('$') || matches!(event, "screen.open" | "screen.close") {
+                continue;
+            }
+            out.push_str(&format!(
+                r#"<button id="{target}" width="10" height="10" text="按钮" event="{event}"/>"#
+            ));
+        }
+        out
+    }
     fn write_game(root: &Path, extra: &str) -> Result<()> {
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo/assets/fonts/chinese.otf"),
@@ -719,12 +818,15 @@ mod tests {
         )?;
         std::fs::write(
             root.join("ui.xml"),
-            r#"<ui schema="3" initial="hud"><variables><string id="trace" initial=""/></variables><ui-media><sequence id="cut" finish="close"><fade target="caption" duration="1000"/></sequence></ui-media><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen><screen id="movie"><label id="caption" width="400" height="50" text="视频演出"/></screen></ui>"#,
+            format!(
+                r#"<ui schema="3" initial="hud"><variables><string id="trace" initial=""/></variables><ui-media><sequence id="cut" finish="close"><fade target="caption" duration="1000"/></sequence></ui-media><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="advance" width="10" height="10" text="按钮" event="advance"/>{}</screen><screen id="movie"><label id="caption" width="400" height="50" text="视频演出"/></screen></ui>"#,
+                probes(extra)
+            ),
         )?;
         std::fs::write(
             root.join("story.js"),
             format!(
-                "on.advance('a',ctx=>{{ctx.add('n',1);return 'b';}});on.end('b');on.end('c');on.frameEnter('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));on.ui('advance',ctx=>ctx.advance());{extra}"
+                "frame('a').advance(ctx=>{{ctx.add('n',1);return 'b';}});frame('b').end();frame('c').end();frame('a').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));frame('b').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));ui('advance').bind('advance', ctx=>ctx.advance());{extra}"
             ),
         )?;
         Ok(())
@@ -761,17 +863,11 @@ mod tests {
     }
     fn standard(target: &str) -> String {
         format!(
-            "on.frameExit('a',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');}});on.screenOpen('movie',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');}});on.screenClose('movie',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');ctx.resume({target});}});"
+            "frame('a').exit(ctx=>{{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');}});ui('movie').bind('screen.open', ctx=>{{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');}});ui('movie').bind('screen.close', ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');ctx.resume({target});}});"
         )
     }
     fn advance(app: &mut PlayerApp) -> Result<()> {
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "advance".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })
+        app.custom_event(interface::Event::ui("advance", "advance"))
     }
     fn skip(app: &mut PlayerApp) -> Result<bool> {
         let ctx = app.context.clone();
@@ -792,6 +888,90 @@ mod tests {
             },
         );
         result
+    }
+    #[test]
+    fn screen_sequence_naturally_resumes_after_focus_and_debug_pause() -> Result<()> {
+        for target in ["", "'c'", "page"] {
+            let root = tempfile::tempdir()?;
+            let saves = tempfile::tempdir()?;
+            let close = if target == "page" {
+                "ctx.open('second')".to_owned()
+            } else {
+                format!("ctx.resume({target})")
+            };
+            write_game(
+                root.path(),
+                &format!(
+                    "frame('a').exit(ctx=>ctx.open('movie'));ui('movie').bind('screen.close', ctx=>{{{close};}});ui('second').bind('screen.close', ctx=>ctx.resume('c'));"
+                ),
+            )?;
+            let path = root.path().join("ui.xml");
+            let xml = std::fs::read_to_string(&path)?
+                .replace("<screen id=\"movie\">", "<screen id=\"movie\" sequence=\"cut\">")
+                .replace("</ui-media>", "<sequence id=\"second.cut\" finish=\"close\"><fade target=\"second.caption\" duration=\"200\"/></sequence></ui-media>")
+                .replace("</ui>", "<screen id=\"second\" sequence=\"second.cut\"><label id=\"second.caption\" width=\"200\" height=\"40\" text=\"第二页\"/></screen></ui>");
+            std::fs::write(path, xml)?;
+            let mut app = load(root.path(), saves.path())?;
+            app.attach_debug(crate::debug::Server::bind(
+                "127.0.0.1:0".parse()?,
+                "0123456789abcdef0123456789abcdef".into(),
+            )?);
+            app.debug_command(
+                crate::debug::Command::Advance,
+                app.debug_snapshot()["state_revision"].as_u64(),
+            )?;
+            let before = app.session.clone();
+            let ctx = app.context.clone();
+            assert!(app.tick_ui_media(&ctx, true, false)?);
+            assert!(app.ui_media.active());
+            assert_eq!(app.custom.state.stack, vec!["hud", "movie"]);
+            // A paused debugger and a background window must both preserve the handoff.
+            for focused in [true, false] {
+                app.ui_media.elapse_for_test(20);
+                app.tick_ui_media(&ctx, focused, false)?;
+                assert_eq!(app.session, before);
+                assert!(app.handoff.is_some());
+            }
+            app.debug_command(
+                crate::debug::Command::Resume,
+                app.debug_snapshot()["state_revision"].as_u64(),
+            )?;
+            app.ui_media.elapse_for_test(20);
+            app.tick_ui_media(&ctx, false, false)?;
+            assert_eq!(app.session, before);
+            // Regaining focus discards the paused interval rather than catching up.
+            app.tick_ui_media(&ctx, true, false)?;
+            assert_eq!(app.session, before);
+            app.ui_media.elapse_for_test(2);
+            app.tick_ui_media(&ctx, true, false)?;
+            if target == "page" {
+                assert_eq!(app.custom.state.stack, vec!["hud", "second"]);
+                assert_eq!(app.session, before);
+                app.tick_ui_media(&ctx, true, false)?;
+                app.ui_media.elapse_for_test(2);
+                app.tick_ui_media(&ctx, true, false)?;
+            }
+            assert_eq!(
+                app.session.frame_id,
+                if target.is_empty() { "b" } else { "c" }
+            );
+            assert_eq!(
+                app.session.variables["n"],
+                crate::model::VariableValue::Int(1)
+            );
+            assert_eq!(app.custom.state.stack, vec!["hud"]);
+            assert!(app.handoff.is_none());
+            let committed = app.session.clone();
+            assert!(!app.tick_ui_media(&ctx, true, false)?);
+            assert_eq!(app.session, committed);
+            app.story
+                .validate_session_with(&app.session, &app.logic)
+                .map_err(anyhow::Error::msg)?;
+            let slot: Checkpoint =
+                serde_json::from_slice(&std::fs::read(saves.path().join("flow-checkpoint.json"))?)?;
+            assert!(!slot.active);
+        }
+        Ok(())
     }
     #[test]
     fn frame_exit_ui_open_close_resume_commits_continuation_once() -> Result<()> {
@@ -884,7 +1064,7 @@ mod tests {
         let saves2 = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameExit('a',ctx=>ctx.open('movie'));on.screenOpen('movie',ctx=>ctx.close());on.screenClose('movie',ctx=>ctx.open('movie'));",
+            "frame('a').exit(ctx=>ctx.open('movie'));ui('movie').bind('screen.open', ctx=>ctx.close());ui('movie').bind('screen.close', ctx=>ctx.open('movie'));",
         )?;
         let mut app = load(root.path(), saves2.path())?;
         let before = app.session.clone();
@@ -924,16 +1104,10 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.ui('present',ctx=>ctx.present('movie'));on.frameExit('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));on.screenOpen('movie',ctx=>ctx.sequence('cut'));on.screenClose('movie',ctx=>ctx.resume('c'));",
+            "ui('present').bind('present', ctx=>ctx.present('movie'));frame('a').exit(ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));ui('movie').bind('screen.open', ctx=>ctx.sequence('cut'));ui('movie').bind('screen.close', ctx=>ctx.resume('c'));",
         )?;
         let mut app = load(root.path(), saves.path())?;
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "present".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(interface::Event::ui("present", "present"))?;
         assert_eq!(app.session.frame_id, "a");
         skip(&mut app)?;
         assert_eq!(app.session.frame_id, "c");
@@ -952,12 +1126,12 @@ mod tests {
         write_game(
             root.path(),
             &(standard("'b'")
-                + "on.screenOpen('second',ctx=>ctx.sequence('cut2'));on.screenClose('second',ctx=>ctx.resume('c'));"),
+                + "ui('second').bind('screen.open', ctx=>ctx.sequence('cut2'));ui('second').bind('screen.close', ctx=>ctx.resume('c'));"),
         )?;
         let path = root.path().join("story.js");
         let js = std::fs::read_to_string(&path)?.replace(
-            "on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
-            "on.frameEnter('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('second');});",
+            "frame('b').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
+            "frame('b').enter(ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('second');});",
         );
         std::fs::write(path, js)?;
         let path = root.path().join("ui.xml");
@@ -991,12 +1165,12 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.screenOpen('hud',ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));on.screenOpen('movie',ctx=>{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');});on.screenClose('movie',ctx=>ctx.resume('c'));",
+            "ui('hud').bind('screen.open', ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));ui('movie').bind('screen.open', ctx=>{ctx.setUi('trace',ctx.ui.trace+'O');ctx.sequence('cut');});ui('movie').bind('screen.close', ctx=>ctx.resume('c'));",
         )?;
         let path = root.path().join("story.js");
         let js = std::fs::read_to_string(&path)?.replace(
-            "on.frameEnter('a',ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));",
-            "on.frameEnter('a',ctx=>{ctx.setUi('trace',ctx.ui.trace+'A');ctx.open('movie');});",
+            "frame('a').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'A'));",
+            "frame('a').enter(ctx=>{ctx.setUi('trace',ctx.ui.trace+'A');ctx.open('movie');});",
         );
         std::fs::write(path, js)?;
         let mut app = load(root.path(), saves.path())?;
@@ -1012,12 +1186,12 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.screenOpen('movie',ctx=>ctx.sequence('cut'));on.screenClose('movie',ctx=>ctx.resume());",
+            "ui('movie').bind('screen.open', ctx=>ctx.sequence('cut'));ui('movie').bind('screen.close', ctx=>ctx.resume());",
         )?;
         let path = root.path().join("story.js");
         let js = std::fs::read_to_string(&path)?.replace(
-            "on.frameEnter('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
-            "on.frameEnter('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('movie');});",
+            "frame('b').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'B'));",
+            "frame('b').enter(ctx=>{ctx.setUi('trace',ctx.ui.trace+'B');ctx.open('movie');});",
         );
         std::fs::write(path, js)?;
         let mut app = load(root.path(), saves.path())?;
@@ -1095,18 +1269,12 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            &(standard("'b'") + "on.ui('resume-direct',ctx=>ctx.resume());"),
+            &(standard("'b'") + "ui('resume-direct').bind('resume-direct', ctx=>ctx.resume());"),
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
         app.ui_media.cancel();
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "resume-direct".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(interface::Event::ui("resume-direct", "resume-direct"))?;
         assert_eq!(app.session.frame_id, "b");
         assert_eq!(app.custom.state.stack, vec!["hud"]);
         assert_eq!(app.custom.state.variables["trace"].to_string(), "AXOCB");
@@ -1119,7 +1287,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameExit('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});on.screenClose('movie',ctx=>ctx.resume());",
+            "frame('b').exit(ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});ui('movie').bind('screen.close', ctx=>ctx.resume());",
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1148,7 +1316,7 @@ mod tests {
     fn terminal_exit_failure_is_retryable_and_keyboard_uses_same_path() -> Result<()> {
         let root = tempfile::tempdir()?;
         let saves = tempfile::tempdir()?;
-        write_game(root.path(), "on.frameExit('b',ctx=>ctx.open('movie'));")?;
+        write_game(root.path(), "frame('b').exit(ctx=>ctx.open('movie'));")?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
         app.typewriter.finish();
@@ -1173,7 +1341,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameExit('b',ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));",
+            "frame('b').exit(ctx=>ctx.setUi('trace',ctx.ui.trace+'X'));",
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1189,7 +1357,7 @@ mod tests {
         assert_eq!(app.custom.state.variables["trace"].to_string(), "ABXX");
         write_game(
             root.path(),
-            "on.frameExit('b',ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});on.screenClose('movie',ctx=>ctx.resume('c'));",
+            "frame('b').exit(ctx=>{ctx.setUi('trace',ctx.ui.trace+'X');ctx.open('movie');});ui('movie').bind('screen.close', ctx=>ctx.resume('c'));",
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1209,7 +1377,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameExit('a',ctx=>ctx.open('movie'));on.screenClose('movie',ctx=>ctx.resume());on.ui('start',ctx=>ctx.resume('c'));on.ui('continue',ctx=>ctx.resume());",
+            "frame('a').exit(ctx=>ctx.open('movie'));ui('movie').bind('screen.close', ctx=>ctx.resume());ui('start').bind('start', ctx=>ctx.resume('c'));ui('continue').bind('continue', ctx=>ctx.resume());",
         )?;
         let mut app = load(root.path(), saves.path())?;
         advance(&mut app)?;
@@ -1266,15 +1434,9 @@ mod tests {
         write_game(
             root.path(),
             &(standard("'b'")
-                + "on.ui('quit',ctx=>ctx.quit());on.ui('bad-quit',ctx=>{ctx.setUi('trace','changed');ctx.quit();ctx.setUi('missing',true);});on.ui('mixed-quit',ctx=>{ctx.quit();ctx.advance();});on.ui('media-quit',ctx=>{ctx.quit();ctx.sequence('cut');});"),
+                + "ui('quit').bind('quit', ctx=>ctx.quit());ui('bad-quit').bind('bad-quit', ctx=>{ctx.setUi('trace','changed');ctx.quit();ctx.setUi('missing',true);});ui('mixed-quit').bind('mixed-quit', ctx=>{ctx.quit();ctx.advance();});ui('media-quit').bind('media-quit', ctx=>{ctx.quit();ctx.sequence('cut');});"),
         )?;
-        let event = |name: &str| interface::Event {
-            sound: None,
-            route: None,
-            name: name.into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        };
+        let event = |name: &str| interface::Event::ui(name, name);
         let mut app = load_ui(root.path(), saves.path())?;
         let before = app.session.clone();
         let state = app.custom.state.clone();
@@ -1308,13 +1470,13 @@ mod tests {
     #[test]
     fn frame_and_screen_lifecycles_cannot_quit_the_host() -> Result<()> {
         for extra in [
-            "on.frameExit('a',ctx=>ctx.quit());",
-            "on.frameEnter('c',ctx=>ctx.quit());",
+            "frame('a').exit(ctx=>ctx.quit());",
+            "frame('c').enter(ctx=>ctx.quit());",
         ] {
             let root = tempfile::tempdir()?;
             let saves = tempfile::tempdir()?;
             write_game(root.path(), extra)?;
-            if extra.contains("frameEnter") {
+            if extra.contains("frame(\'c\').enter") {
                 let path = root.path().join("story.js");
                 std::fs::write(
                     &path,
@@ -1331,19 +1493,13 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.ui('open',ctx=>ctx.open('movie'));on.screenOpen('movie',ctx=>ctx.quit());",
+            "ui('open').bind('open', ctx=>ctx.open('movie'));ui('movie').bind('screen.open', ctx=>ctx.quit());",
         )?;
         let mut app = load(root.path(), saves.path())?;
         let state = app.custom.state.clone();
         assert!(
-            app.custom_event(interface::Event {
-                sound: None,
-                route: None,
-                name: "open".into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null
-            })
-            .is_err()
+            app.custom_event(interface::Event::ui("open", "open"))
+                .is_err()
         );
         assert_eq!(app.custom.state, state);
         assert!(!app.quit_requested());
@@ -1358,7 +1514,7 @@ mod tests {
             write_game(
                 root.path(),
                 &format!(
-                    "on.ui('start',ctx=>{{ctx.open('hud');ctx.resume('c');}});on.ui('restart-main',ctx=>{{ctx.open('hud');ctx.restart('a');}});on.ui('title',ctx=>ctx.open('title'));on.screenOpen('hud',ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));on.frameEnter('c',ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');{}}});on.screenClose('movie',ctx=>ctx.resume());",
+                    "ui('start').bind('start', ctx=>{{ctx.open('hud');ctx.resume('c');}});ui('restart-main').bind('restart-main', ctx=>{{ctx.open('hud');ctx.restart('a');}});ui('titleButton').bind('title', ctx=>ctx.open('title'));ui('hud').bind('screen.open', ctx=>ctx.setUi('trace',ctx.ui.trace+'H'));frame('c').enter(ctx=>{{ctx.setUi('trace',ctx.ui.trace+'C');{}}});ui('movie').bind('screen.close', ctx=>ctx.resume());",
                     if movie { "ctx.open('movie');" } else { "" }
                 ),
             )?;
@@ -1376,12 +1532,12 @@ mod tests {
             )?;
             let mut app = load_ui(root.path(), saves.path())?;
             app.lifecycle_ready = true;
-            let event = |name: &str| interface::Event {
-                sound: None,
-                route: None,
-                name: name.into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null,
+            let event = |name: &str| {
+                if name == "title" {
+                    interface::Event::ui("titleButton", name)
+                } else {
+                    interface::Event::ui(name, name)
+                }
             };
             app.custom_event(event("start"))?;
             assert_eq!(app.session.frame_id, "c");
@@ -1413,7 +1569,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameEnter('c',ctx=>ctx.setUi('trace',ctx.ui.trace+'C'));on.ui('start',ctx=>ctx.resume('secret'));on.ui('bare',ctx=>ctx.resume());on.ui('save',ctx=>ctx.save(1));on.ui('auto',ctx=>ctx.autoPlay(true));on.ui('restart',ctx=>ctx.restart());",
+            "frame('c').enter(ctx=>ctx.setUi('trace',ctx.ui.trace+'C'));ui('start').bind('start', ctx=>ctx.resume('secret'));ui('bare').bind('bare', ctx=>ctx.resume());ui('save').bind('save', ctx=>ctx.save(1));ui('auto').bind('auto', ctx=>ctx.autoPlay(true));ui('restart').bind('restart', ctx=>ctx.restart());",
         )?;
         let path = root.path().join("story.xml");
         let xml = std::fs::read_to_string(&path)?
@@ -1434,14 +1590,7 @@ mod tests {
         );
         for name in ["bare", "advance", "save", "auto", "restart"] {
             assert!(
-                app.custom_event(interface::Event {
-                    sound: None,
-                    route: None,
-                    name: name.into(),
-                    item: serde_json::Value::Null,
-                    value: serde_json::Value::Null
-                })
-                .is_err(),
+                app.custom_event(interface::Event::ui(name, name)).is_err(),
                 "{name}"
             );
         }
@@ -1453,13 +1602,7 @@ mod tests {
         assert!(!app.effects.has_entered);
         // A stale inactive slot must not supply another route's variables to a fresh start.
         std::fs::write(saves.path().join("flow-checkpoint.json"), "stale")?;
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "start".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(interface::Event::ui("start", "start"))?;
         assert!(app.effects.has_entered);
         assert_eq!(app.session.frame_id, "c");
         assert_eq!(app.session.history.len(), 1);
@@ -1492,8 +1635,8 @@ mod tests {
         }
         std::fs::write(&path, original.replace("entry=\"a\"", "entry=\"a secret\""))?;
         let script = std::fs::read_to_string(root.path().join("story.js"))?.replace(
-            "on.end('c');",
-            "on.end('c');on.ui('game.enter',ctx=>{if(ctx.game.frameId==='secret')throw Error('second entry guard');});",
+            "frame('c').end();",
+            "frame('c').end();ui('$game').bind('game.enter', ctx=>{if(ctx.game.frameId==='secret')throw Error('second entry guard');});",
         );
         std::fs::write(root.path().join("story.js"), script)?;
         assert!(
@@ -1508,7 +1651,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.frameEnter('c',ctx=>ctx.open('movie'));on.ui('load',ctx=>ctx.load(1));on.ui('restart-c',ctx=>ctx.restart('c'));",
+            "frame('c').enter(ctx=>ctx.open('movie'));ui('load').bind('load', ctx=>ctx.load(1));ui('restart-c').bind('restart-c', ctx=>ctx.restart('c'));",
         )?;
         let path = root.path().join("story.xml");
         std::fs::write(
@@ -1539,23 +1682,11 @@ mod tests {
             &app.saves.slot_path(crate::save::SlotId::new(1)?),
             &snapshot,
         )?;
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "load".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(interface::Event::ui("load", "load"))?;
         assert_eq!(app.session, session);
         assert_eq!(app.custom.state.variables["trace"].to_string(), "");
         assert!(app.pending_auto.is_none());
-        app.custom_event(interface::Event {
-            sound: None,
-            route: None,
-            name: "restart-c".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(interface::Event::ui("restart-c", "restart-c"))?;
         assert_eq!(app.session.frame_id, "c");
         assert_eq!(app.session.history.len(), 1);
         assert_eq!(app.session.variables, app.story.initial_variables());
@@ -1568,7 +1699,7 @@ mod tests {
         let saves = tempfile::tempdir()?;
         write_game(
             root.path(),
-            "on.ui('game.enter',ctx=>{if(ctx.game.cgId)ctx.unlock(ctx.game.cgId);});",
+            "ui('$game').bind('game.enter', ctx=>{if(ctx.game.cgId)ctx.unlock(ctx.game.cgId);});",
         )?;
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo/assets/bg/room.png"),

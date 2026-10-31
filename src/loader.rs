@@ -41,11 +41,19 @@ pub(crate) fn check(
         || node.tag_name().namespace().is_some()
         || node.namespaces().next().is_some()
     {
-        return Err(error(file, node, format!("预期无命名空间的 <{tag}>")));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::format("host-loader-0001", &[("arg0", tag.to_string())]),
+        ));
     }
     for attr in node.attributes() {
         if attr.namespace().is_some() || !attrs.contains(&attr.name()) {
-            return Err(error(file, node, format!("未知属性 {}", attr.name())));
+            return Err(error(
+                file,
+                node,
+                crate::i18n::format("host-loader-0002", &[("arg0", attr.name().to_string())]),
+            ));
         }
     }
     for child in node.children() {
@@ -53,11 +61,14 @@ pub(crate) fn check(
             return Err(error(
                 file,
                 child,
-                format!("未知元素 <{}>", child.tag_name().name()),
+                crate::i18n::format(
+                    "host-loader-0003",
+                    &[("arg0", child.tag_name().name().to_string())],
+                ),
             ));
         }
         if !text && child.is_text() && !child.text().unwrap_or("").trim().is_empty() {
-            return Err(error(file, child, "这里不允许普通文本"));
+            return Err(error(file, child, crate::i18n::text("host-loader-0019")));
         }
     }
     Ok(())
@@ -66,7 +77,13 @@ pub(crate) fn check(
 pub(crate) fn required<'a>(file: &str, node: Node<'a, '_>, name: &str) -> Result<&'a str> {
     node.attribute(name)
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| error(file, node, format!("缺少非空属性 {name}")))
+        .ok_or_else(|| {
+            error(
+                file,
+                node,
+                crate::i18n::format("host-loader-0004", &[("arg0", name.to_string())]),
+            )
+        })
 }
 
 fn unique<T>(
@@ -80,11 +97,15 @@ fn unique<T>(
         return Err(error(
             file,
             node,
-            format!("ID 必须非空且不能含空白：{id:?}"),
+            crate::i18n::format("host-loader-0005", &[("arg0", format!("{:?}", id))]),
         ));
     }
     if map.insert(id.to_owned(), value).is_some() {
-        return Err(error(file, node, format!("重复 ID：{id}")));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::format("host-loader-0006", &[("arg0", id.to_string())]),
+        ));
     }
     Ok(())
 }
@@ -95,11 +116,19 @@ pub(crate) fn single<'a, 'input>(
     name: &str,
 ) -> Result<Node<'a, 'input>> {
     let mut nodes = parent.children().filter(|n| n.has_tag_name(name));
-    let node = nodes
-        .next()
-        .ok_or_else(|| error(file, parent, format!("缺少 <{name}>")))?;
+    let node = nodes.next().ok_or_else(|| {
+        error(
+            file,
+            parent,
+            crate::i18n::format("host-loader-0007", &[("arg0", name.to_string())]),
+        )
+    })?;
     if nodes.next().is_some() {
-        return Err(error(file, parent, format!("重复 <{name}>")));
+        return Err(error(
+            file,
+            parent,
+            crate::i18n::format("host-loader-0008", &[("arg0", name.to_string())]),
+        ));
     }
     Ok(node)
 }
@@ -118,9 +147,46 @@ fn plain_text(file: &str, node: Node<'_, '_>, tag: &str, attrs: &[&str]) -> Resu
         .filter_map(|n| n.text())
         .collect();
     if text.trim().is_empty() {
-        return Err(error(file, node, "文本不能为空"));
+        return Err(error(file, node, crate::i18n::text("host-loader-0020")));
     }
     Ok(text)
+}
+
+fn localized_plain(
+    file: &str,
+    node: Node<'_, '_>,
+    tag: &str,
+    attrs: &[&str],
+    key_attr: &str,
+    catalog: &crate::localization::Catalog,
+) -> Result<String> {
+    if let Some(key) = node.attribute(key_attr) {
+        let mut allowed = attrs.to_vec();
+        allowed.push(key_attr);
+        check(file, node, tag, &allowed, &[], false)?;
+        return catalog.static_text(key).map_err(|e| error(file, node, e));
+    }
+    plain_text(file, node, tag, attrs)
+}
+fn localized_attribute(
+    file: &str,
+    node: Node<'_, '_>,
+    literal: &str,
+    key: &str,
+    catalog: &crate::localization::Catalog,
+) -> Result<String> {
+    match (node.attribute(literal), node.attribute(key)) {
+        (Some(value), None) => Ok(value.into()),
+        (None, Some(key)) => catalog.static_text(key).map_err(|e| error(file, node, e)),
+        _ => Err(error(
+            file,
+            node,
+            crate::i18n::format(
+                "host-i18n-detail-0066",
+                &[("arg0", literal.to_string()), ("arg1", key.to_string())],
+            ),
+        )),
+    }
 }
 
 fn image_ref(
@@ -136,14 +202,18 @@ fn image_ref(
             ..
         })
     ) {
-        return Err(error(file, node, format!("图片引用不存在或类型错误：{id}")));
+        return Err(error(
+            file,
+            node,
+            crate::i18n::format("host-loader-0009", &[("arg0", id.to_string())]),
+        ));
     }
     Ok(())
 }
 
 /// Parse the assembled current grammar into owned data; resource paths stay logical.
-fn parse_story(story_xml: &str) -> Result<ParsedStory> {
-    let content = Document::parse(story_xml).context("story.xml 解析失败")?;
+fn parse_story(story_xml: &str, catalog: &crate::localization::Catalog) -> Result<ParsedStory> {
+    let content = Document::parse(story_xml).context(crate::i18n::text("host-loader-0021"))?;
     let s = "story.xml";
     let story_node = content.root_element();
     let schema = required(s, story_node, "schema")?;
@@ -162,18 +232,15 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             "interface",
             "effects",
             "next",
+            "localization",
         ],
         false,
     )?;
     if schema != "8" {
-        return Err(error(s, story_node, "仅支持 story schema 8"));
+        return Err(error(s, story_node, crate::i18n::text("host-loader-0022")));
     }
     if crate::story_chain::next(s, story_node)?.is_some() {
-        return Err(error(
-            s,
-            story_node,
-            "多文件剧本必须通过 ContentSource 先合并",
-        ));
+        return Err(error(s, story_node, crate::i18n::text("host-loader-0023")));
     }
     let id = required(s, story_node, "id")?.to_owned();
     if id == "."
@@ -182,19 +249,15 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             .chars()
             .any(|c| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.')
     {
-        return Err(error(
-            s,
-            story_node,
-            "故事 ID 仅允许 ASCII 字母、数字、点、连字符和下划线",
-        ));
+        return Err(error(s, story_node, crate::i18n::text("host-loader-0024")));
     }
     let content_version: u32 = required(s, story_node, "content-version")?
         .parse()
-        .map_err(|_| error(s, story_node, "content-version 必须是正整数"))?;
+        .map_err(|_| error(s, story_node, crate::i18n::text("host-loader-0025")))?;
     if content_version == 0 {
-        return Err(error(s, story_node, "content-version 必须大于 0"));
+        return Err(error(s, story_node, crate::i18n::text("host-loader-0026")));
     }
-    let variables = variables::variables(story_node)?;
+    let variables = variables::variables(story_node, catalog)?;
     let effects = effect_xml::presets(story_node)?;
 
     let mut assets = BTreeMap::new();
@@ -220,7 +283,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             return Err(error(
                 s,
                 node,
-                format!("资源 {id} 必须使用游戏目录内的相对路径"),
+                crate::i18n::format("host-loader-0010", &[("arg0", id.to_string())]),
             ));
         }
         let kind = match node.tag_name().name() {
@@ -230,7 +293,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             "cg" => AssetKind::Cg,
             "nine-patch" => {
                 if !relative.to_string_lossy().ends_with(".9.png") {
-                    return Err(error(s, node, "nine-patch 资源必须为源 .9.png"));
+                    return Err(error(s, node, crate::i18n::text("host-loader-0027")));
                 }
                 AssetKind::NinePatch
             }
@@ -242,7 +305,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
                     .unwrap_or("")
                     .to_ascii_lowercase();
                 if !["wav", "ogg"].contains(&extension.as_str()) {
-                    return Err(error(s, node, "音频仅支持 .wav 或 .ogg"));
+                    return Err(error(s, node, crate::i18n::text("host-loader-0028")));
                 }
                 AssetKind::Audio
             }
@@ -260,19 +323,26 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         )?;
     }
     if !assets.values().any(|a| a.kind == AssetKind::Font) {
-        return Err(error(s, asset_node, "至少需要配置一份中文字体"));
+        return Err(error(s, asset_node, crate::i18n::text("host-loader-0029")));
     }
     let mut characters = BTreeMap::new();
     let chars_node = single(s, story_node, "characters")?;
     check(s, chars_node, "characters", &[], &["character"], false)?;
     for node in elements(chars_node) {
-        check(s, node, "character", &["id", "name"], &[], false)?;
+        check(
+            s,
+            node,
+            "character",
+            &["id", "name", "name-key"],
+            &[],
+            false,
+        )?;
         unique(
             s,
             node,
             &mut characters,
             required(s, node, "id")?,
-            required(s, node, "name")?.to_owned(),
+            localized_attribute(s, node, "name", "name-key", catalog)?,
         )?;
     }
     let mut visuals = BTreeMap::new();
@@ -291,11 +361,15 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         if cg.is_some()
             && (node.attribute("background").is_some() || elements(node).next().is_some())
         {
-            return Err(error(s, node, "CG 画面不能同时声明 background 或 portrait"));
+            return Err(error(s, node, crate::i18n::text("host-loader-0030")));
         }
         let background = if let Some(id) = cg {
             if !assets.get(id).is_some_and(|a| a.kind == AssetKind::Cg) {
-                return Err(error(s, node, format!("CG 引用不存在或类型错误：{id}")));
+                return Err(error(
+                    s,
+                    node,
+                    crate::i18n::format("host-loader-0011", &[("arg0", id.to_string())]),
+                ));
             }
             Some(id.to_owned())
         } else {
@@ -329,7 +403,11 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
             )?;
             let character = required(s, p, "character")?;
             if !characters.contains_key(character) {
-                return Err(error(s, p, format!("未知人物：{character}")));
+                return Err(error(
+                    s,
+                    p,
+                    crate::i18n::format("host-loader-0012", &[("arg0", character.to_string())]),
+                ));
             }
             let image = required(s, p, "image")?;
             image_ref(s, p, &assets, image)?;
@@ -337,20 +415,22 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
                 "left" => Slot::Left,
                 "center" => Slot::Center,
                 "right" => Slot::Right,
-                value => return Err(error(s, p, format!("无效立绘位置：{value}"))),
+                value => {
+                    return Err(error(
+                        s,
+                        p,
+                        crate::i18n::format("host-loader-0013", &[("arg0", value.to_string())]),
+                    ));
+                }
             };
             if !slots.insert(slot) {
-                return Err(error(s, p, "立绘位置重复"));
+                return Err(error(s, p, crate::i18n::text("host-loader-0031")));
             }
             let (pose, enter, exit) = effect_xml::portrait(s, p)?;
             let live2d = media_xml::live2d(p, &assets)?;
             let effect = effect_xml::reference(s, p, "effect", &effects)?;
             if live2d.is_some() && effect.filter != crate::model::effects::Filter::None {
-                return Err(error(
-                    s,
-                    p,
-                    "Live2D 不支持静态栅格滤镜；可使用透明度/染色/缩放/旋转",
-                ));
+                return Err(error(s, p, crate::i18n::text("host-loader-0032")));
             }
             portraits.push(Portrait {
                 live2d,
@@ -396,11 +476,11 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         let id = if node.attribute("id").is_some() {
             required(s, node, "id")?
         } else {
-            name.ok_or_else(|| error(s, node, "省略 frame.id 时需要稳定 name 供入口和 JS 引用"))?
+            name.ok_or_else(|| error(s, node, crate::i18n::text("host-loader-0033")))?
         };
         for reference in std::iter::once(id).chain(name) {
             if reference.chars().any(char::is_whitespace) {
-                return Err(error(s, node, "frame 的 id/name 不能包含空白"));
+                return Err(error(s, node, crate::i18n::text("host-loader-0034")));
             }
             if frame_references
                 .get(reference)
@@ -409,7 +489,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
                 return Err(error(
                     s,
                     node,
-                    format!("frame 的 id/name 冲突：{reference}"),
+                    crate::i18n::format("host-loader-0014", &[("arg0", reference.to_string())]),
                 ));
             }
             frame_references.insert(reference.to_owned(), id.to_owned());
@@ -417,29 +497,40 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         if let Some(name) = name
             && frame_names.insert(name.to_owned(), id.to_owned()).is_some()
         {
-            return Err(error(s, node, format!("重复 frame name：{name}")));
+            return Err(error(
+                s,
+                node,
+                crate::i18n::format("host-loader-0015", &[("arg0", name.to_string())]),
+            ));
         }
         let visual = match node.attribute("visual") {
-            Some(id) => visuals
-                .get(id)
-                .cloned()
-                .ok_or_else(|| error(s, node, format!("未知视觉预设：{id}")))?,
+            Some(id) => visuals.get(id).cloned().ok_or_else(|| {
+                error(
+                    s,
+                    node,
+                    crate::i18n::format("host-loader-0016", &[("arg0", id.to_string())]),
+                )
+            })?,
             None => Visual::default(),
         };
         let speaker = node.attribute("speaker").map(str::to_owned);
         if let Some(name) = &speaker
             && !characters.contains_key(name)
         {
-            return Err(error(s, node, format!("未知说话人：{name}")));
+            return Err(error(
+                s,
+                node,
+                crate::i18n::format("host-loader-0017", &[("arg0", name.to_string())]),
+            ));
         }
-        let text = plain_text(s, single(s, node, "text")?, "text", &[])?;
+        let text = localized_plain(s, single(s, node, "text")?, "text", &[], "key", catalog)?;
         let mut options = Vec::new();
         if node.children().any(|n| n.has_tag_name("options")) {
             let opt_node = single(s, node, "options")?;
             check(s, opt_node, "options", &[], &["option"], false)?;
             let mut option_ids = BTreeMap::new();
             for opt in elements(opt_node) {
-                let text = plain_text(s, opt, "option", &["id"])?;
+                let text = localized_plain(s, opt, "option", &["id"], "text-key", catalog)?;
                 let opt_id = required(s, opt, "id")?;
                 unique(s, opt, &mut option_ids, opt_id, ())?;
                 options.push(Choice {
@@ -448,7 +539,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
                 });
             }
             if options.is_empty() {
-                return Err(error(s, opt_node, "options 不能为空"));
+                return Err(error(s, opt_node, crate::i18n::text("host-loader-0035")));
             }
         }
         let mut audio = AudioCue::default();
@@ -471,7 +562,7 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
                         return Err(error(
                             s,
                             audio_node,
-                            format!("音频引用不存在或类型错误：{id}"),
+                            crate::i18n::format("host-loader-0018", &[("arg0", id.to_string())]),
                         ));
                     }
                     *target = Some(id.to_owned());
@@ -509,16 +600,16 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
     for reference in required(s, story_node, "entry")?.split_whitespace() {
         let id = frame_references
             .get(reference)
-            .ok_or_else(|| error(s, story_node, "入口场景不存在"))?;
+            .ok_or_else(|| error(s, story_node, crate::i18n::text("host-loader-0036")))?;
         if entries.contains(id) {
-            return Err(error(s, story_node, "起始幕重复（含 ID/name 指向同一幕）"));
+            return Err(error(s, story_node, crate::i18n::text("host-loader-0037")));
         }
         entries.push(id.clone());
     }
     let entry = entries
         .first()
         .cloned()
-        .ok_or_else(|| error(s, story_node, "至少声明一个起始幕"))?;
+        .ok_or_else(|| error(s, story_node, crate::i18n::text("host-loader-0038")))?;
     let scripts_node = single(s, story_node, "scripts")?;
     check(s, scripts_node, "scripts", &[], &["script"], false)?;
     let mut scripts = Vec::new();
@@ -529,12 +620,16 @@ fn parse_story(story_xml: &str) -> Result<ParsedStory> {
         if path.extension().and_then(|item| item.to_str()) != Some("js")
             || scripts.contains(&path.to_path_buf())
         {
-            return Err(error(s, script, "脚本必须为不重复的 .js 相对路径"));
+            return Err(error(s, script, crate::i18n::text("host-loader-0039")));
         }
         scripts.push(path.to_path_buf());
     }
     if scripts.is_empty() || scripts.len() > 32 {
-        return Err(error(s, scripts_node, "脚本数量必须为 1–32"));
+        return Err(error(
+            s,
+            scripts_node,
+            crate::i18n::text("host-loader-0040"),
+        ));
     }
     Ok(ParsedStory {
         story: Story {
@@ -560,7 +655,12 @@ pub fn load_game(
     source: &dyn crate::content::ContentSource,
 ) -> Result<(LoadedStory, crate::script::ScriptLogic)> {
     let compiled = crate::story_chain::compile(source)?;
-    let mut parsed = parse_story(&compiled.xml).map_err(|e| compiled.diagnostic(e))?;
+    let catalog = std::sync::Arc::new(
+        crate::localization::Catalog::from_story(&compiled.xml, source)
+            .map_err(|e| compiled.diagnostic(e))?,
+    );
+    let mut parsed = parse_story(&compiled.xml, &catalog).map_err(|e| compiled.diagnostic(e))?;
+    catalog.validate(&parsed.story)?;
     let logic = crate::script::ScriptLogic::load(&mut parsed.story, source, &parsed.scripts)?;
     for entry in &parsed.story.entries {
         logic
@@ -571,7 +671,8 @@ pub fn load_game(
             .map_err(anyhow::Error::msg)?;
     }
     let ui = crate::interface::source::compile(source, &parsed.interface_path)?;
-    let interface = ui.parse(&parsed.story, &logic.ui_handlers()?)?;
+    let registrations = logic.ui_registrations()?;
+    let interface = ui.parse_localized(&parsed.story, &registrations, catalog)?;
     let loaded = LoadedStory {
         story: parsed.story,
         scripts: parsed.scripts,
@@ -589,7 +690,7 @@ pub fn initial_ui_plans(
     let mut plans = Vec::new();
     if def.enter {
         use crate::interface::{
-            Data, Event, data,
+            Data, data,
             host::{self, Profile, State},
         };
         for entry in &loaded.story.entries {
@@ -612,13 +713,7 @@ pub fn initial_ui_plans(
                 complete: false,
             });
             let commands = logic.ui_event(
-                &Event {
-                    sound: None,
-                    route: None,
-                    name: "game.enter".into(),
-                    item: serde_json::Value::Null,
-                    value: serde_json::Value::Null,
-                },
+                &crate::interface::Event::game(),
                 &session,
                 &state.variables,
                 &data.values,

@@ -16,6 +16,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+mod common;
 static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let source =
         DirectorySource::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("games/demo")).unwrap();
@@ -112,12 +113,13 @@ fn snapshot(f: &Fixture, session: &Session, complete: bool) -> Data {
 }
 fn commands(f: &Fixture, name: &str, item: Value, value: Value) -> Vec<Command> {
     let session = f.story.start();
+    let key = common::event_key(&f.definition, name);
     f.logic
         .ui_event(
             &Event {
                 sound: None,
                 route: None,
-                name: name.into(),
+                key,
                 item,
                 value,
             },
@@ -146,20 +148,13 @@ fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));
     assert!(!opened.state.keyboard(&f.definition));
-    let xml=UI.replace("</ui>","<screen id=\"credits\"><label id=\"creditsText\" width=\"1000\" height=\"100\" text=\"作者定制页\"/></screen></ui>")
-        .replace("event=\"open-gallery\"","event=\"credits\"");
-    let js = format!("{UI_JS}\non.ui('credits',ctx=>ctx.open('credits')); ");
+    let xml = UI.replace("</ui>","<screen id=\"credits\"><label id=\"creditsText\" width=\"1000\" height=\"100\" text=\"作者定制页\"/></screen><screen id=\"probe\"><button id=\"creditsButton\" width=\"40\" height=\"20\" text=\"探针\" event=\"credits\"/></screen></ui>");
+    let js = format!("{UI_JS}\nui('creditsButton').bind('credits', ctx=>ctx.open('credits')); ");
     let (loaded, logic) = load_game(&source(&xml, &js)).unwrap();
     let def = loaded.interface;
     let cmds = logic
         .ui_event(
-            &Event {
-                sound: None,
-                route: None,
-                name: "credits".into(),
-                item: Value::Null,
-                value: Value::Null,
-            },
+            &Event::ui("creditsButton", "credits"),
             &loaded.story.start(),
             &def.initial_variables(),
             &json!({"game":{},"settings":{}}),
@@ -423,13 +418,7 @@ fn gallery_is_independent_of_story_slots_and_preserves_atomic_writes() {
     assert!(!f.profile.unlocked.contains("cg.lin"));
     let mut snapshot = snapshot(&f, &f.story.start(), true);
     snapshot.values["game"]["frameId"] = json!("accept");
-    let event = Event {
-        sound: None,
-        route: None,
-        name: "game.enter".into(),
-        item: Value::Null,
-        value: Value::Null,
-    };
+    let event = Event::game();
     let commands = f
         .logic
         .ui_event(
@@ -532,18 +521,13 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
         "while(true){}",
         "for(let i=0;i<33;i++)ctx.close();",
     ] {
-        let js = format!("{UI_JS}\non.ui('test',ctx=>{{{body}}});");
-        let (loaded, logic) = load_game(&source(&UI, &js)).unwrap();
+        let js = format!("{UI_JS}\nui('test').bind('test', ctx=>{{{body}}});");
+        let ui = common::probe(&UI, &["test"]);
+        let (loaded, logic) = load_game(&source(&ui, &js)).unwrap();
         assert!(
             logic
                 .ui_event(
-                    &Event {
-                        sound: None,
-                        route: None,
-                        name: "test".into(),
-                        item: json!({}),
-                        value: Value::Null
-                    },
+                    &Event::ui("test", "test"),
                     &loaded.story.start(),
                     &f.state.variables,
                     &snapshot(&f, &f.story.start(), true).values
@@ -552,18 +536,13 @@ fn ui_callbacks_are_read_only_isolated_bounded_and_reject_async() {
             "{body}"
         );
     }
-    let js = format!("{UI_JS}\nlet n=0;on.ui('test',ctx=>ctx.message(String(++n))); ");
-    let (loaded, logic) = load_game(&source(&UI, &js)).unwrap();
+    let js = format!("{UI_JS}\nlet n=0;ui('test').bind('test', ctx=>ctx.message(String(++n))); ");
+    let ui = common::probe(&UI, &["test"]);
+    let (loaded, logic) = load_game(&source(&ui, &js)).unwrap();
     for _ in 0..2 {
         let out = logic
             .ui_event(
-                &Event {
-                    sound: None,
-                    route: None,
-                    name: "test".into(),
-                    item: Value::Null,
-                    value: Value::Null,
-                },
+                &Event::ui("test", "test"),
                 &loaded.story.start(),
                 &f.state.variables,
                 &snapshot(&f, &f.story.start(), true).values,
@@ -726,9 +705,9 @@ fn custom_confirmation_has_optional_title_styles_and_blocks_underlying_controls(
     let data = snapshot(&f, &session, true);
     assert!(click(&ctx, &f, &assets, &session, &data, 940., 39.).is_none());
     let accept = click(&ctx, &f, &assets, &session, &data, 500., 446.).unwrap();
-    assert_eq!(accept.name, "dialog-accept");
+    assert_eq!(accept.name(), "dialog-accept");
     assert_eq!(
-        plan(&f, commands(&f, &accept.name, Value::Null, Value::Null))
+        plan(&f, commands(&f, accept.name(), Value::Null, Value::Null))
             .unwrap()
             .operation,
         Operation::Quit
@@ -807,13 +786,13 @@ fn renderer_uses_xml_hitboxes_and_repeat_items_without_running_callbacks() {
     let session = f.story.start();
     let data = snapshot(&f, &session, true);
     let event = click(&ctx, &f, &assets, &session, &data, 940.0, 39.0).unwrap();
-    assert_eq!(event.name, "open-save");
+    assert_eq!(event.name(), "open-save");
     assert_eq!(f.state.stack, vec!["hud"]);
     f.state.stack.push("save".into());
     let data = snapshot(&f, &session, true);
     assert!(click(&ctx, &f, &assets, &session, &data, 940.0, 39.0).is_none());
     let event = click(&ctx, &f, &assets, &session, &data, 545.0, 198.0).unwrap();
-    assert_eq!(event.name, "save-slot");
+    assert_eq!(event.name(), "save-slot");
     assert_eq!(event.item["slot"], json!(1));
     f.state.stack = vec!["hud".into()];
     let question = transition_with(&f.story, &session, Intent::Advance, &f.logic)
@@ -824,7 +803,7 @@ fn renderer_uses_xml_hitboxes_and_repeat_items_without_running_callbacks() {
     assert_eq!(
         click(&ctx, &f, &assets, &question, &data, 1000.0, 184.0)
             .unwrap()
-            .name,
+            .name(),
         "background-advance"
     );
     let data = snapshot(&f, &question, true);
@@ -882,25 +861,26 @@ fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
     assert_eq!(
         gesture(&f, B::Primary, [400.0, 300.0], [400.0, 300.0])
             .unwrap()
-            .name,
+            .name(),
         "background-advance"
     );
     assert_eq!(
         gesture(&f, B::Secondary, [400.0, 300.0], [400.0, 300.0])
             .unwrap()
-            .name,
+            .name(),
         "toggle-hud"
     );
     assert!(gesture(&f, B::Secondary, [940.0, 39.0], [940.0, 39.0]).is_none());
     assert_eq!(
         gesture(&f, B::Primary, [940.0, 39.0], [940.0, 39.0])
             .unwrap()
-            .name,
+            .name(),
         "open-save"
     );
     // A short drag off a button is still not a background click.
     assert!(
-        gesture(&f, B::Primary, [983.0, 39.0], [987.0, 39.0]).is_none_or(|e| e.name == "open-save")
+        gesture(&f, B::Primary, [983.0, 39.0], [987.0, 39.0])
+            .is_none_or(|e| e.name() == "open-save")
     );
     assert!(gesture(&f, B::Primary, [300.0, 300.0], [600.0, 300.0]).is_none());
     let data = snapshot(&f, &session, true);
@@ -925,7 +905,7 @@ fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
         ],
     )
     .unwrap();
-    assert_eq!(both.name, "toggle-hud");
+    assert_eq!(both.name(), "toggle-hud");
     // Coalesced events must use the raw press position, not just the final pointer position.
     let event = render_frame(
         &ctx,
@@ -950,7 +930,7 @@ fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
             },
         ],
     );
-    assert!(event.is_none_or(|event| event.name == "open-save"));
+    assert!(event.is_none_or(|event| event.name() == "open-save"));
     f.blocked = true;
     assert!(gesture(&f, B::Primary, [400.0, 300.0], [400.0, 300.0]).is_none());
     f.blocked = false;
@@ -962,7 +942,7 @@ fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
     assert_eq!(
         gesture(&f, B::Secondary, [600.0, 300.0], [600.0, 300.0])
             .unwrap()
-            .name,
+            .name(),
         "toggle-hud"
     );
     f.viewport = egui::vec2(1280.0, 720.0);
@@ -980,7 +960,7 @@ fn background_gestures_respect_buttons_menus_bars_focus_and_press_origin() {
     assert_eq!(
         gesture(&f, B::Primary, [60.0, 300.0], [60.0, 300.0])
             .unwrap()
-            .name,
+            .name(),
         "background-advance"
     );
 }
@@ -1064,7 +1044,7 @@ fn declarative_button_route_is_emitted_by_renderer_and_disabled_buttons_are_bloc
         event.route,
         Some(interface::UiRoute::Open("settings".into()))
     );
-    assert!(event.name.is_empty());
+    assert!(event.name().is_empty());
     let button = f
         .definition
         .screens

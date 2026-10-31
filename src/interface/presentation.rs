@@ -61,13 +61,24 @@ fn boolean(file: &str, n: Node<'_, '_>, key: &str, default: bool) -> Result<bool
         None => Ok(default),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
-        _ => Err(error(file, n, format!("{key} 仅接受 true/false"))),
+        _ => Err(error(
+            file,
+            n,
+            crate::i18n::format(
+                "host-interface-presentation-0001",
+                &[("arg0", key.to_string())],
+            ),
+        )),
     }
 }
 fn identifier<'a, 'input: 'a>(file: &str, n: Node<'a, 'input>) -> Result<&'a str> {
     let id = required(file, n, "id")?;
     if id.len() > 128 || id.chars().any(char::is_whitespace) {
-        return Err(error(file, n, "演出/音效组 ID 最多 128 字节且不能含空白"));
+        return Err(error(
+            file,
+            n,
+            crate::i18n::text("host-interface-presentation-0011"),
+        ));
     }
     Ok(id)
 }
@@ -97,7 +108,11 @@ impl Catalog {
             check(file, n, "sound", &["id"], &["clip"], false)?;
             let id = identifier(file, n)?;
             if c.audio.contains(id) {
-                return Err(error(file, n, "sound ID 不能与音频资源 ID 重名"));
+                return Err(error(
+                    file,
+                    n,
+                    crate::i18n::text("host-interface-presentation-0012"),
+                ));
             }
             let mut clips = Vec::new();
             let mut seen = BTreeSet::new();
@@ -112,24 +127,46 @@ impl Catalog {
                 )?;
                 let asset = required(file, clip, "asset")?.to_owned();
                 if !c.audio.contains(&asset) || !seen.insert(asset.clone()) {
-                    return Err(error(file, clip, "音效资源缺失、类型错误或候选重复"));
+                    return Err(error(
+                        file,
+                        clip,
+                        crate::i18n::text("host-interface-presentation-0013"),
+                    ));
                 }
                 let actor = clip.attribute("actor").map(str::to_owned);
                 if actor.as_ref().is_some_and(|a| !c.actors.contains(a)) {
-                    return Err(error(file, clip, "音效角色未声明"));
+                    return Err(error(
+                        file,
+                        clip,
+                        crate::i18n::text("host-interface-presentation-0014"),
+                    ));
                 }
                 if let Some(old) = c.ownership.insert(asset.clone(), actor.clone())
                     && old != actor
                 {
-                    return Err(error(file, clip, "同一资源的角色归属必须一致"));
+                    return Err(error(
+                        file,
+                        clip,
+                        crate::i18n::text("host-interface-presentation-0015"),
+                    ));
                 }
                 let weight = clip
                     .attribute("weight")
                     .unwrap_or("1")
                     .parse::<u32>()
-                    .map_err(|_| error(file, clip, "weight 必须为整数"))?;
+                    .map_err(|_| {
+                        error(
+                            file,
+                            clip,
+                            crate::i18n::text("host-interface-presentation-0016"),
+                        )
+                    })?;
                 if !(1..=1000).contains(&weight) {
-                    return Err(error(file, clip, "weight 必须为 1–1000"));
+                    return Err(error(
+                        file,
+                        clip,
+                        crate::i18n::text("host-interface-presentation-0017"),
+                    ));
                 }
                 clips.push(Clip {
                     asset,
@@ -138,14 +175,22 @@ impl Catalog {
                     enabled: boolean(file, clip, "enabled", true)?,
                 });
                 if clips.len() > 64 {
-                    return Err(error(file, n, "候选超过 64"));
+                    return Err(error(
+                        file,
+                        n,
+                        crate::i18n::text("host-interface-presentation-0018"),
+                    ));
                 }
             }
             if clips.is_empty()
                 || c.sounds.insert(id.into(), clips).is_some()
                 || c.sounds.len() > 64
             {
-                return Err(error(file, n, "音效组为空、重复或超过 64"));
+                return Err(error(
+                    file,
+                    n,
+                    crate::i18n::text("host-interface-presentation-0019"),
+                ));
             }
         }
         let mut targets = BTreeSet::new();
@@ -178,7 +223,13 @@ impl Catalog {
                     let target = s
                         .strip_prefix("open:")
                         .filter(|s| screens.contains_key(*s))
-                        .ok_or_else(|| error(file, n, "finish 需要 return/close/open:有效页面"))?;
+                        .ok_or_else(|| {
+                            error(
+                                file,
+                                n,
+                                crate::i18n::text("host-interface-presentation-0020"),
+                            )
+                        })?;
                     Finish::Open(target.into())
                 }
             };
@@ -197,13 +248,26 @@ impl Catalog {
                         )?;
                         let target = required(file, step, "target")?;
                         if !targets.contains(target) {
-                            return Err(error(file, step, "动画目标缺失或位于 repeat 内"));
+                            return Err(error(
+                                file,
+                                step,
+                                crate::i18n::text("host-interface-presentation-0021"),
+                            ));
                         }
                         let number = |key: &str, default: &str| -> Result<f32> {
                             step.attribute(key)
                                 .unwrap_or(default)
                                 .parse::<f32>()
-                                .map_err(|_| error(file, step, format!("{key} 非数值")))
+                                .map_err(|_| {
+                                    error(
+                                        file,
+                                        step,
+                                        crate::i18n::format(
+                                            "host-interface-presentation-0002",
+                                            &[("arg0", key.to_string())],
+                                        ),
+                                    )
+                                })
                         };
                         let from = number("from", "0")?;
                         let to = number("to", "1")?;
@@ -215,7 +279,11 @@ impl Catalog {
                             || !(0.0..=1.0).contains(&to)
                             || !(1.0..=10000.0).contains(&ms)
                         {
-                            return Err(error(file, step, "fade 透明度/时长越界"));
+                            return Err(error(
+                                file,
+                                step,
+                                crate::i18n::text("host-interface-presentation-0022"),
+                            ));
                         }
                         seconds += ms / 1000.;
                         steps.push(Step::Fade {
@@ -233,7 +301,11 @@ impl Catalog {
                             .get(asset)
                             .is_some_and(|a| a.kind == AssetKind::Video)
                         {
-                            return Err(error(file, step, "视频资源不存在或类型错误"));
+                            return Err(error(
+                                file,
+                                step,
+                                crate::i18n::text("host-interface-presentation-0023"),
+                            ));
                         }
                         steps.push(Step::Video(asset.into()));
                     }
@@ -241,14 +313,22 @@ impl Catalog {
                         check(file, step, "sound", &["ref"], &[], false)?;
                         let sound = required(file, step, "ref")?;
                         if !c.sound_exists(sound) {
-                            return Err(error(file, step, "音效引用不存在"));
+                            return Err(error(
+                                file,
+                                step,
+                                crate::i18n::text("host-interface-presentation-0024"),
+                            ));
                         }
                         steps.push(Step::Sound(sound.into()));
                     }
                     _ => unreachable!(),
                 }
                 if steps.len() > 64 || seconds > 600. {
-                    return Err(error(file, n, "演出超过步骤/时长预算"));
+                    return Err(error(
+                        file,
+                        n,
+                        crate::i18n::text("host-interface-presentation-0025"),
+                    ));
                 }
             }
             if steps.is_empty()
@@ -264,7 +344,11 @@ impl Catalog {
                     .is_some()
                 || c.sequences.len() > 64
             {
-                return Err(error(file, n, "演出为空、重复或超过 64"));
+                return Err(error(
+                    file,
+                    n,
+                    crate::i18n::text("host-interface-presentation-0026"),
+                ));
             }
         }
         Ok(c)
@@ -293,7 +377,14 @@ impl Catalog {
         prefs: &Preferences,
         mut random: impl FnMut(u64) -> Result<u64>,
     ) -> Result<Option<String>> {
-        ensure!(self.sound_exists(id), "未知 UI 音效：{id}");
+        ensure!(
+            self.sound_exists(id),
+            "{}",
+            crate::i18n::format(
+                "host-interface-presentation-0003",
+                &[("arg0", id.to_string())]
+            )
+        );
         if let Some(clips) = self.sounds.get(id) {
             let valid: Vec<_> = clips
                 .iter()
@@ -304,7 +395,11 @@ impl Catalog {
                 return Ok(None);
             }
             let mut choice = random(total)?;
-            ensure!(choice < total, "随机抽取越界");
+            ensure!(
+                choice < total,
+                "{}",
+                crate::i18n::format("host-interface-presentation-0004", &[])
+            );
             for c in valid {
                 if choice < u64::from(c.weight) {
                     return Ok(Some(c.asset.clone()));
@@ -320,7 +415,15 @@ impl Catalog {
             let threshold = limit.wrapping_neg() % limit;
             loop {
                 let mut bytes = [0; 8];
-                getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("随机源失败：{e}"))?;
+                getrandom::fill(&mut bytes).map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-presentation-0005",
+                            &[("arg0", e.to_string())]
+                        )
+                    )
+                })?;
                 let n = u64::from_le_bytes(bytes);
                 if n >= threshold {
                     return Ok(n % limit);
@@ -332,7 +435,11 @@ impl Catalog {
         match action {
             Action::Enabled(value) => prefs.enabled = *value,
             Action::Actor(actor, enabled) => {
-                ensure!(self.actors.contains(actor), "未知音效角色");
+                ensure!(
+                    self.actors.contains(actor),
+                    "{}",
+                    crate::i18n::format("host-interface-presentation-0006", &[])
+                );
                 if *enabled {
                     prefs.disabled_actors.remove(actor);
                 } else {
@@ -340,7 +447,11 @@ impl Catalog {
                 }
             }
             Action::Exclude(asset, excluded) => {
-                ensure!(self.audio.contains(asset), "未知排除音效");
+                ensure!(
+                    self.audio.contains(asset),
+                    "{}",
+                    crate::i18n::format("host-interface-presentation-0007", &[])
+                );
                 if *excluded {
                     prefs.excluded.insert(asset.clone());
                 } else {
@@ -379,23 +490,27 @@ impl Preferences {
     fn validate(&self, story_id: &str) -> Result<()> {
         ensure!(
             self.schema == 1 && self.story_id == story_id,
-            "UI 音效偏好版本/故事不符"
+            "{}",
+            crate::i18n::format("host-interface-presentation-0008", &[])
         );
         ensure!(
             self.disabled_actors.len() <= 128 && self.excluded.len() <= 10000,
-            "UI 音效偏好超过预算"
+            "{}",
+            crate::i18n::format("host-interface-presentation-0009", &[])
         );
         ensure!(
             self.disabled_actors
                 .iter()
                 .chain(&self.excluded)
                 .all(|s| !s.is_empty() && s.len() <= 1024),
-            "偏好 ID 无效"
+            "{}",
+            crate::i18n::format("host-interface-presentation-0010", &[])
         );
         Ok(())
     }
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate(&self.story_id)?;
-        crate::save::atomic_json(path, self).context("保存 UI 音效偏好")
+        crate::save::atomic_json(path, self)
+            .context(crate::i18n::text("host-interface-presentation-0027"))
     }
 }

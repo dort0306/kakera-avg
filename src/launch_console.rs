@@ -70,17 +70,21 @@ pub fn error_dialog(message: &str) {
     unsafe {
         use windows::{
             Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW},
-            core::{PCWSTR, w},
+            core::PCWSTR,
         };
         let wide = message
             .replace('\0', "�")
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect::<Vec<_>>();
+        let title = crate::i18n::text("host-launch-console-0001")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
         MessageBoxW(
             None,
             PCWSTR(wide.as_ptr()),
-            w!("Kakera 启动失败"),
+            PCWSTR(title.as_ptr()),
             MB_OK | MB_ICONERROR,
         );
     }

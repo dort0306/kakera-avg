@@ -4,8 +4,6 @@ use anyhow::{Context, Result, ensure};
 use eframe::egui::{self, ColorImage, FontData, FontDefinitions, FontFamily, TextureHandle};
 use std::collections::BTreeMap;
 
-pub const UI_TEXT: &str = "跳过转场保存读档重新开始继续已结束请选择存档成功读档成功提示关闭台词超出对话框请拆句选项文字过长请缩短图片字体加载失败历史记录旁白设置补全取消确认覆盖空槽损坏文字速度整句每秒字素簇静音背景音乐语音音效设备不可用禁用输出正常正在播放暂停刚刚分钟前小时前天前尚未保存槽位音频返回";
-
 #[derive(Clone)]
 pub struct PreparedAssets {
     patches: BTreeMap<String, crate::image_layout::NinePatch>,
@@ -16,6 +14,52 @@ pub struct PreparedAssets {
 }
 
 impl PreparedAssets {
+    pub fn set_font_order(&self, ctx: &egui::Context, preferred: &[String]) {
+        ctx.set_fonts(self.font_definitions(preferred));
+    }
+    pub fn font_definitions(&self, preferred: &[String]) -> FontDefinitions {
+        let mut definitions = FontDefinitions::default();
+        let mut order = preferred.to_vec();
+        for id in self.fonts.keys() {
+            if !order.contains(id) {
+                order.push(id.clone());
+            }
+        }
+        for id in order.iter().rev() {
+            if let Some(bytes) = self.fonts.get(id) {
+                definitions
+                    .font_data
+                    .insert(id.clone(), FontData::from_owned(bytes.clone()).into());
+                definitions
+                    .families
+                    .entry(FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, id.clone());
+            }
+        }
+        definitions
+    }
+    pub fn validate_locale(&self, fonts: &[String], text: &str) -> Result<()> {
+        let faces = fonts
+            .iter()
+            .map(|id| {
+                self.fonts
+                    .get(id)
+                    .context(crate::i18n::text("host-i18n-detail-0058"))
+                    .and_then(|bytes| ttf_parser::Face::parse(bytes, 0).map_err(Into::into))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for ch in text.chars().filter(|c| {
+            !c.is_ascii() && !c.is_whitespace() && !matches!(c, '\u{2068}' | '\u{2069}')
+        }) {
+            ensure!(
+                faces.iter().any(|face| face.glyph_index(ch).is_some()),
+                "{}",
+                crate::i18n::format("host-i18n-detail-0057", &[("arg0", ch.to_string())])
+            );
+        }
+        Ok(())
+    }
     pub fn validate_interface(&self, def: &mut crate::interface::Definition) -> Result<()> {
         def.image_sizes = self
             .images
@@ -23,7 +67,11 @@ impl PreparedAssets {
             .map(|(id, image)| (id.clone(), [image.width(), image.height()]))
             .collect();
         for id in &def.nine_patches {
-            ensure!(self.patches.contains_key(id), "点九图未准备：{id}");
+            ensure!(
+                self.patches.contains_key(id),
+                "{}",
+                crate::i18n::format("host-assets-0001", &[("arg0", id.to_string())])
+            );
         }
         crate::interface::host::State::try_new(def)?;
         Ok(())
@@ -34,13 +82,13 @@ impl PreparedAssets {
             .values()
             .map(|bytes| ttf_parser::Face::parse(bytes, 0).expect("validated font"))
             .collect();
-        for ch in text
-            .chars()
-            .filter(|ch| !ch.is_ascii() && !ch.is_whitespace())
-        {
+        for ch in text.chars().filter(|ch| {
+            !ch.is_ascii() && !ch.is_whitespace() && !matches!(ch, '\u{2068}' | '\u{2069}')
+        }) {
             ensure!(
                 faces.iter().any(|face| face.glyph_index(ch).is_some()),
-                "配置字体缺少 UI 字符：{ch}"
+                "{}",
+                crate::i18n::format("host-assets-0002", &[("arg0", ch.to_string())])
             );
         }
         Ok(())
@@ -72,7 +120,15 @@ impl PreparedAssets {
         let mut filtered_bytes = 0usize;
         let mut fonts = BTreeMap::new();
         for (id, asset) in &story.assets {
-            let context = || format!("资源 {id}：{}", asset.path.display());
+            let context = || {
+                crate::i18n::format(
+                    "host-assets-0003",
+                    &[
+                        ("arg0", id.to_string()),
+                        ("arg1", format!("{}", asset.path.display())),
+                    ],
+                )
+            };
             match asset.kind {
                 AssetKind::Audio | AssetKind::Video | AssetKind::Live2D => {}
                 AssetKind::Image | AssetKind::Cg | AssetKind::NinePatch => {
@@ -100,10 +156,11 @@ impl PreparedAssets {
                         }
                         filtered_bytes = filtered_bytes
                             .checked_add(size[0] * size[1] * 4)
-                            .context("滤镜缓存溢出")?;
+                            .context(crate::i18n::text("host-assets-0008"))?;
                         ensure!(
                             filtered_bytes <= 256 * 1024 * 1024,
-                            "滤镜图片缓存超过 256MiB，请减少图片/滤镜组合"
+                            "{}",
+                            crate::i18n::format("host-assets-0004", &[])
                         );
                         if deferred {
                             continue;
@@ -118,8 +175,18 @@ impl PreparedAssets {
                 }
                 AssetKind::Font => {
                     let data = read(&asset.path).with_context(context)?;
-                    ttf_parser::Face::parse(&data, 0)
-                        .map_err(|e| anyhow::anyhow!("{}：字体无效：{e:?}", context()))?;
+                    ttf_parser::Face::parse(&data, 0).map_err(|e| {
+                        anyhow::anyhow!(
+                            "{}",
+                            crate::i18n::format(
+                                "host-assets-0005",
+                                &[
+                                    ("arg0", context().to_string()),
+                                    ("arg1", format!("{:?}", e))
+                                ]
+                            )
+                        )
+                    })?;
                     fonts.insert(id.clone(), data);
                 }
             }
@@ -128,7 +195,7 @@ impl PreparedAssets {
             .values()
             .map(|data| ttf_parser::Face::parse(data, 0).expect("validated font"))
             .collect();
-        let mut text = format!("{UI_TEXT}当前状态没有选项是与否");
+        let mut text = crate::i18n::font_seed();
         for decl in story.variables.values() {
             text.push_str(&decl.label);
             if let VariableValue::String(value) = &decl.initial {
@@ -144,13 +211,13 @@ impl PreparedAssets {
         for name in story.characters.values() {
             text.push_str(name);
         }
-        for ch in text
-            .chars()
-            .filter(|ch| !ch.is_ascii() && !ch.is_whitespace())
-        {
+        for ch in text.chars().filter(|ch| {
+            !ch.is_ascii() && !ch.is_whitespace() && !matches!(ch, '\u{2068}' | '\u{2069}')
+        }) {
             ensure!(
                 faces.iter().any(|face| face.glyph_index(ch).is_some()),
-                "配置的字体缺少字符：{ch}"
+                "{}",
+                crate::i18n::format("host-assets-0007", &[("arg0", ch.to_string())])
             );
         }
         Ok(Self {

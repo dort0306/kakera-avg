@@ -61,7 +61,11 @@ pub fn token_file(path: &std::path::Path) -> Result<String> {
     std::fs::File::open(path)?
         .take(130)
         .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() < 130, "调试令牌文件过长");
+    ensure!(
+        bytes.len() < 130,
+        "{}",
+        crate::i18n::format("host-debug-0001", &[])
+    );
     let token = String::from_utf8(bytes)?;
     let token = token.trim_end_matches(['\r', '\n']).to_owned();
     validate_token(&token)?;
@@ -73,7 +77,8 @@ fn validate_token(token: &str) -> Result<()> {
             && token
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
-        "调试令牌须为 32–128 个 ASCII 字母/数字/-/_"
+        "{}",
+        crate::i18n::format("host-debug-0002", &[])
     );
     Ok(())
 }
@@ -229,7 +234,11 @@ impl Transport {
 }
 impl Server {
     pub fn bind(address: SocketAddr, token: String) -> Result<Self> {
-        ensure!(address.ip().is_loopback(), "调试 API 仅允许 loopback 地址");
+        ensure!(
+            address.ip().is_loopback(),
+            "{}",
+            crate::i18n::format("host-debug-0003", &[])
+        );
         validate_token(&token)?;
         let listener = TcpListener::bind(address)?;
         listener.set_nonblocking(true)?;

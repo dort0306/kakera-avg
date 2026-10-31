@@ -151,13 +151,13 @@ fn script_updates_fail_atomically_and_destination_guards_are_checked_before_comm
 #[test]
 fn registration_and_syntax_errors_identify_external_js_files() {
     for code in [
-        SCRIPT.replace("on.end(\"accept\");", ""),
-        format!("{SCRIPT}\non.end('missing');"),
-        format!("{SCRIPT}\non.end('accept');"),
+        SCRIPT.replace("frame(\"accept\").end();", ""),
+        format!("{SCRIPT}\nframe('missing').end();"),
+        format!("{SCRIPT}\nframe('accept').end();"),
         SCRIPT.replace("\"invite\", ctx =>", "\"missing-option\", ctx =>"),
         SCRIPT.replace(
-            "on.advance(\"opening\", () => \"question\");",
-            "on.end('opening'); on.advance('opening',()=> 'question');",
+            "frame(\"opening\").advance(() => \"question\");",
+            "frame('opening').end(); frame('opening').advance(()=> 'question');",
         ),
         format!("{SCRIPT}\nfunction broken( {{"),
     ] {
@@ -217,7 +217,7 @@ fn callbacks_are_isolated_and_guards_cannot_write_or_register() {
     }
     for guard in [
         "ctx => {ctx.add('trust',1);return true;}",
-        "ctx => {on.end('opening');return true;}",
+        "ctx => {frame('opening').end();return true;}",
     ] {
         let code = SCRIPT.replace("ctx => ctx.vars.trust < 3n", guard);
         let (story, logic) = game(&code);

@@ -70,7 +70,12 @@ impl CompiledStory {
             let mut chosen = None;
             for _ in 0..8 {
                 let mut bytes = [0u8; 16];
-                getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("UUID 随机源失败：{e}"))?;
+                getrandom::fill(&mut bytes).map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format("host-story-chain-0001", &[("arg0", e.to_string())])
+                    )
+                })?;
                 bytes[6] = (bytes[6] & 15) | 64;
                 bytes[8] = (bytes[8] & 63) | 128;
                 let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
@@ -87,14 +92,18 @@ impl CompiledStory {
                     break;
                 }
             }
-            let id = chosen.context("UUID 重试碰撞超过预算")?;
+            let id = chosen.context(crate::i18n::text("host-story-chain-0011"))?;
             insertions.push((node.range().start + "<frame".len(), format!(" id=\"{id}\"")));
         }
         let mut xml = self.xml.clone();
         for (at, text) in insertions.into_iter().rev() {
             xml.insert_str(at, &text);
         }
-        ensure!(xml.len() <= MAX_XML_BYTES, "生成 UUID 后的剧本超过 16MiB");
+        ensure!(
+            xml.len() <= MAX_XML_BYTES,
+            "{}",
+            crate::i18n::format("host-story-chain-0002", &[])
+        );
         Ok(xml)
     }
     fn append(&mut self, text: &str, fragment: Fragment, verbatim: bool) {
@@ -184,7 +193,7 @@ pub(crate) fn next(file: &str, root: Node<'_, '_>) -> Result<Option<String>> {
                 return Err(loader::error(
                     file,
                     node,
-                    "next.src 必须是至多 1024 字节的游戏内 .xml 路径",
+                    crate::i18n::text("host-story-chain-0012"),
                 ));
             }
             Ok(Some(src.to_owned()))
@@ -193,17 +202,18 @@ pub(crate) fn next(file: &str, root: Node<'_, '_>) -> Result<Option<String>> {
         _ => Err(loader::error(
             file,
             node,
-            "next 必须仅设置 src 或 end=\"true\"，不能同时设置或省略",
+            crate::i18n::text("host-story-chain-0013"),
         )),
     }
 }
 
 pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
     let first: Arc<str> = content::text(source, Path::new("story.xml"))?.into();
-    let document = Document::parse(&first).context("story.xml 解析失败")?;
+    let document = Document::parse(&first).context(crate::i18n::text("host-story-chain-0014"))?;
     ensure!(
         document.root_element().attribute("schema") == Some("8"),
-        "story.xml:1:1: 仅支持 story schema 8"
+        "{}",
+        crate::i18n::format("host-story-chain-0003", &[])
     );
     drop(document);
     let mut output = CompiledStory {
@@ -213,6 +223,7 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
     };
     let mut groups: BTreeMap<&str, (Fragment, Vec<Fragment>)> = BTreeMap::new();
     let mut interface = None;
+    let mut localization = None;
     let mut file = "story.xml".to_owned();
     let mut edge = "story.xml:1:1".to_owned();
     let mut bytes = 0usize;
@@ -220,22 +231,45 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
     loop {
         ensure!(
             output.files.len() < MAX_FILES,
-            "{edge}: 剧本链超过 {MAX_FILES} 个 XML 文件（{file}）"
+            "{}",
+            crate::i18n::format(
+                "host-story-chain-0004",
+                &[
+                    ("arg0", edge.to_string()),
+                    ("arg1", MAX_FILES.to_string()),
+                    ("arg2", file.to_string())
+                ]
+            )
         );
         ensure!(
             visited.insert(file.to_lowercase()),
-            "{edge}: 剧本链循环或大小写重复引用：{file}"
+            "{}",
+            crate::i18n::format(
+                "host-story-chain-0005",
+                &[("arg0", edge.to_string()), ("arg1", file.to_string())]
+            )
         );
         let text = if output.files.is_empty() {
             first.clone()
         } else {
             content::text(source, Path::new(&file))
-                .with_context(|| format!("{edge}: 读取剧本链 {file}"))?
+                .with_context(|| {
+                    crate::i18n::format(
+                        "host-story-chain-0006",
+                        &[("arg0", edge.to_string()), ("arg1", file.to_string())],
+                    )
+                })?
                 .into()
         };
         bytes += text.len();
-        ensure!(bytes <= MAX_XML_BYTES, "{file}: 剧本 XML 累计超过 16MiB");
-        let doc = Document::parse(&text).with_context(|| format!("{file} 解析失败"))?;
+        ensure!(
+            bytes <= MAX_XML_BYTES,
+            "{}",
+            crate::i18n::format("host-story-chain-0007", &[("arg0", file.to_string())])
+        );
+        let doc = Document::parse(&text).with_context(|| {
+            crate::i18n::format("host-story-chain-0008", &[("arg0", file.to_string())])
+        })?;
         let root = doc.root_element();
         let entry = output.files.is_empty();
         loader::check(
@@ -250,6 +284,7 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
             if entry {
                 &[
                     "interface",
+                    "localization",
                     "scripts",
                     "assets",
                     "effects",
@@ -277,7 +312,7 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
             return Err(loader::error(
                 &file,
                 root,
-                "剧本链各文件必须使用 story schema 8",
+                crate::i18n::text("host-story-chain-0015"),
             ));
         }
         if entry {
@@ -293,15 +328,21 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
         for node in loader::elements(root).filter(|n| !n.has_tag_name("next")) {
             let name = node.tag_name().name();
             if !seen.insert(name) {
-                return Err(loader::error(&file, node, format!("重复 <{name}>")));
+                return Err(loader::error(
+                    &file,
+                    node,
+                    crate::i18n::format("host-story-chain-0009", &[("arg0", name.to_string())]),
+                ));
             }
-            if name == "interface" {
+            if name == "localization" {
+                localization = Some(fragment(&file, &text, node));
+            } else if name == "interface" {
                 interface = Some(fragment(&file, &text, node));
             } else {
                 let (name, children) = GROUPS
                     .iter()
                     .find(|(group, _)| *group == name)
-                    .context("分组已校验")?;
+                    .context(crate::i18n::text("host-story-chain-0016"))?;
                 loader::check(&file, node, name, &[], children, false)?;
                 let (_, items) = groups
                     .entry(name)
@@ -314,6 +355,11 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
             Some(src) => file = src,
             None => break,
         }
+    }
+    if let Some(item) = localization {
+        let raw = item.source[item.range.clone()].to_owned();
+        output.append(&raw, item, true);
+        output.xml.push('\n');
     }
     if let Some(item) = interface {
         let raw = item.source[item.range.clone()].to_owned();
@@ -333,6 +379,10 @@ pub fn compile(source: &dyn content::ContentSource) -> Result<CompiledStory> {
         }
     }
     output.xml.push_str("<next end=\"true\"/>\n</story>\n");
-    ensure!(output.xml.len() <= MAX_XML_BYTES, "合并剧本 XML 超过 16MiB");
+    ensure!(
+        output.xml.len() <= MAX_XML_BYTES,
+        "{}",
+        crate::i18n::format("host-story-chain-0010", &[])
+    );
     Ok(output)
 }

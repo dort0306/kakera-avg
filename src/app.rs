@@ -18,6 +18,7 @@ mod debug;
 mod development;
 mod input;
 mod lifecycle;
+mod localization;
 mod shortcuts;
 mod skip;
 mod ui_media;
@@ -111,7 +112,10 @@ impl PlayerApp {
         let mut warnings = Vec::new();
         let settings = if saves.settings_path().exists() {
             Settings::load(&saves.settings_path()).unwrap_or_else(|error| {
-                warnings.push(format!("设置无效，已使用默认值：{error:#}"));
+                warnings.push(crate::i18n::format(
+                    "host-app-0001",
+                    &[("arg0", format!("{:#}", error))],
+                ));
                 Settings::default()
             })
         } else {
@@ -144,12 +148,22 @@ impl PlayerApp {
             &mut custom.state,
             &mut warnings,
         );
+        Self::load_languages(
+            &saves,
+            &loaded.story.id,
+            &custom.definition,
+            &mut custom.state,
+            &mut warnings,
+        )?;
         let read = Self::load_read_history(&saves, &loaded.story.id, &mut warnings);
         let prefs_path = saves.directory().join("ui-audio.json");
         let prefs = if prefs_path.exists() {
             crate::interface::presentation::Preferences::load(&prefs_path, &loaded.story.id)
                 .unwrap_or_else(|e| {
-                    warnings.push(format!("UI 音效偏好损坏，使用默认值：{e:#}"));
+                    warnings.push(crate::i18n::format(
+                        "host-app-0002",
+                        &[("arg0", format!("{:#}", e))],
+                    ));
                     crate::interface::presentation::Preferences::new(&loaded.story.id)
                 })
         } else {
@@ -207,7 +221,17 @@ impl PlayerApp {
         };
         app.restore_handoff()?;
         if !app.effects.has_entered {
-            app.commit_ui(app.empty_ui_plan()?, false);
+            app.commit_ui(app.empty_ui_plan()?, true);
+        }
+        if let Some(locale) = app
+            .custom
+            .state
+            .languages
+            .text
+            .as_ref()
+            .and_then(|id| app.custom.definition.localization.texts.get(id))
+        {
+            app.cpu_assets.set_font_order(ctx, &locale.fonts);
         }
         app.sync_save_previews();
         #[cfg(not(windows))]
@@ -271,7 +295,8 @@ impl PlayerApp {
                         .ui_actions
                         .iter()
                         .any(|a| matches!(a, crate::interface::presentation::Action::Sequence(_))),
-                "离幕序列需要同时打开 UI 页面，推荐在 screenOpen 中播放"
+                "{}",
+                crate::i18n::format("host-app-0003", &[])
             );
             if entry_stack != base.state.stack
                 || matches!(base.operation, crate::interface::host::Operation::Present)
@@ -375,9 +400,23 @@ impl PlayerApp {
         }
         self.session = session;
         let frame = self.story.frame(&self.session).expect("validated session");
-        self.typewriter = Typewriter::new(&frame.text, restored || self.settings.text_speed == 0.0);
+        self.typewriter = Typewriter::new(
+            &self
+                .custom
+                .definition
+                .localization
+                .frame_text(frame, plan.state.languages.text.as_deref()),
+            restored || self.settings.text_speed == 0.0,
+        );
         self.clock = PresentationClock::new(Instant::now());
-        self.audio.enter(&frame.audio, force_audio);
+        self.audio.enter(
+            &self
+                .custom
+                .definition
+                .localization
+                .cue(frame, &plan.state.languages),
+            force_audio,
+        );
         self.pickers = Default::default();
         self.commit_ui(plan, false);
         self.apply_ui_media(prepared_ui);
@@ -403,7 +442,8 @@ impl PlayerApp {
             UiIntent::Play(intent) => {
                 anyhow::ensure!(
                     self.effects.has_entered,
-                    "请先从 UI 显式选择起始幕或载入存档"
+                    "{}",
+                    crate::i18n::format("host-app-0004", &[])
                 );
                 if self.effects.active() {
                     if matches!(intent, controller::Intent::Advance) {
@@ -435,14 +475,14 @@ impl PlayerApp {
 
     fn overlays(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         if let Some(message) = self.message.clone() {
-            egui::Window::new("提示")
+            egui::Window::new(crate::i18n::text("host-app-0010"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.set_max_width(650.0);
-                    ui.label(message);
-                    if ui.button("关闭").clicked() {
+                    ui.label(&message);
+                    if ui.button(crate::i18n::text("host-app-0011")).clicked() {
                         self.message = None;
                     }
                 });
@@ -473,7 +513,10 @@ impl PlayerApp {
                 .and_then(|p| self.page_lifecycle(p, &self.session, Some(vec![])))
                 .and_then(|p| self.commit_page_plan(p));
             if let Err(e) = result {
-                self.message = Some(format!("初始页面生命周期：{e:#}"));
+                self.message = Some(crate::i18n::format(
+                    "host-app-0005",
+                    &[("arg0", format!("{:#}", e))],
+                ));
             }
         }
         if let Some(error) = self.audio.poll_error() {
@@ -484,7 +527,10 @@ impl PlayerApp {
             && let Some(event) = self.tick_shortcut_capture(&input_frame)
             && let Err(error) = self.custom_event(event)
         {
-            self.message = Some(format!("快捷键捕获结果失败：{error:#}"));
+            self.message = Some(crate::i18n::format(
+                "host-app-0006",
+                &[("arg0", format!("{:#}", error))],
+            ));
         }
         let capture_active = self.shortcut_capture_active();
         let ui_input = match self.tick_ui_media(
@@ -499,7 +545,10 @@ impl PlayerApp {
                 }
                 self.ui_media.cancel();
                 self.effects.ui_alpha.clear();
-                self.message = Some(format!("UI 演出失败，已取消并保留剧情：{error:#}"));
+                self.message = Some(crate::i18n::format(
+                    "host-app-0007",
+                    &[("arg0", format!("{:#}", error))],
+                ));
                 true
             }
         };
@@ -516,8 +565,9 @@ impl PlayerApp {
             .tick(elapsed.as_secs_f32(), ctx, &mut self.assets)
         {
             self.live2d = Default::default();
-            self.message = Some(format!(
-                "Live2D 更新失败，已冻结当前画面；可读档或重新开始：{error:#}"
+            self.message = Some(crate::i18n::format(
+                "host-app-0008",
+                &[("arg0", format!("{:#}", error))],
             ));
         }
         if !transitioning {
@@ -567,14 +617,15 @@ impl PlayerApp {
                         serde_json::json!(self.auto_play.enabled);
                     custom.data.values["game"]["autoText"] =
                         serde_json::json!(if self.auto_play.enabled {
-                            "停止自动"
+                            crate::i18n::text("host-app-0012")
                         } else {
-                            "自动播放"
+                            crate::i18n::text("host-app-0013")
                         });
                     custom.data.values["game"]["live2dEnabled"] =
                         serde_json::json!(self.live2d.active());
                     if self.effects.active() {
-                        custom.data.values["game"]["continueText"] = serde_json::json!("跳过转场");
+                        custom.data.values["game"]["continueText"] =
+                            serde_json::json!(crate::i18n::text("host-app-0014"));
                     }
                     if !self.effects.has_entered {
                         custom.data.awaiting_start();
@@ -655,7 +706,7 @@ impl PlayerApp {
             Ok(())
         };
         if let Err(error) = result.and_then(|()| self.overlays(ctx)) {
-            self.message = Some(format!("{error:#}"));
+            self.message = Some(crate::i18n::diagnostics(&format!("{error:#}")));
         }
         let blocked = self.blocked();
         // A newly opened overlay also pauses the interval before the next repaint.
@@ -701,7 +752,10 @@ impl PlayerApp {
         self.finish_autosave();
         self.flush_read();
         if let Err(error) = self.settings.save(&self.saves.settings_path()) {
-            eprintln!("保存设置失败：{error:#}");
+            eprintln!(
+                "{}",
+                crate::i18n::format("host-app-0009", &[("arg0", format!("{:#}", error))])
+            );
         }
     }
 }

@@ -16,7 +16,7 @@ impl PlayerApp {
         let cache = self
             .capture
             .as_ref()
-            .context("当前窗口宿主没有提供截图能力")?;
+            .context(crate::i18n::text("host-app-capture-0004"))?;
         let frame = cache.borrow().frame(revision)?;
         frame
             .map(|frame| Screenshot::capture((frame.read)()?))
@@ -25,11 +25,12 @@ impl PlayerApp {
     pub(super) fn save_current(&self, slot: SlotId) -> Result<()> {
         anyhow::ensure!(
             self.effects.has_entered && self.handoff.is_none() && !self.ui_media.active(),
-            "UI 演出期间不能保存"
+            "{}",
+            crate::i18n::format("host-app-capture-0001", &[])
         );
         let image = self
             .screenshot(self.revision)?
-            .context("当前场景尚未呈现，请稍后保存")?;
+            .context(crate::i18n::text("host-app-capture-0005"))?;
         let mut snapshot = Snapshot::capture_committed(&self.story, &self.session)?;
         snapshot.screenshot = Some(image);
         self.saves
@@ -47,9 +48,8 @@ impl PlayerApp {
     fn autosave_error(&mut self, error: anyhow::Error) {
         self.pending_auto = None;
         self.settings.autosave = false;
-        let message = format!(
-            "剧情已进入，但自动存档截图/写入失败，已停用自动保存（已有文件保留）：{error:#}"
-        );
+        let message =
+            crate::i18n::format("host-app-capture-0002", &[("arg0", format!("{:#}", error))]);
         self.message = Some(
             self.message
                 .take()
@@ -87,7 +87,12 @@ impl PlayerApp {
                             image.as_raw(),
                         ),
                     ),
-                    Err(error) => self.message = Some(format!("存档截图不可用：{error:#}")),
+                    Err(error) => {
+                        self.message = Some(crate::i18n::format(
+                            "host-app-capture-0003",
+                            &[("arg0", format!("{:#}", error))],
+                        ))
+                    }
                 }
             }
         }
@@ -126,11 +131,11 @@ mod tests {
         )?;
         std::fs::write(
             root.path().join("ui.xml"),
-            r#"<ui schema="3" width="1280" height="720" initial="hud"><variables><string id="status" initial=""/></variables><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#,
+            r#"<ui schema="3" width="1280" height="720" initial="hud"><variables><string id="status" initial=""/></variables><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="saveButton" width="120" height="40" text="保存" event="save"/></screen></ui>"#,
         )?;
         std::fs::write(
             root.path().join("script.js"),
-            "on.advance('opening',()=> 'ending');on.end('ending');on.ui('save',ctx=>{ctx.setUi('status','saved');ctx.save(1,true);});",
+            "frame('opening').advance('ending');frame('ending').end();ui('saveButton').bind('save',ctx=>{ctx.setUi('status','saved');ctx.save(1,true);});",
         )?;
         let bundle = Bundle::load(
             &package::Snapshot::directory(root.path())?,
@@ -173,13 +178,7 @@ mod tests {
         assert_eq!(reads.get(), 1);
         let auto = std::fs::read(app.saves.auto_path(1)?)?;
         let slot = SlotId::new(1)?;
-        app.custom_event(Event {
-            sound: None,
-            route: None,
-            name: "save".into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        })?;
+        app.custom_event(Event::ui("saveButton", "save"))?;
         let bytes = std::fs::read(app.saves.slot_path(slot))?;
         let snapshot: Snapshot = serde_json::from_slice(&bytes)?;
         assert_eq!(
@@ -201,16 +200,7 @@ mod tests {
             crate::model::VariableValue::String(String::new()),
         );
         cache.borrow_mut().error = Some("injected readback error".into());
-        assert!(
-            app.custom_event(Event {
-                sound: None,
-                route: None,
-                name: "save".into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null
-            })
-            .is_err()
-        );
+        assert!(app.custom_event(Event::ui("saveButton", "save")).is_err());
         assert_eq!(app.session, before);
         assert_eq!(std::fs::read(app.saves.slot_path(slot))?, bytes);
         assert_eq!(app.custom.state.variables["status"].to_string(), "");

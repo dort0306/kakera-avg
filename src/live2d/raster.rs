@@ -46,7 +46,11 @@ fn pixels(
         for y in top..bottom {
             for x in left..right {
                 *budget += 1;
-                ensure!(*budget <= 32_000_000, "Live2D 单帧光栅预算超过 3200 万采样");
+                ensure!(
+                    *budget <= 32_000_000,
+                    "{}",
+                    crate::i18n::format("host-live2d-raster-0001", &[])
+                );
                 let p = V2 {
                     x: x as f32 + 0.5,
                     y: y as f32 + 0.5,
@@ -95,7 +99,11 @@ pub fn composite(
         if mesh.masks.is_empty() || masks.contains_key(&mesh.masks) {
             continue;
         }
-        ensure!(masks.len() < 32, "Live2D 裁剪组超过 32 项");
+        ensure!(
+            masks.len() < 32,
+            "{}",
+            crate::i18n::format("host-live2d-raster-0002", &[])
+        );
         let mut mask = vec![0.0; size[0] * size[1]];
         for index in &mesh.masks {
             let source = &meshes[*index];

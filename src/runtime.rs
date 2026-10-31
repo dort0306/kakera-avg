@@ -40,7 +40,24 @@ impl Bundle {
     pub fn load(source: &dyn ContentSource, options: &LoadOptions) -> Result<Self> {
         let (mut loaded, logic) = loader::load_game(source)?;
         let images = PreparedAssets::load_deferred(&loaded.story, source)?;
+        crate::i18n::validate_host()?;
+        for locale in loaded.interface.localization.texts.values() {
+            images.validate_locale(&locale.fonts, &locale.messages.literals())?;
+            images.validate_text(&locale.label)?;
+        }
+        for locale in loaded.interface.localization.voices.values() {
+            images.validate_text(&locale.label)?;
+        }
         images.validate_interface(&mut loaded.interface)?;
+        for id in loaded.interface.localization.texts.keys() {
+            let mut state = crate::interface::host::State::try_new(&loaded.interface)?;
+            state.languages.text = Some(id.clone());
+            state.refresh(&loaded.interface)?;
+            for text in state.localized_text.values() {
+                images.validate_text(text)?;
+            }
+            images.validate_text(&state.window_title)?;
+        }
         images.validate_text(&loaded.interface.text())?;
         let mut audio = PreparedAudio::load_from(&loaded.story, source)?;
         let media = crate::media::PreparedMedia::load(&loaded.story, source)?;

@@ -17,7 +17,7 @@
 - XML 节点和借用不离开加载器；内容使用拥有的 String。静态纹理缓存由 assets/view 持有，不逐帧读盘/解码/上传。视频帧与 Live2D 动态纹理只在 App 更新阶段生成和上传，绘制只读。
 - 不在绘制过程中推进剧情、执行脚本或保存文件；单次 UI 更新最多提交一个意图。
 - 转场与图片效果依据 `doc/effects-implementation-plan.zh-cn.md`；配置在 Model，时间/旧画面快照在 App 呈现层，指针不入档。所有目标条件、生命周期命令及 IO 成功后才启动效果；读档直接显示最终态。转场时不积累逐字时间，继续先跳过转场；菜单/失焦暂停。滤镜在准备阶段缓存，额外上限 256MiB；D3D11 后端用 HLSL，CPU fallback 保留原算法。不在绘制时做 IO/解码/资源创建。
-- `interface` 使用拥有的数据和严格 XML 解析；渲染只读绑定缓存，返回事件。`on.ui` 收集受约束命令，整批验证后由 App 执行至多一种剧情/IO 操作；设置或 CG 解锁同类可聚合。不开放任意跳转、路径或 IO。新增页面与已有能力组合仅修改 XML/JS，新增宿主能力才修改 Rust 命令及校验。
+- `interface` 使用拥有的数据和严格 XML 解析；渲染只读绑定缓存，返回事件。`ui(id).bind(event, callback)` 收集受约束命令，整批验证后由 App 执行至多一种剧情/IO 操作；设置或 CG 解锁同类可聚合。不开放任意跳转、路径或 IO。新增页面与已有能力组合仅修改 XML/JS，新增宿主能力才修改 Rust 命令及校验。
 - 页面栈/UI 变量为瞬时状态，不进入剧情槽；只允许顶层交互，菜单暂停不积累时间。`game.enter` 允许解锁、UI 局部赋值、提示和受约束 transition/animate，候选状态提交前验证；历史重放不触发它，失败必须保留旧会话、音频与效果。transition 只在进入事件可用；animate 不接受 repeat 模板目标。
 - 可用选项在提交边界求值并缓存；目标条件报错也必须保留旧 Session 与音频。View 只读缓存，不能逐帧运行 JS。
 - 历史是 Session 的显式状态；逐字时钟与音频播放指针不入档。控制器返回显式 entered，不能依赖 frame_id 变化判断自循环是否进入场景。
@@ -166,7 +166,7 @@ button 的 route="open:页面ID"/"close" 与 event 二选一，其他控件仍�
 ## v0.9.0 UI 视频与生命周期（覆盖此前相冲突的媒体/存档规则）
 
 - 当前 story 8/UI 3/save 9，demo content-version=9；仅保留 KPAK 1/2 容器兼容。Frame 不含视频，严格拒绝 frame.video；旧剧情视频推进/渲染/输入分支、ctx.skipVideo/game.video* 删除，历史只在 doc/archive 说明。视频只在 UI sequence 中。
-- on.frameEnter/Exit 与 on.screenOpen/Close 收集纯候选 UI 命令，正常离幕先完整验证 Controller，再 exit/enter；回放不触发。页面栈变动回调整批执行，最多 32 命令/16 次派发，失败不部分提交；resume 只允许普通 UI 或 screenClose，frameEnter 可继续交给下一 UI。
+- `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')` 收集纯候选 UI 命令，正常离幕先完整验证 Controller，再 exit/enter；回放不触发。页面栈变动回调整批执行，最多 32 命令/16 次派发，失败不部分提交；resume 只允许普通 UI 或 screenClose，frameEnter 可继续交给下一 UI。
 - 固定隐藏 flow-checkpoint.json schema 1，source/continuation 为完整 save 9，含 UI 栈/变量/原栈/序列 ID。先验证准备再原子写，再提交；成功返回写 inactive 墓碑，坏槽保留并提示。启动恢复只重开 UI 生命周期，视频从零播放，不入播放器指针。2MiB 总预算，独立于玩家槽和普通自动槽，不受 autosave 开关影响，排除监控/发布。
 - UI 返回通过显式 history.resume_to 保存和重放；不能伪造普通选项。save 9 每条 resume_to 必需可为 null，旧 save 8 不迁移。候选变量/历史/目标错误或隐藏写失败保留旧 Session/UI/音频。
 - 活动交接禁止普通剧情/存读档/设置及其他持久 IO，热更延后；恢复动作不能混合 CG/设置等跨文件 IO。验证四回调/首尾/自循环/别名/循环预算、单次视频返回、跨进程隐藏槽/原子失败/坏槽/墓碑/普通槽隔离与 save 9 历史裁剪重放。GUI/设备/听感分开记录，依据本版计划/验收/API 第 32 节。
@@ -175,7 +175,7 @@ button 的 route="open:页面ID"/"close" 与 event 二选一，其他控件仍�
 
 依据 doc/v0.9.1-implementation-plan.zh-cn.md 与 doc/v0.9.1-validation.zh-cn.md。末幕文字完成后手动继续派发 frameExit，每次进入最多成功一次；补全不退出，Ctrl/自动仍在结尾停止。隐藏槽 source=continuation 且 exited=true/entered=false 仅允许 End 路由；完整状态相等才能判定末幕退出，不能把自循环误判。同幕恢复不重复进入/退出，失败保留旧状态并允许重试。普通槽/重开重置瞬时退出标记，数据格式不变。
 
-UI 唤起剧情复用 ctx.resume(frame?)：on.ui 与自动 screenClose 使用同一事务。优先读取并验证磁盘隐藏 continuation（包括 inactive），省略目标且无槽必须报错；显式起始幕沿用变量/历史，成功后同步隐藏 source/continuation。无参关闭回调不得覆盖显式目标，冲突目标拒绝，坏槽/原子失败不改变旧状态。
+UI 唤起剧情复用 ctx.resume(frame?)：普通 UI 回调与自动 `screen.close` 回调使用同一事务。优先读取并验证磁盘隐藏 continuation（包括 inactive），省略目标且无槽必须报错；显式起始幕沿用变量/历史，成功后同步隐藏 source/continuation。无参关闭回调不得覆盖显式目标，冲突目标拒绝，坏槽/原子失败不改变旧状态。
 
 ## 专用 CG 资源
 
@@ -191,4 +191,27 @@ UI 唤起剧情复用 ctx.resume(frame?)：on.ui 与自动 screenClose 使用同
 
 ## v0.10.0 UI 扩展性
 
-依据 doc/ui-extensibility-roadmap.zh-cn.md、三个工作包实现/验收方案与 doc/ui-extensibility-validation.zh-cn.md。A 只复用 image-bind/UI string/ctx.setUi，同一查看页切换已声明资源；不新增图片路径/IO API。B 新增纯 shortcuts 模块、宿主输入所有权、捕获状态机和独立 keybindings.json；鼠标继续/取消/恢复默认保留，快进按住语义取代固定 Ctrl，UI 跳过使用独立动作。C 新增 color-picker/color-bind/palette、纯 color 几何与独立 ui-colors.json；控件只提交候选颜色，业务由 on.ui 事务决定，指针/HSV/焦点不入档。两个偏好文件严格 schema 1/story_id、16KiB、原子覆盖、坏文件保留、排除监控/打包/发布；不得与 settings/profile/剧情/退出同批混写。捕获/拖拽/键位应用/热更/读档/失焦后要求释放屏障；UI 生命周期仍禁写偏好。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2 与 demo content-version=11 不变；Numpad 区分限制见 API 第 34 节。
+依据 doc/ui-extensibility-roadmap.zh-cn.md、三个工作包实现/验收方案与 doc/ui-extensibility-validation.zh-cn.md。A 只复用 image-bind/UI string/ctx.setUi，同一查看页切换已声明资源；不新增图片路径/IO API。B 新增纯 shortcuts 模块、宿主输入所有权、捕获状态机和独立 keybindings.json；鼠标继续/取消/恢复默认保留，快进按住语义取代固定 Ctrl，UI 跳过使用独立动作。C 新增 color-picker/color-bind/palette、纯 color 几何与独立 ui-colors.json；控件只提交候选颜色，业务由普通 `ui(id).bind(event, cb)` 事务决定，指针/HSV/焦点不入档。两个偏好文件严格 schema 1/story_id、16KiB、原子覆盖、坏文件保留、排除监控/打包/发布；不得与 settings/profile/剧情/退出同批混写。捕获/拖拽/键位应用/热更/读档/失焦后要求释放屏障；UI 生命周期仍禁写偏好。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2 与 demo content-version=11 不变；Numpad 区分限制见 API 第 34 节。
+
+## v0.10.1 国际化
+
+依据总方案、engine-i18n/game-localization 的落地及验收方案，实际记录见 doc/v0.10.1-validation.zh-cn.md，API 第 36 节。宿主 Fluent 中文内嵌、稳定 ID 追加不重编号；纯 Model/Controller 返回拥有的 Diagnostic，不依赖格式化/IO/平台。生产仅 zh-CN，保留 Fluent isolating，第三方原因原样保留。
+
+游戏开关默认关闭；开启显式清单 schema 1，文本与语音独立 requested/effective/source，规范标识精确匹配，手动优先/系统首命中/作者默认；旧请求已移除保留文件和请求并默认回退。所有语言经 ContentSource 完整预检与有界缓存，游戏不能覆盖宿主。剧情文字无外部参数，UI text-key(-bind)/text-arg 仅受限绑定；不开放 ctx.tr、路径、任意 IO 或函数。
+
+ctx.locale 仅普通 UI，两个通道同文件聚合，不混其他持久/剧情/退出操作；活动交接/sequence/转场/调试/pending 自动截图阻挡。写 language.json 前完成文本/字体/标题/页面候选验证，原子写后一次提交；文本变更完整显示同句并更新截图 revision，语音变更只停 voice，不重播 BGM/SE/幕事件。只改请求不重置逐字；成功清 auto/快进/捕获/picker 并要求释放。偏好不入剧情/隐藏槽；坏文件保留，关闭不读写，排除包/监控/显式附加。热更/渲染重建保留语言选择与字体链、成功不重播声音。
+
+story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/demo content-version=11 不变。Windows 有序探测；其他平台默认降级，不宣称跨平台 OS 检测或 RTL/复杂塑形。两种包、跨进程 UI/槽位、真实设备和听感分别报告，不把占位语音映射当正式配音。
+
+
+## HSL 正方形选色器（2026-10-30）
+
+依据 doc/hsl-square-picker.zh-cn.md，用户明确放弃三角方案。color-picker 使用 HSL 色相环与内部正方形，横轴 S、纵轴 L（顶白/底黑），整个方形可自由点击拖动，拖出按轴夹取，抓取不切子区。自身 RGBA 回显保留浮点 HSL 与黑白边缘标记位置，作者提交不同颜色仍以绑定为准。XML/JS/偏好文件契约不变，不保留旧形状运行分支；旧三角文档仅作历史。
+
+后续职责拆分已按 doc/hsl-picker-composition-implementation-plan.zh-cn.md、doc/hsl-picker-composition-validation-plan.zh-cn.md 落地（2026-10-30）：控件只呈现环/方形/可选 alpha，预览与 HEX 交由作者 `color-bind`/`bind` 组合；布局为 D=min(W,H−R)、R=alpha?26:0，最小 128×154（alpha）/128×128（无 alpha），保留 RGBA 事件编码与 alpha 棋盘。用户报告的松开回跳按真实 App→JS→事务提交→下一帧链路复验，未复现；不以手动回写渲染快照或旧验收记录代替。实际证据与未执行的 DPI 范围见验收方案第 7 节。
+
+## v0.11.0 新版 JS 注册 API
+
+依据 doc/js-api-redesign-implementation-plan.zh-cn.md 与 doc/js-api-redesign-validation.zh-cn.md，接口见 API 第 37 节。剧情用 `frame(id).advance(targetOrRun)/choice(option, targetOrRun, when?)/end()`，界面用 `ui(控件或页面ID).bind(事件名, 回调)`；`targetOrRun` 接受字符串或返回字符串的函数，静态目标加载期校验、动态目标执行期校验，两者共用同一 Controller 事务。生命周期为 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`；全局进入钩子和捕获结果绑定固定虚拟目标 `ui('$game')`/`ui('$host')`，真实 UI 禁用这两个 ID。
+
+注册键为结构化的 (类别, 目标, 事件)，不是全局事件名：同名事件必须逐目标绑定，共享逻辑复用同一函数；完整装配后每个 XML 事件恰好一个注册，重复/未知目标/事件不匹配/页面与控件同 ID 全部拒绝。`frame`/`ui` 不可写、选择器冻结，回调期间注册失败。旧 `on.*` 入口已删除且无别名，旧脚本必须带文件名与栈拒绝，不提供迁移器或回退；ctx 参数、命令白名单、预算、story 8/UI 3/save 9/profile 1/read 1/KPAK 1&2 与 demo content-version=11 不变，新语法不写入存档。修改注册层时同步迁移 demo、测试与手册示例，并复验路由/别名/自循环/生命周期/捕获、两种包与跨进程槽位。

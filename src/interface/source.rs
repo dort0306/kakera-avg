@@ -20,6 +20,8 @@ const ATTRS: &[&str] = &[
     "initial",
     "title",
     "title-bind",
+    "title-key",
+    "title-key-bind",
 ];
 
 #[derive(Clone)]
@@ -52,8 +54,11 @@ impl CompiledUi {
     fn append(&mut self, text: &str, fragment: Fragment, verbatim: bool) -> Result<()> {
         ensure!(
             self.xml.len() + text.len() <= MAX_XML_BYTES,
-            "{}: 合并 UI XML 超过 1MiB",
-            self.entry
+            "{}",
+            crate::i18n::format(
+                "host-interface-source-0001",
+                &[("arg0", self.entry.to_string())]
+            )
         );
         let start = self.xml.len();
         self.xml.push_str(text);
@@ -110,18 +115,38 @@ impl CompiledUi {
     pub fn parse(
         &self,
         story: &crate::model::Story,
-        handlers: &BTreeSet<String>,
+        registrations: &[super::Registration],
     ) -> Result<super::Definition> {
-        let mut definition = super::parse(&self.xml, &self.entry, story, handlers)
-            .map_err(|e| anyhow::anyhow!(self.remap(&format!("{e:#}"))))?;
+        self.parse_localized(
+            story,
+            registrations,
+            std::sync::Arc::new(crate::localization::Catalog::default()),
+        )
+    }
+    pub fn parse_localized(
+        &self,
+        story: &crate::model::Story,
+        registrations: &[super::Registration],
+        catalog: crate::localization::SharedCatalog,
+    ) -> Result<super::Definition> {
+        let mut definition =
+            super::parse_localized(&self.xml, &self.entry, story, registrations, catalog)
+                .map_err(|e| anyhow::anyhow!(self.remap(&format!("{e:#}"))))?;
         definition.window_title.location = self.remap(&definition.window_title.location);
+        if let Some(binding) = &mut definition.localized_title {
+            binding.location = self.remap(&binding.location);
+        }
         fn nodes(compiled: &CompiledUi, items: &mut [super::Node]) {
             for node in items {
                 node.location = compiled.remap(&node.location);
+                if let Some(binding) = &mut node.localized {
+                    binding.location = compiled.remap(&binding.location);
+                }
                 nodes(compiled, &mut node.children);
             }
         }
         for screen in definition.screens.values_mut() {
+            screen.location = self.remap(&screen.location);
             nodes(self, &mut screen.nodes);
         }
         Ok(definition)
@@ -143,37 +168,73 @@ fn path(file: &str, node: Node<'_, '_>, name: &str) -> Result<String> {
         return Err(loader::error(
             file,
             node,
-            "UI src 必须是至多 1024 字节的游戏内 .xml 路径",
+            crate::i18n::text("host-interface-source-0012"),
         ));
     }
     Ok(name.into())
 }
 impl Assembly<'_> {
     fn visit(&mut self, file: String, depth: usize, edge: String) -> Result<()> {
-        ensure!(depth <= MAX_DEPTH, "{edge}: UI 引入超过 16 层（{file}）");
+        ensure!(
+            depth <= MAX_DEPTH,
+            "{}",
+            crate::i18n::format(
+                "host-interface-source-0002",
+                &[("arg0", edge.to_string()), ("arg1", file.to_string())]
+            )
+        );
         ensure!(
             self.output.files.len() < MAX_FILES,
-            "{edge}: UI 引入超过 128 文件"
+            "{}",
+            crate::i18n::format("host-interface-source-0003", &[("arg0", edge.to_string())])
         );
         ensure!(
             self.seen.insert(file.to_lowercase()),
-            "{edge}: UI 循环或重复/大小写重复引入：{file}"
+            "{}",
+            crate::i18n::format(
+                "host-interface-source-0004",
+                &[("arg0", edge.to_string()), ("arg1", file.to_string())]
+            )
         );
         let mut bytes = Vec::new();
         self.source
             .open(Path::new(&file))
-            .with_context(|| format!("{edge}: 读取 UI {file}"))?
+            .with_context(|| {
+                crate::i18n::format(
+                    "host-interface-source-0005",
+                    &[("arg0", edge.to_string()), ("arg1", file.to_string())],
+                )
+            })?
             .take((MAX_XML_BYTES - self.bytes + 1) as u64)
             .read_to_end(&mut bytes)
-            .with_context(|| format!("{file}: 读取 UI XML"))?;
+            .with_context(|| {
+                crate::i18n::format("host-interface-source-0006", &[("arg0", file.to_string())])
+            })?;
         self.bytes += bytes.len();
-        ensure!(self.bytes <= MAX_XML_BYTES, "{file}: UI XML 累计超过 1MiB");
+        ensure!(
+            self.bytes <= MAX_XML_BYTES,
+            "{}",
+            crate::i18n::format("host-interface-source-0007", &[("arg0", file.to_string())])
+        );
         let text: Arc<str> = String::from_utf8(bytes)
-            .with_context(|| format!("{file} 不是 UTF-8"))?
+            .with_context(|| {
+                crate::i18n::format("host-interface-source-0008", &[("arg0", file.to_string())])
+            })?
             .into();
         let document = Document::parse(&text).map_err(|e| {
             let pos = e.pos();
-            anyhow::anyhow!("{file}:{}:{}: UI XML 解析失败：{e}", pos.row, pos.col)
+            anyhow::anyhow!(
+                "{}",
+                crate::i18n::format(
+                    "host-interface-source-0009",
+                    &[
+                        ("arg0", file.to_string()),
+                        ("arg1", pos.row.to_string()),
+                        ("arg2", pos.col.to_string()),
+                        ("arg3", e.to_string())
+                    ]
+                )
+            )
         })?;
         let root = document.root_element();
         loader::check(
@@ -192,7 +253,11 @@ impl Assembly<'_> {
             false,
         )?;
         if loader::required(&file, root, "schema")? != "3" {
-            return Err(loader::error(&file, root, "仅支持 UI schema 3"));
+            return Err(loader::error(
+                &file,
+                root,
+                crate::i18n::text("host-interface-source-0013"),
+            ));
         }
         if depth == 1 {
             let mut header = String::from("<ui");
@@ -215,7 +280,14 @@ impl Assembly<'_> {
                 "screen" => self.screens.push(Fragment::at(&file, &text, node)),
                 group => {
                     if !groups.insert(group) {
-                        return Err(loader::error(&file, node, format!("重复 <{group}>")));
+                        return Err(loader::error(
+                            &file,
+                            node,
+                            crate::i18n::format(
+                                "host-interface-source-0010",
+                                &[("arg0", group.to_string())],
+                            ),
+                        ));
                     }
                     loader::check(
                         &file,
@@ -256,10 +328,13 @@ fn escaped(value: &str) -> String {
 }
 pub fn compile(source: &dyn content::ContentSource, entry: &Path) -> Result<CompiledUi> {
     content::validate_path(entry)?;
-    let entry = entry.to_str().context("UI 路径必须 UTF-8")?;
+    let entry = entry
+        .to_str()
+        .context(crate::i18n::text("host-interface-source-0014"))?;
     ensure!(
         entry.len() <= 1024 && Path::new(entry).extension().and_then(|s| s.to_str()) == Some("xml"),
-        "UI 入口必须为游戏内 .xml 路径"
+        "{}",
+        crate::i18n::format("host-interface-source-0011", &[])
     );
     let mut assembly = Assembly {
         source,
@@ -276,7 +351,9 @@ pub fn compile(source: &dyn content::ContentSource, entry: &Path) -> Result<Comp
         screens: Vec::new(),
     };
     assembly.visit(entry.into(), 1, format!("{entry}:1:1"))?;
-    let (root, header) = assembly.root.context("UI 入口")?;
+    let (root, header) = assembly
+        .root
+        .context(crate::i18n::text("host-interface-source-0015"))?;
     let mut output = assembly.output;
     if output.files.len() == 1 {
         // Keep the current single-file contract byte-for-byte, including comments.

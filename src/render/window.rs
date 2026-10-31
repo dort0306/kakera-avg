@@ -34,7 +34,7 @@ struct Painter {
 impl Painter {
     fn new(device: Rc<Device>, window: &Window, captures: crate::capture::Shared) -> Result<Self> {
         let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
-            anyhow::bail!("需要 Win32 窗口");
+            anyhow::bail!("{}", crate::i18n::format("host-render-window-0001", &[]));
         };
         let size = window.inner_size();
         let chain = device.swapchain(
@@ -72,10 +72,14 @@ impl Painter {
     }
     fn record_capture(&mut self, revision: u64, game: bool) {
         let result = (|| -> Result<()> {
-            let target = self.target.as_ref().context("截图 backbuffer")?;
+            let target = self
+                .target
+                .as_ref()
+                .context(crate::i18n::text("host-render-window-0011"))?;
             ensure!(
                 target.size[0] * target.size[1] <= 16 * 1024 * 1024,
-                "窗口截图缓存超过每幅 64MiB 预算"
+                "{}",
+                crate::i18n::format("host-render-window-0002", &[])
             );
             if self
                 .latest_copy
@@ -143,11 +147,16 @@ impl Painter {
                 image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, data)
                     .context("egui texture")?;
             let data = if let Some([x, y]) = delta.pos {
-                let original = &self.managed.get(id).context("缺少待更新纹理")?.0;
+                let original = &self
+                    .managed
+                    .get(id)
+                    .context(crate::i18n::text("host-render-window-0012"))?
+                    .0;
                 ensure!(
                     x + image.size[0] <= original.width() as usize
                         && y + image.size[1] <= original.height() as usize,
-                    "UI 纹理补丁越界"
+                    "{}",
+                    crate::i18n::format("host-render-window-0003", &[])
                 );
                 let mut merged = original.clone();
                 image::imageops::replace(&mut merged, &patch, x as i64, y as i64);
@@ -165,14 +174,18 @@ impl Painter {
         let target = self.target.as_ref().context("backbuffer")?;
         self.device.clear(target);
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
-        ensure!(primitives.len() <= 10000, "UI primitive 预算");
+        ensure!(
+            primitives.len() <= 10000,
+            "{}",
+            crate::i18n::format("host-render-window-0004", &[])
+        );
         let points = [
             target.size[0] as f32 / output.pixels_per_point,
             target.size[1] as f32 / output.pixels_per_point,
         ];
         for primitive in primitives {
             let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive else {
-                anyhow::bail!("D3D11 host 不支持任意绘制回调");
+                anyhow::bail!("{}", crate::i18n::format("host-render-window-0005", &[]));
             };
             if mesh.indices.is_empty() {
                 continue;
@@ -181,7 +194,7 @@ impl Painter {
                 TextureId::Managed(_) => self.managed.get(&mesh.texture_id).map(|v| v.1.clone()),
                 TextureId::User(id) => self.device.lookup(id),
             }
-            .context("UI GPU 纹理已失效")?;
+            .context(crate::i18n::text("host-render-window-0013"))?;
             let vertices: Vec<_> = mesh
                 .vertices
                 .iter()
@@ -261,7 +274,7 @@ impl Host {
             return Ok(());
         }
         let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
-            anyhow::bail!("需要 Win32 窗口");
+            anyhow::bail!("{}", crate::i18n::format("host-render-window-0006", &[]));
         };
         let hwnd = HWND(handle.hwnd.get() as *mut _);
         // Suspend size constraints before changing decorations/monitor coverage.
@@ -317,10 +330,15 @@ impl Host {
         self.sync_window()
     }
     fn fallback(&mut self, reason: String) -> Result<()> {
-        ensure!(!self.device.software, "WARP 呈现失败，无法继续：{reason}");
-        self.renderer
-            .borrow_mut()
-            .fallback(format!("D3D11 设备/呈现失败，切换 WARP + CPU：{reason}"));
+        ensure!(
+            !self.device.software,
+            "{}",
+            crate::i18n::format("host-render-window-0007", &[("arg0", reason.to_string())])
+        );
+        self.renderer.borrow_mut().fallback(crate::i18n::format(
+            "host-render-window-0008",
+            &[("arg0", reason.to_string())],
+        ));
         let device = Device::new(true)?;
         *self.captures.borrow_mut() = Default::default();
         let mut painter = Painter::new(
@@ -361,7 +379,7 @@ impl ApplicationHandler for Host {
                     .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 360.0)),
             )?;
             let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
-                anyhow::bail!("需要 Win32 窗口");
+                anyhow::bail!("{}", crate::i18n::format("host-render-window-0009", &[]));
             };
             crate::window_mode::native::install(HWND(handle.hwnd.get() as *mut _))?;
             let input = egui_winit::State::new(
@@ -444,7 +462,10 @@ pub fn run(
     let device = match Device::new(false) {
         Ok(d) => d,
         Err(e) if mode != "d3d11" => {
-            eprintln!("硬件 D3D11 不可用，使用 WARP/CPU：{e:#}");
+            eprintln!(
+                "{}",
+                crate::i18n::format("host-render-window-0010", &[("arg0", format!("{:#}", e))])
+            );
             Device::new(true)?
         }
         Err(e) => return Err(e),

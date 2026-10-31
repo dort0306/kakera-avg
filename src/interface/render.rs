@@ -2,7 +2,7 @@
 use super::{Data, Definition, Event, Kind, Node, host::State};
 use crate::{
     assets::AssetCache,
-    color::{Hsva, Rgba, Triangle, hue_at, hue_point},
+    color::{Hsla, Rgba, hue_at, hue_point},
     model::Frame,
 };
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
@@ -24,7 +24,7 @@ pub struct Input<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickerArea {
     Ring,
-    Triangle,
+    Square,
     Alpha,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub struct PickerFocus {
 }
 #[derive(Clone, Copy, Debug)]
 struct PickerCache {
-    hsva: Hsva,
+    hsla: Hsla,
     last_hue: f32,
     last_saturation: f32,
 }
@@ -42,7 +42,7 @@ struct PickerCache {
 struct PickerGesture {
     node: u64,
     area: PickerArea,
-    hsva: Hsva,
+    point: Pos2,
 }
 /// Presentation-only picker state; never serialized into Model, saves or preferences.
 #[derive(Default)]
@@ -70,7 +70,12 @@ fn color(value: [u8; 4]) -> Color32 {
 fn text(value: &Value) -> String {
     match value {
         Value::String(value) => value.clone(),
-        Value::Bool(value) => if *value { "是" } else { "否" }.into(),
+        Value::Bool(value) => if *value {
+            crate::i18n::text("host-interface-render-0002")
+        } else {
+            crate::i18n::text("host-interface-render-0003")
+        }
+        .into(),
         Value::Null => String::new(),
         _ => value.to_string(),
     }
@@ -123,116 +128,107 @@ struct PickerGeometry {
     center: Pos2,
     ring_inner: f32,
     ring_outer: f32,
-    triangle: Triangle,
-    alpha_bar: Rect,
-    preview: Rect,
-    hex: Pos2,
+    square: Rect,
+    alpha_bar: Option<Rect>,
     scale: f32,
 }
+/// Logical height reserved below the colour disc: an 8 unit gap and the 18 unit bar.
+const PICKER_ALPHA_ROW: f32 = 26.0;
+const PICKER_ALPHA_GAP: f32 = 8.0;
+const PICKER_ALPHA_HEIGHT: f32 = 18.0;
+/// Smallest accepted colour disc diameter; the loader enforces the same number.
+const PICKER_MIN_DIAMETER: f32 = 128.0;
 impl PickerGeometry {
-    fn new(bounds: Rect, scale: f32) -> Option<Self> {
-        let diameter = bounds.width().min(bounds.height() - 96.0 * scale).max(0.0);
-        if diameter <= 0.0 {
+    /// Layout from the node's logical rectangle so loading and drawing share one
+    /// definition. The whole content group is centred; only the ring, square and an
+    /// optional alpha bar exist, and all of them scale with the stage exactly once.
+    fn new(bounds: Rect, size: [f32; 2], alpha: bool, scale: f32) -> Option<Self> {
+        let reserved = if alpha { PICKER_ALPHA_ROW } else { 0.0 };
+        let diameter = size[0].min(size[1] - reserved);
+        if diameter < PICKER_MIN_DIAMETER {
             return None;
         }
-        let radius = (diameter * 0.5 - 6.0 * scale).max(1.0);
-        let center = Pos2::new(bounds.center().x, bounds.min.y + diameter * 0.5);
+        let content = (diameter + reserved) * scale;
+        let top = bounds.center().y - content * 0.5;
+        let center = Pos2::new(bounds.center().x, top + diameter * 0.5 * scale);
+        let radius = (diameter * 0.5 - 6.0) * scale;
+        if radius <= 0.0 {
+            return None;
+        }
         Some(Self {
             center,
             ring_inner: radius * 0.82,
             ring_outer: radius,
-            triangle: Triangle {
-                center: [center.x, center.y],
-                radius: radius * 0.72,
-            },
-            alpha_bar: Rect::from_min_size(
-                Pos2::new(
-                    bounds.min.x + 8.0 * scale,
-                    bounds.min.y + diameter + 32.0 * scale,
-                ),
-                Vec2::new((bounds.width() - 16.0 * scale).max(1.0), 18.0 * scale),
+            square: Rect::from_center_size(
+                center,
+                Vec2::splat(radius * 0.78 * std::f32::consts::SQRT_2),
             ),
-            preview: Rect::from_min_size(
-                Pos2::new(
-                    bounds.min.x + 8.0 * scale,
-                    bounds.min.y + diameter + 4.0 * scale,
-                ),
-                Vec2::new((bounds.width() - 16.0 * scale).max(1.0), 24.0 * scale),
-            ),
-            hex: Pos2::new(
-                bounds.min.x + 8.0 * scale,
-                bounds.min.y + diameter + 54.0 * scale,
-            ),
+            alpha_bar: alpha.then(|| {
+                Rect::from_min_size(
+                    Pos2::new(
+                        bounds.min.x + PICKER_ALPHA_GAP * scale,
+                        top + (diameter + PICKER_ALPHA_GAP) * scale,
+                    ),
+                    Vec2::new(
+                        (size[0] - PICKER_ALPHA_GAP * 2.0) * scale,
+                        PICKER_ALPHA_HEIGHT * scale,
+                    ),
+                )
+            }),
             scale,
         })
     }
-    fn hit(&self, point: Pos2, alpha: bool) -> Option<PickerArea> {
-        if self.triangle.contains([point.x, point.y]) {
-            return Some(PickerArea::Triangle);
+    fn hit(&self, point: Pos2) -> Option<PickerArea> {
+        if self.square.contains(point) {
+            return Some(PickerArea::Square);
         }
         let distance = Vec2::new(point.x - self.center.x, point.y - self.center.y).length();
         if (self.ring_inner..=self.ring_outer).contains(&distance) {
             return Some(PickerArea::Ring);
         }
-        if alpha && self.alpha_bar.contains(point) {
+        if self.alpha_bar.is_some_and(|bar| bar.contains(point)) {
             return Some(PickerArea::Alpha);
         }
         None
     }
-    fn apply(
-        &self,
-        area: PickerArea,
-        point: Pos2,
-        alpha: bool,
-        cache: &mut PickerCache,
-        hsva: &mut Hsva,
-    ) {
+    fn apply(&self, area: PickerArea, point: Pos2, cache: &mut PickerCache, hsla: &mut Hsla) {
         match area {
             PickerArea::Ring => {
-                hsva.h = hue_at([self.center.x, self.center.y], [point.x, point.y]);
-                cache.last_hue = hsva.h;
+                hsla.h = hue_at([self.center.x, self.center.y], [point.x, point.y]);
+                cache.last_hue = hsla.h;
             }
-            PickerArea::Triangle => {
-                let weights = self.triangle.nearest_weights([point.x, point.y]);
-                let value = (weights[0] + weights[1]).clamp(0.0, 1.0);
-                let saturation = if value > f32::EPSILON {
-                    (weights[0] / value).clamp(0.0, 1.0)
-                } else {
-                    hsva.s
-                };
-                hsva.h = cache.last_hue;
-                hsva.s = saturation;
-                hsva.v = value;
-                if value > 0.0 {
-                    cache.last_saturation = saturation;
-                }
+            PickerArea::Square => {
+                hsla.h = cache.last_hue;
+                hsla.s = ((point.x - self.square.left()) / self.square.width()).clamp(0.0, 1.0);
+                hsla.l =
+                    (1.0 - (point.y - self.square.top()) / self.square.height()).clamp(0.0, 1.0);
+                cache.last_saturation = hsla.s;
             }
             PickerArea::Alpha => {
-                let width = self.alpha_bar.width().max(1.0);
-                hsva.a = ((point.x - self.alpha_bar.min.x) / width).clamp(0.0, 1.0);
+                if let Some(bar) = self.alpha_bar {
+                    hsla.a = ((point.x - bar.min.x) / bar.width().max(1.0)).clamp(0.0, 1.0);
+                }
             }
         }
-        let _ = alpha;
-        cache.hsva = *hsva;
+        cache.hsla = *hsla;
     }
-    fn marker_for(&self, area: PickerArea, hsva: Hsva) -> Pos2 {
+    fn marker_for(&self, area: PickerArea, hsla: Hsla) -> Option<Pos2> {
         match area {
             PickerArea::Ring => {
                 let point = hue_point(
                     [self.center.x, self.center.y],
                     (self.ring_inner + self.ring_outer) * 0.5,
-                    hsva.h,
+                    hsla.h,
                 );
-                Pos2::new(point[0], point[1])
+                Some(Pos2::new(point[0], point[1]))
             }
-            PickerArea::Triangle => {
-                let point = self.triangle.point(Triangle::weights_for(hsva));
-                Pos2::new(point[0], point[1])
-            }
-            PickerArea::Alpha => Pos2::new(
-                self.alpha_bar.min.x + self.alpha_bar.width() * hsva.a,
-                self.alpha_bar.center().y,
-            ),
+            PickerArea::Square => Some(Pos2::new(
+                self.square.left() + self.square.width() * hsla.s,
+                self.square.bottom() - self.square.height() * hsla.l,
+            )),
+            PickerArea::Alpha => self
+                .alpha_bar
+                .map(|bar| Pos2::new(bar.min.x + bar.width() * hsla.a, bar.center().y)),
         }
     }
 }
@@ -258,6 +254,116 @@ fn checkerboard(painter: &egui::Painter, rect: Rect, scale: f32) {
         }
         y += cell;
         row += 1;
+    }
+}
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(x, y), Vec2::new(width, height))
+    }
+    fn assert_close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < 0.01, "{actual} != {expected}");
+    }
+    #[test]
+    fn compact_and_wide_rectangles_center_the_same_ring_and_square() {
+        for (size, alpha, scale) in [
+            ([128.0, 128.0], false, 1.0),
+            ([128.0, 128.0], false, 0.5),
+            ([128.0, 128.0], false, 1.5),
+            ([128.0, 128.0], false, 2.0),
+            ([128.0, 154.0], true, 1.0),
+            ([256.0, 256.0], false, 1.0),
+            ([256.0, 282.0], true, 1.0),
+            ([256.0, 320.0], true, 1.0),
+            ([400.0, 282.0], true, 1.0),
+            ([128.0, 400.0], false, 1.0),
+            ([200.5, 300.25], true, 1.0),
+        ] {
+            let bounds = rect(10.0, 20.0, size[0] * scale, size[1] * scale);
+            let layout = PickerGeometry::new(bounds, size, alpha, scale).expect("valid geometry");
+            let diameter = size[0].min(size[1] - if alpha { 26.0 } else { 0.0 });
+            let content = diameter + if alpha { 26.0 } else { 0.0 };
+            // The whole content group is centred in the node rectangle.
+            assert_close(layout.center.x, bounds.center().x);
+            assert_close(
+                layout.center.y,
+                bounds.center().y - content * 0.5 * scale + diameter * 0.5 * scale,
+            );
+            // The ring keeps its proportions; neither axis stretches.
+            assert_close(layout.ring_outer, (diameter * 0.5 - 6.0) * scale);
+            assert_close(layout.ring_inner, layout.ring_outer * 0.82);
+            assert_close(
+                layout.square.width(),
+                layout.ring_outer * 0.78 * std::f32::consts::SQRT_2,
+            );
+            assert_close(layout.square.width(), layout.square.height());
+            assert_close(layout.square.center().x, layout.center.x);
+            assert_close(layout.square.center().y, layout.center.y);
+            // The square corners stay inside the ring.
+            let corner = Vec2::new(layout.square.width(), layout.square.height()).length() * 0.5;
+            assert!(corner < layout.ring_inner);
+            if alpha {
+                let bar = layout.alpha_bar.expect("alpha row");
+                assert_close(bar.height(), 18.0 * scale);
+                assert_close(bar.width(), (size[0] - 16.0) * scale);
+                assert_close(bar.left(), bounds.left() + 8.0 * scale);
+                assert_close(bar.right(), bounds.right() - 8.0 * scale);
+                assert_close(bar.top(), layout.center.y + (diameter * 0.5 + 8.0) * scale);
+                assert_close(
+                    bar.bottom(),
+                    bounds.bottom() - (size[1] - diameter - 26.0) * 0.5 * scale,
+                );
+            } else {
+                assert!(layout.alpha_bar.is_none());
+            }
+        }
+    }
+    #[test]
+    fn hit_areas_follow_the_layout_and_the_old_preview_rows_are_inert() {
+        let bounds = rect(100.0, 100.0, 256.0, 320.0);
+        let layout = PickerGeometry::new(bounds, [256.0, 320.0], true, 1.0).unwrap();
+        assert_eq!(layout.hit(layout.center), Some(PickerArea::Square));
+        let ring_point = Pos2::new(
+            layout.center.x,
+            layout.center.y - (layout.ring_inner + layout.ring_outer) * 0.5,
+        );
+        assert_eq!(layout.hit(ring_point), Some(PickerArea::Ring));
+        let bar = layout.alpha_bar.unwrap();
+        assert_eq!(layout.hit(bar.center()), Some(PickerArea::Alpha));
+        // Blank corner space, the former preview row and the former lower alpha row are inert.
+        assert_eq!(layout.hit(Pos2::new(120.0, 380.0)), None);
+        assert_eq!(layout.hit(Pos2::new(120.0, 334.0)), None);
+        assert_eq!(layout.hit(Pos2::new(200.0, 460.0)), None);
+        // Without alpha there is no bar, no gap and no phantom row at all.
+        let plain =
+            PickerGeometry::new(rect(100.0, 100.0, 128.0, 128.0), [128.0, 128.0], false, 1.0)
+                .unwrap();
+        assert!(plain.alpha_bar.is_none());
+        assert_eq!(plain.hit(Pos2::new(100.0 + 10.0, 100.0 + 120.0)), None);
+        assert_eq!(
+            plain.hit(Pos2::new(100.0 + 64.0, 100.0 + 64.0)),
+            Some(PickerArea::Square)
+        );
+        assert_eq!(
+            plain.hit(Pos2::new(
+                100.0 + 64.0,
+                100.0 - (plain.ring_inner + plain.ring_outer) * 0.5 + 64.0
+            )),
+            Some(PickerArea::Ring)
+        );
+    }
+    #[test]
+    fn sizes_below_the_contract_are_refused_by_the_geometry() {
+        assert!(
+            PickerGeometry::new(rect(0.0, 0.0, 127.0, 400.0), [127.0, 400.0], false, 1.0).is_none()
+        );
+        assert!(
+            PickerGeometry::new(rect(0.0, 0.0, 128.0, 153.0), [128.0, 153.0], true, 1.0).is_none()
+        );
+        assert!(
+            PickerGeometry::new(rect(0.0, 0.0, 128.0, 128.0), [128.0, 128.0], true, 1.0).is_none()
+        );
     }
 }
 impl Renderer<'_> {
@@ -329,13 +435,20 @@ impl Renderer<'_> {
             .painter()
             .with_clip_rect(ui.clip_rect().intersect(bounds));
         let id = format!("xml:{instance}:{}", node.id);
-        let label = node
-            .bind
-            .as_ref()
-            .filter(|_| !matches!(node.kind, Kind::Slider { .. } | Kind::Toggle))
-            .and_then(|path| self.input.data.get(path, item))
-            .map(text)
-            .unwrap_or_else(|| node.text.clone());
+        let label = self
+            .input
+            .state
+            .localized_text
+            .get(&node.id)
+            .cloned()
+            .unwrap_or_else(|| {
+                node.bind
+                    .as_ref()
+                    .filter(|_| !matches!(node.kind, Kind::Slider { .. } | Kind::Toggle))
+                    .and_then(|path| self.input.data.get(path, item))
+                    .map(text)
+                    .unwrap_or_else(|| node.text.clone())
+            });
         let image_id = node.image.as_deref().or_else(|| {
             node.image_bind
                 .as_ref()
@@ -450,7 +563,7 @@ impl Renderer<'_> {
                     painter.text(
                         bounds.min,
                         egui::Align2::LEFT_TOP,
-                        format!("UI 文本溢出：{}", node.id),
+                        &self.input.state.overflow_messages[&node.id],
                         FontId::proportional(12.0 * self.scale),
                         Color32::LIGHT_RED,
                     );
@@ -632,7 +745,8 @@ impl Renderer<'_> {
             return;
         };
         let scale = self.scale;
-        let Some(layout) = PickerGeometry::new(bounds, scale) else {
+        let Some(layout) = PickerGeometry::new(bounds, [node.rect[2], node.rect[3]], alpha, scale)
+        else {
             return;
         };
         let node_key = egui::Id::new(("color-picker", &node.id)).value();
@@ -642,26 +756,25 @@ impl Renderer<'_> {
             .cache
             .entry(node.id.clone())
             .or_insert_with(|| {
-                let hsva = Hsva::from_rgba(committed, None, None);
+                let hsla = Hsla::from_rgba(committed, None, None);
                 PickerCache {
-                    hsva,
-                    last_hue: hsva.h,
-                    last_saturation: hsva.s,
+                    hsla,
+                    last_hue: hsla.h,
+                    last_saturation: hsla.s,
                 }
             });
-        let mut hsva =
-            Hsva::from_rgba(committed, Some(cache.last_hue), Some(cache.last_saturation));
-        if hsva.s > 0.0 {
-            cache.last_hue = hsva.h;
+        // Preserve accepted float samples and arbitrary S on the black/white edges.
+        // A different committed RGBA is authoritative (callback correction or rejection).
+        let mut hsla = if cache.hsla.to_rgba() == committed {
+            cache.hsla
         } else {
-            hsva.h = cache.last_hue;
+            Hsla::from_rgba(committed, Some(cache.last_hue), Some(cache.last_saturation))
+        };
+        if hsla.s > 0.0 && hsla.l > 0.0 && hsla.l < 1.0 {
+            cache.last_hue = hsla.h;
         }
-        if hsva.v > 0.0 {
-            cache.last_saturation = hsva.s;
-        } else {
-            hsva.s = cache.last_saturation;
-        }
-        cache.hsva = hsva;
+        cache.last_saturation = hsla.s;
+        cache.hsla = hsla;
 
         let clip = ui.clip_rect().intersect(bounds);
         // Register each editable sub-area in egui's normal Tab order. Buttons and
@@ -669,7 +782,7 @@ impl Renderer<'_> {
         let mut keyboard_area = None;
         if enabled {
             self.active_pickers.push(node.id.clone());
-            for area in [PickerArea::Ring, PickerArea::Triangle, PickerArea::Alpha] {
+            for area in [PickerArea::Ring, PickerArea::Square, PickerArea::Alpha] {
                 if area == PickerArea::Alpha && !alpha {
                     continue;
                 }
@@ -728,15 +841,14 @@ impl Renderer<'_> {
                 } => Some(*pos),
                 _ => None,
             });
-            let released = input.events.iter().any(|event| {
-                matches!(
-                    event,
-                    egui::Event::PointerButton {
-                        button: egui::PointerButton::Primary,
-                        pressed: false,
-                        ..
-                    }
-                )
+            let released = input.events.iter().rev().find_map(|event| match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                } => Some(*pos),
+                _ => None,
             });
             (
                 input.pointer.primary_down(),
@@ -775,7 +887,7 @@ impl Renderer<'_> {
                         self.input.pickers.release_required = true;
                         focused_area = None;
                     }
-                } else if let Some(area) = layout.hit(origin, alpha) {
+                } else if let Some(area) = layout.hit(origin) {
                     ui.memory_mut(|memory| memory.request_focus(picker_focus_id(&node.id, area)));
                     self.input.pickers.owns_input = true;
                     self.input.pickers.focus = Some(PickerFocus {
@@ -786,23 +898,24 @@ impl Renderer<'_> {
                     self.input.pickers.gesture = Some(PickerGesture {
                         node: node_key,
                         area,
-                        hsva,
+                        point: origin,
                     });
-                    layout.apply(area, origin, alpha, cache, &mut hsva);
+                    layout.apply(area, origin, cache, &mut hsla);
                     changed = true;
                 }
             }
             if let Some(mut gesture) = self.input.pickers.gesture
                 && gesture.node == node_key
-                && pointer_down
-                && let Some(point) = latest
+                && (pointer_down || pointer_released.is_some())
+                && let Some(point) = pointer_released.or(latest)
+                && point != gesture.point
             {
-                layout.apply(gesture.area, point, alpha, cache, &mut hsva);
-                gesture.hsva = hsva;
+                layout.apply(gesture.area, point, cache, &mut hsla);
+                gesture.point = point;
                 self.input.pickers.gesture = Some(gesture);
                 changed = true;
             }
-            if (pointer_released || !pointer_down)
+            if (pointer_released.is_some() || !pointer_down)
                 && let Some(gesture) = self.input.pickers.gesture
                 && gesture.node == node_key
             {
@@ -814,7 +927,7 @@ impl Renderer<'_> {
                 .gesture
                 .is_some_and(|gesture| gesture.node == node_key)
             {
-                hsva = cache.hsva;
+                hsla = cache.hsla;
             }
 
             // Keyboard editing only while this control owns focus.
@@ -841,51 +954,51 @@ impl Renderer<'_> {
                     match area {
                         PickerArea::Ring => {
                             if arrows[0] {
-                                hsva.h = (hsva.h - step).rem_euclid(360.0);
+                                hsla.h = (hsla.h - step).rem_euclid(360.0);
                                 adjusted = true;
                             } else if arrows[1] {
-                                hsva.h = (hsva.h + step).rem_euclid(360.0);
+                                hsla.h = (hsla.h + step).rem_euclid(360.0);
                                 adjusted = true;
                             }
                             if adjusted {
-                                cache.last_hue = hsva.h;
+                                cache.last_hue = hsla.h;
                             }
                         }
-                        PickerArea::Triangle => {
+                        PickerArea::Square => {
                             if arrows[0] {
-                                hsva.s = (hsva.s - fine).clamp(0.0, 1.0);
+                                hsla.s = (hsla.s - fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             } else if arrows[1] {
-                                hsva.s = (hsva.s + fine).clamp(0.0, 1.0);
+                                hsla.s = (hsla.s + fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             } else if arrows[2] {
-                                hsva.v = (hsva.v + fine).clamp(0.0, 1.0);
+                                hsla.l = (hsla.l + fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             } else if arrows[3] {
-                                hsva.v = (hsva.v - fine).clamp(0.0, 1.0);
+                                hsla.l = (hsla.l - fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             }
                             if adjusted {
-                                if hsva.v > 0.0 {
-                                    cache.last_saturation = hsva.s;
+                                if hsla.l > 0.0 {
+                                    cache.last_saturation = hsla.s;
                                 }
-                                if hsva.s > 0.0 {
-                                    cache.last_hue = hsva.h;
+                                if hsla.s > 0.0 {
+                                    cache.last_hue = hsla.h;
                                 }
                             }
                         }
                         PickerArea::Alpha => {
                             if arrows[0] {
-                                hsva.a = (hsva.a - fine).clamp(0.0, 1.0);
+                                hsla.a = (hsla.a - fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             } else if arrows[1] {
-                                hsva.a = (hsva.a + fine).clamp(0.0, 1.0);
+                                hsla.a = (hsla.a + fine).clamp(0.0, 1.0);
                                 adjusted = true;
                             }
                         }
                     }
                     if adjusted {
-                        cache.hsva = hsva;
+                        cache.hsla = hsla;
                         changed = true;
                     }
                 }
@@ -928,43 +1041,57 @@ impl Renderer<'_> {
             }
             painter.add(egui::Shape::mesh(mesh));
         }
-        // Fixed-direction SV triangle.
-        let vertices = layout.triangle.vertices();
-        let tri_colors = [hue_color(hsva.h), Color32::WHITE, Color32::BLACK];
+        // HSL square: S grows left-to-right, L bottom-to-top. An even grid includes
+        // the pure-color midpoint row and approximates each bilinear half uniformly.
+        const STEPS: u32 = 32;
         let mut mesh = egui::epaint::Mesh::default();
-        for (index, point) in vertices.iter().enumerate() {
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(point[0], point[1]),
-                uv: egui::epaint::WHITE_UV,
-                color: tri_colors[index],
-            });
+        for row in 0..=STEPS {
+            let lightness = 1.0 - row as f32 / STEPS as f32;
+            for column in 0..=STEPS {
+                let saturation = column as f32 / STEPS as f32;
+                let rgba = Hsla {
+                    h: hsla.h,
+                    s: saturation,
+                    l: lightness,
+                    a: 1.0,
+                }
+                .to_rgba();
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: Pos2::new(
+                        layout.square.left() + layout.square.width() * saturation,
+                        layout.square.bottom() - layout.square.height() * lightness,
+                    ),
+                    uv: egui::epaint::WHITE_UV,
+                    color: color(rgba.to_array()),
+                });
+            }
         }
-        mesh.indices.extend([0, 1, 2]);
+        for row in 0..STEPS {
+            for column in 0..STEPS {
+                let top = row * (STEPS + 1) + column;
+                let bottom = top + STEPS + 1;
+                mesh.indices
+                    .extend([top, top + 1, bottom + 1, top, bottom + 1, bottom]);
+            }
+        }
         painter.add(egui::Shape::mesh(mesh));
-        // Preview and alpha over a checkerboard so transparency stays visible.
-        checkerboard(&painter, layout.preview, layout.scale);
-        painter.rect_filled(
-            layout.preview.shrink(1.0),
-            2.0,
-            color(hsva.to_rgba().to_array()),
-        );
-        if alpha {
-            checkerboard(&painter, layout.alpha_bar, layout.scale);
-            let rgba = hsva.to_rgba();
+        // The authoritative RGBA echo stays in the event value; the control itself only
+        // paints the ring, the square and an optional alpha row. Author XML/JS composes
+        // any swatch or HEX label from the bound draft instead.
+        if let Some(bar) = layout.alpha_bar {
+            checkerboard(&painter, bar, layout.scale);
+            let rgba = hsla.to_rgba();
             let start = Color32::from_rgba_unmultiplied(rgba.r, rgba.g, rgba.b, 0);
             let end = Color32::from_rgba_unmultiplied(rgba.r, rgba.g, rgba.b, 255);
             let mut mesh = egui::epaint::Mesh::default();
-            for (x, color) in [
-                (layout.alpha_bar.left(), start),
-                (layout.alpha_bar.right(), end),
-            ] {
+            for (x, color) in [(bar.left(), start), (bar.right(), end)] {
                 mesh.vertices.push(egui::epaint::Vertex {
-                    pos: Pos2::new(x, layout.alpha_bar.top()),
+                    pos: Pos2::new(x, bar.top()),
                     uv: egui::epaint::WHITE_UV,
                     color,
                 });
                 mesh.vertices.push(egui::epaint::Vertex {
-                    pos: Pos2::new(x, layout.alpha_bar.bottom()),
+                    pos: Pos2::new(x, bar.bottom()),
                     uv: egui::epaint::WHITE_UV,
                     color,
                 });
@@ -977,30 +1104,27 @@ impl Renderer<'_> {
             painter.circle_filled(point, 7.0 * layout.scale, Color32::BLACK);
             painter.circle_filled(point, 5.0 * layout.scale, Color32::WHITE);
         };
-        if let Some(area) = focused_area {
-            marker(layout.marker_for(area, hsva));
-        } else if let Some(gesture) = self
-            .input
-            .pickers
-            .gesture
-            .filter(|gesture| gesture.node == node_key)
-        {
-            marker(layout.marker_for(gesture.area, hsva));
+        let area = focused_area.or_else(|| {
+            self.input
+                .pickers
+                .gesture
+                .filter(|gesture| gesture.node == node_key)
+                .map(|gesture| gesture.area)
+        });
+        if let Some(area) = area {
+            if let Some(point) = layout.marker_for(area, hsla) {
+                marker(point);
+            }
         } else {
-            marker(layout.marker_for(PickerArea::Ring, hsva));
-            marker(layout.marker_for(PickerArea::Triangle, hsva));
-            if alpha {
-                marker(layout.marker_for(PickerArea::Alpha, hsva));
+            for area in [PickerArea::Ring, PickerArea::Square] {
+                if let Some(point) = layout.marker_for(area, hsla) {
+                    marker(point);
+                }
+            }
+            if let Some(point) = layout.marker_for(PickerArea::Alpha, hsla) {
+                marker(point);
             }
         }
-        let hex = hsva.to_rgba().format();
-        painter.text(
-            layout.hex,
-            egui::Align2::LEFT_TOP,
-            &hex,
-            FontId::monospace(14.0 * layout.scale),
-            Color32::WHITE,
-        );
         if self
             .input
             .pickers
@@ -1015,8 +1139,8 @@ impl Renderer<'_> {
                 egui::StrokeKind::Inside,
             );
         }
-        if changed && hsva.to_rgba() != committed {
-            self.emit(node, item, json!(hex));
+        if changed && hsla.to_rgba() != committed {
+            self.emit(node, item, json!(hsla.to_rgba().format()));
         }
     }
     fn emit(&mut self, node: &Node, item: &Value, value: Value) {
@@ -1026,7 +1150,10 @@ impl Renderer<'_> {
             self.event = Some(Event {
                 sound: node.sound.clone(),
                 route: node.route.clone(),
-                name: node.event.clone().unwrap_or_default(),
+                key: crate::interface::UiEventKey::ui(
+                    node.id.clone(),
+                    node.event.clone().unwrap_or_default(),
+                ),
                 item: item.clone(),
                 value,
             });
@@ -1136,7 +1263,7 @@ pub fn draw(ui: &mut egui::Ui, input: Input<'_>) -> Option<Event> {
                 renderer.event = Some(Event {
                     sound: None,
                     route: None,
-                    name: event.clone(),
+                    key: crate::interface::UiEventKey::ui(top.clone(), event.clone()),
                     item: Value::Null,
                     value: Value::Null,
                 });

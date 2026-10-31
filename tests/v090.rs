@@ -18,20 +18,20 @@ impl ContentSource for Memory {
     }
 }
 fn source(extra: &str) -> Memory {
-    Memory([("story.xml",r#"<story schema="8" id="callbacks" content-version="9" entry="a"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/><video id="intro" src="intro.mp4"/></assets><variables><int id="n" initial="0" min="0" max="10"/></variables><characters/><visuals/><frames><frame id="a" name="alias"><text>一</text></frame><frame id="b"><text>二</text></frame></frames><next end="true"/></story>"#.into()),("ui.xml",r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen><screen id="movie"/></ui>"#.into()),("story.js",format!("on.advance('a',()=> 'b');on.end('b');{extra}"))].into_iter().map(|(p,s):( &str,String)|(p.into(),s.into_bytes())).collect())
+    Memory([("story.xml",r#"<story schema="8" id="callbacks" content-version="9" entry="a"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/><video id="intro" src="intro.mp4"/></assets><variables><int id="n" initial="0" min="0" max="10"/></variables><characters/><visuals/><frames><frame id="a" name="alias"><text>一</text></frame><frame id="b"><text>二</text></frame></frames><next end="true"/></story>"#.into()),("ui.xml",r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen><screen id="movie"/></ui>"#.into()),("story.js",format!("frame('a').advance(()=> 'b');frame('b').end();{extra}"))].into_iter().map(|(p,s):( &str,String)|(p.into(),s.into_bytes())).collect())
 }
 #[test]
 fn lifecycle_registration_resolves_names_and_rejects_bad_or_duplicate_targets() -> Result<()> {
     let (loaded, _) = loader::load_game(&source(
-        "on.frameEnter('alias',ctx=>{});on.frameExit('a',ctx=>{});on.screenOpen('movie',ctx=>{});on.screenClose('movie',ctx=>{});",
+        "frame('alias').enter(ctx=>{});frame('a').exit(ctx=>{});ui('movie').bind('screen.open', ctx=>{});ui('movie').bind('screen.close', ctx=>{});",
     ))?;
     assert!(loaded.interface.lifecycle.contains_key("frame.enter:a"));
     assert_eq!(loaded.interface.lifecycle.len(), 4);
     for js in [
-        "on.frameEnter('missing',ctx=>{});",
-        "on.screenOpen('missing',ctx=>{});",
-        "on.frameEnter('a',ctx=>{});on.frameEnter('alias',ctx=>{});",
-        "on.screenClose('movie',ctx=>{});on.screenClose('movie',ctx=>{});",
+        "frame('missing').enter(ctx=>{});",
+        "ui('missing').bind('screen.open', ctx=>{});",
+        "frame('a').enter(ctx=>{});frame('alias').enter(ctx=>{});",
+        "ui('movie').bind('screen.close', ctx=>{});ui('movie').bind('screen.close', ctx=>{});",
     ] {
         assert!(loader::load_game(&source(js)).is_err(), "{js}");
     }
@@ -62,14 +62,18 @@ impl Logic for Pure {
         frame: &str,
         _: Option<&str>,
         _: &Variables,
-    ) -> std::result::Result<Option<TransitionRule>, String> {
+    ) -> std::result::Result<Option<TransitionRule>, kakera_avg::model::Diagnostic> {
         Ok(Some(TransitionRule::plain(if frame == "a" {
             "b"
         } else {
             "a"
         })))
     }
-    fn options(&self, _: &Story, _: &Session) -> std::result::Result<Vec<String>, String> {
+    fn options(
+        &self,
+        _: &Story,
+        _: &Session,
+    ) -> std::result::Result<Vec<String>, kakera_avg::model::Diagnostic> {
         Ok(vec![])
     }
 }

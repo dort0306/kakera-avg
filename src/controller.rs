@@ -9,11 +9,11 @@ pub enum Intent {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct ControlError(pub String);
+pub struct ControlError(pub crate::model::Diagnostic);
 
 impl fmt::Display for ControlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        self.0.fmt(f)
     }
 }
 
@@ -31,9 +31,9 @@ pub fn transition_with(
     logic: &dyn Logic,
 ) -> Result<Transition, ControlError> {
     if story.frame(session).is_none() {
-        return Err(ControlError(format!(
-            "当前场景不存在：{}",
-            session.frame_id
+        return Err(ControlError(crate::model::Diagnostic::new(
+            "host-controller-0001",
+            &[("arg0", session.frame_id.to_string())],
         )));
     }
     story
@@ -45,7 +45,10 @@ pub fn transition_with(
     };
     let rule = if let Intent::Resume(target) = &intent {
         if !story.frames.contains_key(target) {
-            return Err(ControlError("UI 返回目标不存在".into()));
+            return Err(ControlError(crate::model::Diagnostic::new(
+                "host-controller-0003",
+                &[],
+            )));
         }
         Some(crate::model::TransitionRule::plain(target.clone()))
     } else {
@@ -66,7 +69,10 @@ pub fn transition_with(
     };
     let target = &rule.to;
     if !story.frames.contains_key(target) {
-        return Err(ControlError(format!("目标场景不存在：{target}")));
+        return Err(ControlError(crate::model::Diagnostic::new(
+            "host-controller-0002",
+            &[("arg0", target.to_string())],
+        )));
     }
     let mut next = session.clone();
     next.variables =
@@ -74,9 +80,12 @@ pub fn transition_with(
     let last = next
         .history
         .last_mut()
-        .ok_or_else(|| ControlError("会话历史为空".into()))?;
+        .ok_or_else(|| ControlError(crate::model::Diagnostic::new("host-controller-0004", &[])))?;
     if last.frame_id != session.frame_id || (last.choice_id.is_some() || last.resume_to.is_some()) {
-        return Err(ControlError("会话历史末尾与当前场景不一致".into()));
+        return Err(ControlError(crate::model::Diagnostic::new(
+            "host-controller-0005",
+            &[],
+        )));
     }
     last.choice_id = choice_id;
     last.resume_to = if matches!(intent, Intent::Resume(_)) {
@@ -103,7 +112,9 @@ pub fn transition_with(
                     &next.history_base_variables,
                 )
                 .map_err(ControlError)?
-                .ok_or_else(|| ControlError("历史检查点缺少有效流转".into()))?
+                .ok_or_else(|| {
+                    ControlError(crate::model::Diagnostic::new("host-controller-0006", &[]))
+                })?
         };
         next.history_base_variables =
             rules::apply_effects(story, &next.history_base_variables, &dropped.effects)

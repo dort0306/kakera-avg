@@ -11,7 +11,7 @@ use kakera_avg::{
     save::Snapshot,
     settings::Settings,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::path::{Path, PathBuf};
 
 static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -182,19 +182,16 @@ fn retirement_and_reentry_are_bounded_and_restore_has_no_clocks() {
 #[test]
 fn js_commands_validate_candidate_slot_and_pose_without_mutating_old_state() {
     let mut src = source();
-    src.js.push_str("\non.ui('test-portrait',ctx=>{ctx.setUi('status','changed');ctx.portrait('center','fall-left');ctx.choose('fall-left');});");
+    src.js = src.js.replace(
+        r#"ui("fxDurationSlider").bind("fx-duration", ctx => ctx.setUi("fxDuration", Math.round(ctx.value)));"#,
+        r#"ui("fxDurationSlider").bind("fx-duration", ctx=>{ctx.setUi('status','changed');ctx.portrait('center','fall-left');ctx.choose('fall-left');});"#,
+    );
     let (loaded, logic) = load_game(&src).unwrap();
     let def = loaded.interface;
     let state = State::new(&def);
     let commands = logic
         .ui_event(
-            &Event {
-                sound: None,
-                route: None,
-                name: "test-portrait".into(),
-                item: Value::Null,
-                value: Value::Null,
-            },
+            &Event::ui("fxDurationSlider", "fx-duration"),
             &loaded.story.start(),
             &state.variables,
             &json!({"game":{}}),

@@ -10,11 +10,12 @@ use kakera_avg::{
     model::{Logic, effects::*},
     settings::Settings,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+mod common;
 
 static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let source =
@@ -222,9 +223,10 @@ fn effect_xml_is_strict_and_reference_errors_have_positions() {
 #[test]
 fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only() {
     let js = format!(
-        "{JS}\non.ui('test',ctx=>{{ctx.setUi('status','changed');ctx.animate('missing','shake');}});on.ui('bad-transition',ctx=>ctx.transition('dissolve'));on.ui('good',ctx=>ctx.animate('scene','shake',600,20));on.ui('repeat-target',ctx=>ctx.animate('cgThumbnail','fade-in')); "
+        "{JS}\nui('test').bind('test', ctx=>{{ctx.setUi('status','changed');ctx.animate('missing','shake');}});ui('bad-transition').bind('bad-transition', ctx=>ctx.transition('dissolve'));ui('good').bind('good', ctx=>ctx.animate('scene','shake',600,20));ui('repeat-target').bind('repeat-target', ctx=>ctx.animate('cgThumbnail','fade-in')); "
     );
-    let (loaded, logic) = load_game(&source(&STORY, &UI, &js)).unwrap();
+    let ui = common::probe(&UI, &["test", "bad-transition", "repeat-target", "good"]);
+    let (loaded, logic) = load_game(&source(&STORY, &ui, &js)).unwrap();
     let def = loaded.interface;
     let state = State::new(&def);
     let profile = Profile::new(&loaded.story.id, &def);
@@ -232,13 +234,7 @@ fn js_effect_commands_are_validated_atomically_and_transition_is_lifecycle_only(
     for name in ["test", "bad-transition", "repeat-target", "good"] {
         let commands = logic
             .ui_event(
-                &Event {
-                    sound: None,
-                    route: None,
-                    name: name.into(),
-                    item: Value::Null,
-                    value: Value::Null,
-                },
+                &Event::ui(name, name),
                 &loaded.story.start(),
                 &state.variables,
                 &json!({"game":{},"settings":{}}),

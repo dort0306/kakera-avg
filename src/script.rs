@@ -1,6 +1,7 @@
 //! QuickJS adapter. All persistent state and commit validation stay in Rust.
 use crate::{
     content::{self, ContentSource},
+    interface::{EventCategory, UiEventKey},
     model::*,
 };
 use anyhow::{Context as _, Result, ensure};
@@ -14,10 +15,34 @@ use std::{
 };
 
 impl ScriptLogic {
-    pub fn ui_handlers(&self) -> Result<BTreeSet<String>> {
-        Ok(serde_json::from_str(
-            &self.evaluate(json!({"mode":"ui-manifest"}))?,
-        )?)
+    /// Structured `frame(...)`/`ui(...)` registrations, each with its author call site.
+    pub fn ui_registrations(&self) -> Result<Vec<crate::interface::Registration>> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Entry {
+            category: String,
+            target: String,
+            event: String,
+            location: String,
+        }
+        let entries: Vec<Entry> =
+            serde_json::from_str(&self.evaluate(json!({"mode":"ui-manifest"}))?)?;
+        entries
+            .into_iter()
+            .map(|entry| {
+                let category = EventCategory::parse(&entry.category).with_context(|| {
+                    crate::i18n::format("host-script-0019", &[("arg0", entry.category.to_string())])
+                })?;
+                Ok(crate::interface::Registration {
+                    key: UiEventKey {
+                        category,
+                        target: entry.target,
+                        event: entry.event,
+                    },
+                    location: entry.location,
+                })
+            })
+            .collect()
     }
     pub fn ui_event(
         &self,
@@ -26,9 +51,12 @@ impl ScriptLogic {
         ui: &Variables,
         snapshot: &Value,
     ) -> Result<Vec<crate::interface::host::Command>> {
+        let key = &event.key;
         let mut request = self.frame_request("ui", &session.frame_id, None, &session.variables);
         request["uiVariables"] = ScriptLogic::request("ui", "", None, ui)["variables"].clone();
-        request["event"] = json!(event.name);
+        request["category"] = json!(key.category.id());
+        request["target"] = json!(key.target);
+        request["event"] = json!(key.event);
         request["item"] = event.item.clone();
         request["value"] = event.value.clone();
         request["snapshot"] = snapshot.clone();
@@ -47,6 +75,16 @@ struct Registration {
     frame: String,
     kind: String,
     options: Vec<String>,
+    location: String,
+    routes: Vec<RouteEntry>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RouteEntry {
+    #[serde(deserialize_with = "Option::deserialize")]
+    option: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    target: Option<String>,
     location: String,
 }
 
@@ -78,7 +116,11 @@ impl ScriptLogic {
         for path in paths {
             let code = content::text(source, path)?;
             total += code.len();
-            ensure!(total <= 1024 * 1024, "JS 源码总量超过 1MiB");
+            ensure!(
+                total <= 1024 * 1024,
+                "{}",
+                crate::i18n::format("host-script-0001", &[])
+            );
             files.push((path.to_string_lossy().into_owned(), code));
         }
         let mut logic = Self {
@@ -89,15 +131,21 @@ impl ScriptLogic {
             serde_json::from_str(&logic.evaluate(json!({"mode":"manifest"}))?)?;
         let mut routes = BTreeMap::new();
         for item in manifest {
-            let actual_frame = story
-                .resolve_frame(&item.frame)
-                .with_context(|| format!("{}：未知触发器场景 {}", item.location, item.frame))?;
+            let actual_frame = story.resolve_frame(&item.frame).with_context(|| {
+                crate::i18n::format(
+                    "host-script-0002",
+                    &[
+                        ("arg0", item.location.to_string()),
+                        ("arg1", item.frame.to_string()),
+                    ],
+                )
+            })?;
             let frame = &story.frames[actual_frame];
             let kind = match item.kind.as_str() {
                 "advance" => Route::Advance,
                 "choice" => Route::Choice,
                 "end" => Route::End,
-                _ => anyhow::bail!("未知触发器类型"),
+                _ => anyhow::bail!("{}", crate::i18n::format("host-script-0003", &[])),
             };
             let expected: BTreeSet<_> = frame.options.iter().map(|item| &item.id).collect();
             let actual: BTreeSet<_> = item.options.iter().collect();
@@ -107,14 +155,34 @@ impl ScriptLogic {
                 } else {
                     expected.is_empty() && actual.is_empty()
                 },
-                "{}：场景 {} 的触发器与 XML 选项不一致",
-                item.location,
-                item.frame
+                "{}",
+                crate::i18n::format(
+                    "host-script-0004",
+                    &[
+                        ("arg0", item.location.to_string()),
+                        ("arg1", item.frame.to_string())
+                    ]
+                )
             );
+            Self::validate_routes(&frame.id, kind, &item.options, &item.routes)?;
+            for entry in &item.routes {
+                if let Some(target) = &entry.target {
+                    story.resolve_frame(target).with_context(|| {
+                        crate::i18n::format(
+                            "host-script-0022",
+                            &[
+                                ("arg0", entry.location.to_string()),
+                                ("arg1", target.to_string()),
+                                ("arg2", item.frame.to_string()),
+                            ],
+                        )
+                    })?;
+                }
+            }
             ensure!(
                 routes.insert(actual_frame.to_owned(), kind).is_none(),
-                "重复触发器：{}",
-                item.frame
+                "{}",
+                crate::i18n::format("host-script-0005", &[("arg0", item.frame.to_string())])
             );
             logic.frames.insert(
                 actual_frame.to_owned(),
@@ -122,10 +190,46 @@ impl ScriptLogic {
             );
         }
         for frame in story.frames.keys() {
-            ensure!(routes.contains_key(frame), "JS 缺少场景触发器：{frame}");
+            ensure!(
+                routes.contains_key(frame),
+                "{}",
+                crate::i18n::format("host-script-0006", &[("arg0", frame.to_string())])
+            );
         }
         story.routes = routes;
         Ok(logic)
+    }
+
+    /// The bridge already rejects mixed routes; this keeps the trusted manifest honest and
+    /// pairs every declared target with its own author call site.
+    fn validate_routes(
+        frame: &str,
+        kind: Route,
+        options: &[String],
+        routes: &[RouteEntry],
+    ) -> Result<()> {
+        let expected: Vec<&str> = match kind {
+            Route::Advance => vec![""],
+            Route::Choice => options.iter().map(String::as_str).collect(),
+            Route::End => Vec::new(),
+        };
+        ensure!(
+            routes.len() == expected.len(),
+            "{}",
+            crate::i18n::format("host-script-0020", &[("arg0", frame.to_string())])
+        );
+        for (entry, want) in routes.iter().zip(expected) {
+            let actual = entry.option.as_deref().unwrap_or_default();
+            ensure!(
+                actual == want,
+                "{}",
+                crate::i18n::format(
+                    "host-script-0021",
+                    &[("arg0", frame.to_string()), ("arg1", actual.to_string())]
+                )
+            );
+        }
+        Ok(())
     }
 
     fn evaluate(&self, request: Value) -> Result<String> {
@@ -145,32 +249,53 @@ impl ScriptLogic {
             let bridge: Function = ctx
                 .eval_with_options(include_str!("script/bridge.js"), engine_options)
                 .catch(&ctx)
-                .map_err(|error| anyhow::anyhow!("QuickJS 初始化：{error}"))?;
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format("host-script-0007", &[("arg0", error.to_string())])
+                    )
+                })?;
             for (path, code) in &self.files {
                 let mut options = EvalOptions::default();
                 options.filename = Some(path.clone());
                 options.strict = true;
                 ctx.eval_with_options::<(), _>(code.as_bytes(), options)
                     .catch(&ctx)
-                    .map_err(|error| anyhow::anyhow!("{path}：QuickJS：{error}"))?;
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "{path}：QuickJS：{}",
+                            crate::i18n::diagnostics(&error.to_string())
+                        )
+                    })?;
             }
             bridge
                 .call((request.to_string(),))
                 .catch(&ctx)
                 .map_err(|error| {
                     anyhow::anyhow!(
-                        "JS 回调（{}）：{error}",
-                        self.files
-                            .iter()
-                            .map(|(name, _)| name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        "{}",
+                        crate::i18n::format(
+                            "host-script-0008",
+                            &[
+                                (
+                                    "arg0",
+                                    self.files
+                                        .iter()
+                                        .map(|(name, _)| name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                        .to_string()
+                                ),
+                                ("arg1", error.to_string())
+                            ]
+                        )
                     )
                 })
         })?;
         ensure!(
             !runtime.is_job_pending(),
-            "JS 不支持异步任务或 Promise 回调"
+            "{}",
+            crate::i18n::format("host-script-0009", &[])
         );
         Ok(result)
     }
@@ -219,7 +344,7 @@ impl Logic for ScriptLogic {
         frame: &str,
         choice: Option<&str>,
         vars: &Variables,
-    ) -> Result<Option<TransitionRule>, String> {
+    ) -> Result<Option<TransitionRule>, crate::model::Diagnostic> {
         (|| -> Result<_> {
             if choice.is_none()
                 && matches!(story.routes.get(frame), Some(Route::Choice | Route::End))
@@ -232,9 +357,15 @@ impl Logic for ScriptLogic {
             };
             let to = story
                 .resolve_frame(&output.to)
-                .with_context(|| format!("JS 目标场景不存在：{}", output.to))?
+                .with_context(|| {
+                    crate::i18n::format("host-script-0010", &[("arg0", output.to.to_string())])
+                })?
                 .to_owned();
-            ensure!(output.effects.len() <= 128, "JS 更新超过 128 项");
+            ensure!(
+                output.effects.len() <= 128,
+                "{}",
+                crate::i18n::format("host-script-0011", &[])
+            );
             let effects = output
                 .effects
                 .into_iter()
@@ -242,7 +373,9 @@ impl Logic for ScriptLogic {
                     Ok(match item {
                         Update::Add { variable, amount } => Effect::Add {
                             variable,
-                            amount: amount.parse().context("JS add 超出 i64")?,
+                            amount: amount
+                                .parse()
+                                .context(crate::i18n::text("host-script-0013"))?,
                         },
                         Update::Set {
                             variable,
@@ -254,17 +387,25 @@ impl Logic for ScriptLogic {
                                 "int" => VariableValue::Int(
                                     value
                                         .as_str()
-                                        .context("JS int 格式错误")?
+                                        .context(crate::i18n::text("host-script-0014"))?
                                         .parse()
-                                        .context("JS int 超出 i64")?,
+                                        .context(crate::i18n::text("host-script-0015"))?,
                                 ),
                                 "bool" => VariableValue::Bool(
-                                    value.as_bool().context("JS bool 格式错误")?,
+                                    value
+                                        .as_bool()
+                                        .context(crate::i18n::text("host-script-0016"))?,
                                 ),
                                 "string" => VariableValue::String(
-                                    value.as_str().context("JS string 格式错误")?.into(),
+                                    value
+                                        .as_str()
+                                        .context(crate::i18n::text("host-script-0017"))?
+                                        .into(),
                                 ),
-                                _ => anyhow::bail!("JS 返回未知变量类型"),
+                                _ => anyhow::bail!(
+                                    "{}",
+                                    crate::i18n::format("host-script-0012", &[])
+                                ),
                             },
                         },
                     })
@@ -274,11 +415,17 @@ impl Logic for ScriptLogic {
             rules::apply_effects(story, vars, &effects).map_err(anyhow::Error::msg)?;
             Ok(Some(TransitionRule { to, effects }))
         })()
-        .map_err(|error| format!("{error:#}"))
+        .map_err(|error| crate::model::Diagnostic::from(format!("{error:#}")))
     }
-    fn options(&self, story: &Story, session: &Session) -> Result<Vec<String>, String> {
+    fn options(
+        &self,
+        story: &Story,
+        session: &Session,
+    ) -> Result<Vec<String>, crate::model::Diagnostic> {
         (|| -> Result<_> {
-            let frame = story.frame(session).context("当前场景不存在")?;
+            let frame = story
+                .frame(session)
+                .context(crate::i18n::text("host-script-0018"))?;
             let mut names = Vec::new();
             // Each guard sees the same fresh globals as its actual choice dispatch.
             // One guard cannot affect another guard through a captured JS variable.
@@ -295,6 +442,6 @@ impl Logic for ScriptLogic {
             }
             Ok(names)
         })()
-        .map_err(|error| format!("{error:#}"))
+        .map_err(|error| crate::model::Diagnostic::from(format!("{error:#}")))
     }
 }

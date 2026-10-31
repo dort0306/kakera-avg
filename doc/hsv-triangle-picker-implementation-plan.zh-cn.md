@@ -1,5 +1,7 @@
 # 工作包 C：三角 HSV 颜色选择器与玩家配色落地方案
 
+> 2026-10-30：用户已放弃本三角方案，当前实现改为 [HSL 圆环与正方形](hsl-square-picker.zh-cn.md)。本文件保留历史设计。
+
 起草日期：2026-10-29；版本定稿：2026-10-30。本文保留原落地设计，功能及后续修复统一归入 **v0.10.0**。下文现状、拟定接口和分工描述对应起草阶段；当前支持的接口与限制以 [API](xml-js-api.zh-cn.md) 为准，实际通过项和未验项见 [验收记录](ui-extensibility-validation.zh-cn.md) 与 [独立复验](ui-extensibility-independent-review.zh-cn.md)。
 
 ## 1. 需求拆分与必要扩展

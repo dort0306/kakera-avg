@@ -52,7 +52,14 @@ fn manifest(root: &Path) -> Result<Option<Vec<u8>>> {
     std::fs::File::open(path)?
         .take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 1024 * 1024, "{MANIFEST} 超过 1MiB");
+    ensure!(
+        bytes.len() <= 1024 * 1024,
+        "{}",
+        crate::i18n::format(
+            "host-package-selection-0001",
+            &[("arg0", MANIFEST.to_string())]
+        )
+    );
     Ok(Some(bytes))
 }
 fn extras(root: &Path, bytes: Option<&[u8]>) -> Result<BTreeSet<PathBuf>> {
@@ -63,21 +70,32 @@ fn extras(root: &Path, bytes: Option<&[u8]>) -> Result<BTreeSet<PathBuf>> {
         let kind = std::fs::symlink_metadata(path)?.file_type();
         ensure!(
             !kind.is_symlink(),
-            "许可证目录不允许符号链接：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-package-selection-0002",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         if kind.is_dir() {
             for entry in std::fs::read_dir(path)? {
                 licenses(root, &entry?.path(), output)?;
             }
         } else {
-            ensure!(kind.is_file(), "许可证不是普通文件");
+            ensure!(
+                kind.is_file(),
+                "{}",
+                crate::i18n::format("host-package-selection-0003", &[])
+            );
             output.insert(PathBuf::from(
                 path.strip_prefix(root)?
                     .to_string_lossy()
                     .replace('\\', "/"),
             ));
-            ensure!(output.len() <= 100000, "许可证文件超过预算");
+            ensure!(
+                output.len() <= 100000,
+                "{}",
+                crate::i18n::format("host-package-selection-0004", &[])
+            );
         }
         Ok(())
     }
@@ -89,16 +107,25 @@ fn extras(root: &Path, bytes: Option<&[u8]>) -> Result<BTreeSet<PathBuf>> {
         let parsed: Manifest = serde_json::from_slice(bytes).context(MANIFEST)?;
         ensure!(
             parsed.schema == 1 && parsed.include.len() <= 100000,
-            "{MANIFEST} schema/条数无效"
+            "{}",
+            crate::i18n::format(
+                "host-package-selection-0005",
+                &[("arg0", MANIFEST.to_string())]
+            )
         );
         let mut seen = BTreeSet::new();
         for name in parsed.include {
             let path = PathBuf::from(&name);
             validate_path(&path)?;
-            ensure!(name.len() <= 1024 && name != MANIFEST, "附加文件路径无效");
+            ensure!(
+                name.len() <= 1024 && name != MANIFEST,
+                "{}",
+                crate::i18n::format("host-package-selection-0006", &[])
+            );
             ensure!(
                 seen.insert(name.to_lowercase()),
-                "附加文件重复/大小写冲突：{name}"
+                "{}",
+                crate::i18n::format("host-package-selection-0007", &[("arg0", name.to_string())])
             );
             paths.insert(path);
         }
@@ -110,10 +137,13 @@ pub(super) fn validate_selected(root: &Path, paths: &[PathBuf]) -> Result<()> {
     let mut seen = BTreeSet::new();
     for path in paths {
         validate_path(path)?;
-        let name = path.to_str().context("路径必须 UTF-8")?;
+        let name = path
+            .to_str()
+            .context(crate::i18n::text("host-package-selection-0015"))?;
         ensure!(
             name.len() <= 1024 && seen.insert(name.to_lowercase()),
-            "路径过长/大小写冲突：{name}"
+            "{}",
+            crate::i18n::format("host-package-selection-0008", &[("arg0", name.to_string())])
         );
         let mut current = root.to_owned();
         for part in path.components() {
@@ -121,14 +151,25 @@ pub(super) fn validate_selected(root: &Path, paths: &[PathBuf]) -> Result<()> {
             let kind = std::fs::symlink_metadata(&current)?.file_type();
             ensure!(
                 !super::excluded(
-                    part.as_os_str().to_str().context("路径必须 UTF-8")?,
+                    part.as_os_str()
+                        .to_str()
+                        .context(crate::i18n::text("host-package-selection-0016"))?,
                     kind.is_dir()
                 ),
-                "发布依赖/附加文件使用保留名称：{name}"
+                "{}",
+                crate::i18n::format("host-package-selection-0009", &[("arg0", name.to_string())])
             );
-            ensure!(!kind.is_symlink(), "不允许符号链接：{name}");
+            ensure!(
+                !kind.is_symlink(),
+                "{}",
+                crate::i18n::format("host-package-selection-0010", &[("arg0", name.to_string())])
+            );
         }
-        ensure!(current.is_file(), "附加/依赖项不是普通文件：{name}");
+        ensure!(
+            current.is_file(),
+            "{}",
+            crate::i18n::format("host-package-selection-0011", &[("arg0", name.to_string())])
+        );
     }
     Ok(())
 }
@@ -149,7 +190,11 @@ impl Selection {
         if bytes.is_some() {
             paths.insert(MANIFEST.into());
         }
-        ensure!(paths.len() <= 100000, "发布文件超过 100000");
+        ensure!(
+            paths.len() <= 100000,
+            "{}",
+            crate::i18n::format("host-package-selection-0012", &[])
+        );
         validate_selected(&root, &paths.iter().cloned().collect::<Vec<_>>())?;
         Ok(Self {
             paths,
@@ -166,7 +211,8 @@ impl Selection {
     ) -> Result<()> {
         ensure!(
             dependencies(source, options)? == self.required,
-            "依赖发现期间工程改变，请重试"
+            "{}",
+            crate::i18n::format("host-package-selection-0013", &[])
         );
         self.ensure_unchanged()
     }
@@ -175,7 +221,8 @@ impl Selection {
         ensure!(
             bytes.as_ref().map(|v| <[u8; 32]>::from(Sha256::digest(v))) == self.manifest_hash
                 && extras(&self.root, bytes.as_deref())? == self.extra,
-            "发布清单/许可证列表改变，请重试"
+            "{}",
+            crate::i18n::format("host-package-selection-0014", &[])
         );
         Ok(())
     }

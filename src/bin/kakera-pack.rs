@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, ensure};
+use kakera_avg::i18n;
 use kakera_avg::{
     package::{self, Snapshot, StagedProject},
     runtime::{Bundle, LoadOptions},
@@ -7,12 +8,13 @@ use std::path::PathBuf;
 fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let Some(first) = args.next() else {
-        anyhow::bail!(
-            "用法：kakera-pack <工程目录> <输出.kpak> [--format 1|2] [--force] [--level 1..22] [--cubism-core DLL] [--no-live2d]"
-        )
+        anyhow::bail!("{}", crate::i18n::format("host-bin-kakera-pack-0001", &[]))
     };
     let root = PathBuf::from(first).canonicalize()?;
-    let output = PathBuf::from(args.next().context("缺少输出路径")?);
+    let output = PathBuf::from(
+        args.next()
+            .context(crate::i18n::text("host-bin-kakera-pack-0010"))?,
+    );
     let mut force = false;
     let mut level = 19;
     let mut format = 2;
@@ -24,20 +26,37 @@ fn run() -> Result<()> {
         if arg == "--force" {
             force = true;
         } else if arg == "--level" {
-            level = args.next().context("缺少级别")?.to_string_lossy().parse()?;
+            level = args
+                .next()
+                .context(crate::i18n::text("host-bin-kakera-pack-0011"))?
+                .to_string_lossy()
+                .parse()?;
         } else if arg == "--format" {
             format = args
                 .next()
-                .context("缺少资源包格式")?
+                .context(crate::i18n::text("host-bin-kakera-pack-0012"))?
                 .to_string_lossy()
                 .parse()?;
-            ensure!([1, 2].contains(&format), "资源包格式只能 1/2");
+            ensure!(
+                [1, 2].contains(&format),
+                "{}",
+                crate::i18n::format("host-bin-kakera-pack-0002", &[])
+            );
         } else if arg == "--cubism-core" {
-            options.core = Some(PathBuf::from(args.next().context("缺少 DLL 路径")?));
+            options.core = Some(PathBuf::from(
+                args.next()
+                    .context(crate::i18n::text("host-bin-kakera-pack-0013"))?,
+            ));
         } else if arg == "--no-live2d" {
             options.no_live2d = true;
         } else {
-            anyhow::bail!("未知参数 {arg:?}");
+            anyhow::bail!(
+                "{}",
+                crate::i18n::format(
+                    "host-bin-kakera-pack-0003",
+                    &[("arg0", format!("{:?}", arg))]
+                )
+            );
         }
     }
     let parent = output
@@ -47,11 +66,13 @@ fn run() -> Result<()> {
     std::fs::create_dir_all(parent)?;
     ensure!(
         !parent.canonicalize()?.starts_with(&root),
-        "输出包必须位于工程目录之外"
+        "{}",
+        crate::i18n::format("host-bin-kakera-pack-0004", &[])
     );
     ensure!(
         force || !output.exists(),
-        "输出已存在，使用 --force 才能原子覆盖"
+        "{}",
+        crate::i18n::format("host-bin-kakera-pack-0005", &[])
     );
     let selection = package::selection::Selection::discover(&root, &options)?;
     let paths = selection.paths.iter().cloned().collect::<Vec<_>>();
@@ -74,7 +95,8 @@ fn run() -> Result<()> {
         Bundle::load(&verified, &options)?;
         ensure!(
             snapshot.fingerprint() == Snapshot::directory_selected(&root, &paths)?.fingerprint(),
-            "校验期间工程改变，请重新打包"
+            "{}",
+            crate::i18n::format("host-bin-kakera-pack-0006", &[])
         );
         selection.ensure_unchanged()?;
         package::write(&output, &bytes, force)?;
@@ -85,20 +107,41 @@ fn run() -> Result<()> {
             bytes.len() as u64,
         )
     };
-    println!("剧本合并：{chapters} 个 XML → story.xml");
     println!(
-        "KPAK {format} 打包完成：{}\n{} 文件，原始 {} 字节，资源包 {} 字节（{:.1}%）",
-        output.display(),
-        count,
-        expanded,
-        packed,
-        100.0 * packed as f64 / expanded.max(1) as f64
+        "{}",
+        crate::i18n::format(
+            "host-bin-kakera-pack-0007",
+            &[("arg0", chapters.to_string())]
+        )
+    );
+    println!(
+        "{}",
+        crate::i18n::format(
+            "host-bin-kakera-pack-0008",
+            &[
+                ("arg0", format.to_string()),
+                ("arg1", format!("{}", output.display())),
+                ("arg2", count.to_string()),
+                ("arg3", expanded.to_string()),
+                ("arg4", packed.to_string()),
+                (
+                    "arg5",
+                    format!("{:.1}", 100.0 * packed as f64 / expanded.max(1) as f64)
+                )
+            ]
+        )
     );
     Ok(())
 }
 fn main() {
     if let Err(error) = run() {
-        eprintln!("打包失败：{error:#}");
+        eprintln!(
+            "{}",
+            crate::i18n::format(
+                "host-bin-kakera-pack-0009",
+                &[("arg0", format!("{:#}", error))]
+            )
+        );
         std::process::exit(1);
     }
 }

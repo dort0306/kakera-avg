@@ -4,9 +4,9 @@
     <panel id="colorsPanel" x="60" y="20" width="1160" height="680" image="ui.panel">
       <label id="colorsTitle" x="30" y="20" width="700" height="40" text="界面配色" font-size="28" color="#F0CA89" />
       <button id="colorsClose" x="1040" y="20" width="88" height="38" text="返回" route="close" image="ui.button" />
-      <label id="colorsHelp" x="30" y="66" width="1080" height="26" text="色相环 + 三角形饱和度/明度。拖动只修改草稿，点“应用”才写入独立配色偏好。" font-size="16" />
-      <color-picker id="backgroundPicker" x="40" y="110" width="256" height="320" value="ui.dialogueBgDraft" event="color-bg" alpha="true" />
-      <color-picker id="textPicker" x="330" y="110" width="256" height="320" value="ui.dialogueTextDraft" event="color-text" alpha="false" />
+      <label id="colorsHelp" x="30" y="66" width="1080" height="26" text="色相环 + 正方形（横向饱和度、纵向亮度）。控件只负责编辑草稿；右侧色块与 HEX 由页面绑定同一草稿独立显示。" font-size="16" />
+      <color-picker id="backgroundPicker" x="40" y="110" width="256" height="282" value="ui.dialogueBgDraft" event="color-bg" alpha="true" />
+      <color-picker id="textPicker" x="330" y="110" width="256" height="256" value="ui.dialogueTextDraft" event="color-text" alpha="false" />
       <panel id="colorPreview" x="640" y="110" width="450" height="220" color-bind="ui.dialogueBgDraft" />
       <label id="colorPreviewText" x="672" y="180" width="390" height="80" text="对话预览：这段文字实时使用草稿文字色。" color-bind="ui.dialogueTextDraft" font-size="22" />
       <label id="bgValue" x="640" y="345" width="440" height="26" bind="ui.dialogueBgDraft" font-size="17" color="#B9C6D2" />
@@ -16,7 +16,7 @@
       <button id="colorsCancel" x="960" y="420" width="130" height="44" text="取消" event="color-cancel" image="ui.button" hover-image="ui.hover" />
       <label id="colorStatus" x="640" y="480" width="450" height="28" bind="ui.colorStatus" font-size="17" color="#F0CA89" />
       <label id="colorsNote" x="40" y="620" width="1080" height="30" text="正式对话面板绑定已提交配色；编辑页预览只绑定草稿，取消不会改写已保存颜色。" font-size="15" color="#8195A3" />
-      <label id="colorsHex" x="40" y="455" width="560" height="26" text="左侧面板色支持透明度，右侧文字色不显示 alpha 条。" font-size="15" color="#8195A3" />
+      <label id="colorsHex" x="40" y="455" width="560" height="26" text="左侧带透明度条，右侧不带；右侧色块与两行 HEX 绑定草稿。" font-size="15" color="#8195A3" />
     </panel>
   </screen>
 </ui>

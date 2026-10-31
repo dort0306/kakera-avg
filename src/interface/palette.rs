@@ -23,7 +23,8 @@ impl Colors {
     ) -> Result<BTreeMap<String, Rgba>> {
         ensure!(
             self.overrides.keys().all(|id| palette.contains_key(id)),
-            "配色覆盖包含未声明的槽位"
+            "{}",
+            crate::i18n::format("host-interface-palette-0001", &[])
         );
         Ok(palette
             .iter()
@@ -66,20 +67,28 @@ impl<'de> Deserialize<'de> for Overrides {
         impl<'de> Visitor<'de> for MapVisitor {
             type Value = Overrides;
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("配色槽位对象")
+                formatter.write_str(crate::i18n::text("host-interface-palette-0011"))
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
                 let mut output = BTreeMap::new();
                 let mut keys = std::collections::BTreeSet::new();
                 while let Some((key, value)) = map.next_entry::<String, String>()? {
                     if !keys.insert(key.clone()) {
-                        return Err(A::Error::custom(format!("重复配色槽位：{key}")));
+                        return Err(A::Error::custom(crate::i18n::format(
+                            "host-interface-palette-0002",
+                            &[("arg0", key.to_string())],
+                        )));
                     }
-                    let color = Rgba::parse(&value)
-                        .map_err(|reason| A::Error::custom(format!("槽位 {key}：{reason}")))?;
+                    let color = Rgba::parse(&value).map_err(|reason| {
+                        A::Error::custom(crate::i18n::format(
+                            "host-interface-palette-0003",
+                            &[("arg0", key.to_string()), ("arg1", reason.to_string())],
+                        ))
+                    })?;
                     if color.format() != value {
-                        return Err(A::Error::custom(format!(
-                            "槽位 {key} 的值必须是规范九字符大写 RGBA"
+                        return Err(A::Error::custom(crate::i18n::format(
+                            "host-interface-palette-0004",
+                            &[("arg0", key.to_string())],
                         )));
                     }
                     output.insert(key, color);
@@ -106,17 +115,38 @@ impl ColorsFile {
     ) -> Result<Colors> {
         ensure!(
             bytes.len() as u64 <= MAX_FILE_BYTES,
-            "配色偏好超过 {MAX_FILE_BYTES} 字节"
+            "{}",
+            crate::i18n::format(
+                "host-interface-palette-0005",
+                &[("arg0", MAX_FILE_BYTES.to_string())]
+            )
         );
-        let file: Self = serde_json::from_slice(bytes).context("配色偏好 JSON 无效")?;
-        ensure!(file.schema_version == 1, "配色偏好 schema 必须为 1");
-        ensure!(file.story_id == story_id, "配色偏好的故事 ID 不匹配");
+        let file: Self = serde_json::from_slice(bytes)
+            .context(crate::i18n::text("host-interface-palette-0012"))?;
+        ensure!(
+            file.schema_version == 1,
+            "{}",
+            crate::i18n::format("host-interface-palette-0006", &[])
+        );
+        ensure!(
+            file.story_id == story_id,
+            "{}",
+            crate::i18n::format("host-interface-palette-0007", &[])
+        );
         ensure!(
             file.overrides.0.len() <= MAX_SLOTS,
-            "配色覆盖超过 {MAX_SLOTS} 个槽位"
+            "{}",
+            crate::i18n::format(
+                "host-interface-palette-0008",
+                &[("arg0", MAX_SLOTS.to_string())]
+            )
         );
         for id in file.overrides.0.keys() {
-            ensure!(palette.contains_key(id), "配色覆盖引用未声明槽位：{id}");
+            ensure!(
+                palette.contains_key(id),
+                "{}",
+                crate::i18n::format("host-interface-palette-0009", &[("arg0", id.to_string())])
+            );
         }
         Ok(Colors {
             overrides: file.overrides.0,
@@ -131,7 +161,11 @@ impl ColorsFile {
         let bytes = serde_json::to_vec_pretty(&file)?;
         ensure!(
             bytes.len() as u64 <= MAX_FILE_BYTES,
-            "配色偏好超过 {MAX_FILE_BYTES} 字节"
+            "{}",
+            crate::i18n::format(
+                "host-interface-palette-0010",
+                &[("arg0", MAX_FILE_BYTES.to_string())]
+            )
         );
         Ok(bytes)
     }

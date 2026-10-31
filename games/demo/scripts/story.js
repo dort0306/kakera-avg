@@ -1,48 +1,48 @@
 "use strict";
 
-on.advance("opening", () => "question");
+frame("opening").advance(() => "question");
 
-on.choice("question", "accept", ctx => {
+frame("question").choice("accept", ctx => {
   ctx.add("trust", 1);
   ctx.set("met", true);
   ctx.set("mood", "期待");
   return "walk";
 }, ctx => ctx.vars.trust < 3n);
 
-on.choice("question", "refuse", () => "decision");
+frame("question").choice("refuse", () => "decision");
 
-on.choice("question", "invite", ctx => {
+frame("question").choice("invite", ctx => {
   ctx.set("invited", true);
   return "decision";
 }, ctx => ctx.vars.trust >= 2n && ctx.vars.met);
 
-on.advance("walk", () => "question");
-on.advance("decision", finishDay);
+frame("walk").advance(() => "question");
+frame("decision").advance(finishDay);
 
-on.end("accept");
-on.end("friendly");
-on.end("refuse");
+frame("accept").end();
+frame("friendly").end();
+frame("refuse").end();
 
 // Each action has an explicit, independently restorable final pose.
-on.choice("question", "portrait-demo", () => "actor.stage");
+frame("question").choice("portrait-demo", () => "actor.stage");
 const actorStages = ["stage", "left", "right", "up", "down", "exit-left", "exit-right", "fade", "shake", "bounce", "turn", "spin", "fall-left", "fall-right", "empty", "fade-out", "exit-up", "exit-down"];
 for (const stage of actorStages) {
-  for (const target of actorStages) on.choice(`actor.${stage}`, target, () => `actor.${target}`);
-  on.choice(`actor.${stage}`, "return", () => "question");
+  for (const target of actorStages) frame(`actor.${stage}`).choice(target, () => `actor.${target}`);
+  frame(`actor.${stage}`).choice("return", () => "question");
 }
 
-on.choice("question", "video-demo", () => "intro");
-on.choice("question", "credits-demo", () => "credits");
-on.advance("intro", () => "opening");
-on.end("credits");
+frame("question").choice("video-demo", () => "intro");
+frame("question").choice("credits-demo", () => "credits");
+frame("intro").advance(() => "opening");
+frame("credits").end();
 
 // Live2D test scenes remain fully restorable XML frames.
-on.choice("question", "live2d-demo", () => "live2d.stage");
-for (const stage of ["stage", "expression", "angle"]) {
-  const frame = `live2d.${stage}`;
-  on.choice(frame, "idle", () => "live2d.stage");
-  on.choice(frame, "tap", () => "live2d.stage");
-  on.choice(frame, "expression", () => "live2d.expression");
-  on.choice(frame, "angle", () => "live2d.angle");
-  on.choice(frame, "return", () => "question");
+frame("question").choice("live2d-demo", () => "live2d.stage");
+for (const scene of ["stage", "expression", "angle"]) {
+  const id = `live2d.${scene}`;
+  frame(id).choice("idle", () => "live2d.stage");
+  frame(id).choice("tap", () => "live2d.stage");
+  frame(id).choice("expression", () => "live2d.expression");
+  frame(id).choice("angle", () => "live2d.angle");
+  frame(id).choice("return", () => "question");
 }

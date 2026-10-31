@@ -15,7 +15,10 @@ impl PlayerApp {
             return crate::read_history::ReadHistory::new(story_id);
         }
         crate::read_history::ReadHistory::load(&path, story_id).unwrap_or_else(|error| {
-            warnings.push(format!("已读进度无效，按未读处理：{error:#}"));
+            warnings.push(crate::i18n::format(
+                "host-app-skip-0001",
+                &[("arg0", format!("{:#}", error))],
+            ));
             crate::read_history::ReadHistory::new(story_id)
         })
     }
@@ -47,7 +50,10 @@ impl PlayerApp {
         if let Err(error) = self.read.save(&self.saves.read_path())
             && !self.read_error_reported
         {
-            eprintln!("已读进度保存失败，将自动重试：{error:#}");
+            eprintln!(
+                "{}",
+                crate::i18n::format("host-app-skip-0002", &[("arg0", format!("{:#}", error))])
+            );
             self.read_error_reported = true;
         }
     }
@@ -86,7 +92,7 @@ mod tests {
     <frame id="finish"><text>结束。</text></frame>
   </frames>
 <next end="true"/></story>"#;
-    const SCRIPT: &str = "on.advance('opening',()=> 'second');on.advance('second',()=> 'third');on.advance('third',()=> 'question');on.choice('question','accept',()=> 'accept');on.choice('question','finish',()=> 'finish');on.end('accept');on.end('finish');";
+    const SCRIPT: &str = "frame('opening').advance(()=> 'second');frame('second').advance(()=> 'third');frame('third').advance(()=> 'question');frame('question').choice('accept', ()=> 'accept');frame('question').choice('finish', ()=> 'finish');frame('accept').end();frame('finish').end();";
     const UI: &str =
         r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"/></ui>"#;
 
@@ -198,7 +204,7 @@ mod tests {
                 r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"/><screen id="menu" modal="true" pause="false"/></ui>"#,
                 "ui.xml",
                 &self.app.story,
-                &Default::default(),
+                &[],
             )?;
             self.app.custom = CustomUi::new(
                 definition,

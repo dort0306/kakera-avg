@@ -26,7 +26,8 @@ pub fn compatible_session(
 ) -> Result<crate::model::Session> {
     anyhow::ensure!(
         current.id == replacement.id && current.content_version == replacement.content_version,
-        "故事标识或 content-version 不匹配"
+        "{}",
+        crate::i18n::format("host-development-0001", &[])
     );
     replacement
         .validate_session_with(session, logic)
@@ -85,7 +86,7 @@ impl ProjectMonitor {
             started: 0,
             changed: Instant::now(),
             building: None,
-            status: "工程监控中".into(),
+            status: crate::i18n::text("host-development-0003").into(),
             error: None,
             pending: None,
         })
@@ -96,7 +97,7 @@ impl ProjectMonitor {
             self.seen = revision;
             self.changed = Instant::now();
             self.pending = None;
-            self.status = "检测到修改，等待连续保存完成".into();
+            self.status = crate::i18n::text("host-development-0004").into();
         }
         if let Some(receiver) = &self.building {
             match receiver.try_recv() {
@@ -105,11 +106,14 @@ impl ProjectMonitor {
                     if candidate.revision == self.revision.load(Ordering::SeqCst) {
                         return Some(candidate.result);
                     }
-                    self.status = "内容继续变化，丢弃过期候选".into();
+                    self.status = crate::i18n::text("host-development-0005").into();
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.building = None;
-                    return Some(Err(anyhow::anyhow!("工程构建线程异常结束")));
+                    return Some(Err(anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format("host-development-0002", &[])
+                    )));
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
             }
@@ -124,7 +128,7 @@ impl ProjectMonitor {
             let options = self.options.clone();
             let (tx, rx) = mpsc::sync_channel(1);
             self.building = Some(rx);
-            self.status = "正在验证并准备候选资源".into();
+            self.status = crate::i18n::text("host-development-0006").into();
             std::thread::spawn(move || {
                 let result = (|| {
                     let snapshot = StagedProject::capture(&root)?;

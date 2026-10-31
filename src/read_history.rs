@@ -32,25 +32,40 @@ impl ReadHistory {
     }
 
     pub fn load(path: &Path, story_id: &str) -> Result<Self> {
-        let file: File = serde_json::from_slice(&read_json_bytes(path)?)
-            .with_context(|| format!("读取已读进度 {}", path.display()))?;
+        let file: File = serde_json::from_slice(&read_json_bytes(path)?).with_context(|| {
+            crate::i18n::format(
+                "host-read-history-0001",
+                &[("arg0", format!("{}", path.display()))],
+            )
+        })?;
         ensure!(
             file.schema_version == 1,
-            "不支持的已读进度 schema：{}",
-            file.schema_version
+            "{}",
+            crate::i18n::format(
+                "host-read-history-0002",
+                &[("arg0", file.schema_version.to_string())]
+            )
         );
         ensure!(
             file.story_id == story_id,
-            "已读进度属于其他故事：{}",
-            file.story_id
+            "{}",
+            crate::i18n::format(
+                "host-read-history-0003",
+                &[("arg0", file.story_id.to_string())]
+            )
         );
         ensure!(
             file.frames.len() <= MAX_FRAMES,
-            "已读进度超过 {MAX_FRAMES} 条"
+            "{}",
+            crate::i18n::format(
+                "host-read-history-0004",
+                &[("arg0", MAX_FRAMES.to_string())]
+            )
         );
         ensure!(
             file.frames.iter().all(|id| valid_id(id)),
-            "已读进度含非法 frame ID"
+            "{}",
+            crate::i18n::format("host-read-history-0005", &[])
         );
         Ok(Self {
             story_id: story_id.to_owned(),
@@ -83,11 +98,16 @@ impl ReadHistory {
     pub fn save(&mut self, path: &Path) -> Result<()> {
         ensure!(
             self.frames.len() <= MAX_FRAMES,
-            "已读进度超过 {MAX_FRAMES} 条，未改写旧文件"
+            "{}",
+            crate::i18n::format(
+                "host-read-history-0006",
+                &[("arg0", MAX_FRAMES.to_string())]
+            )
         );
         ensure!(
             self.frames.iter().all(|id| valid_id(id)),
-            "已读进度含非法 frame ID，未改写旧文件"
+            "{}",
+            crate::i18n::format("host-read-history-0007", &[])
         );
         atomic_json(
             path,

@@ -1,0 +1,16 @@
+<story schema="8" id="localization-example" content-version="1" entry="opening">
+  <localization enabled="true" src="languages.xml"/>
+  <interface src="ui.xml"/>
+  <scripts><script src="story.js"/></scripts>
+  <assets>
+    <font id="font" src="assets/chinese.otf"/>
+    <audio id="voice" src="assets/lin.wav"/>
+    <audio id="voice.other" src="assets/knock.wav"/>
+  </assets>
+  <characters><character id="guide" name-key="guide"/></characters>
+  <frames>
+    <frame id="opening" speaker="guide"><text key="opening"/><audio voice="voice"/><options><option id="finish" text-key="finish"/></options></frame>
+    <frame id="ending"><text key="ending"/></frame>
+  </frames>
+  <visuals/><next end="true"/>
+</story>

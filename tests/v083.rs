@@ -38,7 +38,7 @@ fn game(root: &Path) -> Result<()> {
     )?;
     std::fs::write(
         root.join("story.js"),
-        r#"on.advance('opening',()=> 'question.alias');on.choice('question.alias','again',ctx=>{ctx.add('count',1n);return 'question.alias';},ctx=>ctx.vars.count<2n);on.choice('question.alias','end',()=> 'ending',ctx=>ctx.vars.count>=1n);on.choice('question.alias','bad',()=> 'missing');on.end('ending');on.ui('test-start',ctx=>ctx.resume('opening'));on.ui('game.enter',ctx=>ctx.setUi('title',ctx.game.frameId));"#,
+        r#"frame('opening').advance(()=> 'question.alias');frame('question.alias').choice('again', ctx=>{ctx.add('count',1n);return 'question.alias';},ctx=>ctx.vars.count<2n);frame('question.alias').choice('end', ()=> 'ending',ctx=>ctx.vars.count>=1n);frame('question.alias').choice('bad', ()=> 'missing');frame('ending').end();ui('testStart').bind('test-start', ctx=>ctx.resume('opening'));ui('$game').bind('game.enter', ctx=>ctx.setUi('title',ctx.game.frameId));"#,
     )?;
     Ok(())
 }

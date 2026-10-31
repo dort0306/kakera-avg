@@ -12,7 +12,7 @@ use kakera_avg::{
     save::{SaveStore, SlotId, Snapshot},
     settings::Settings,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::path::Path;
 fn game() -> (
     kakera_avg::loader::LoadedStory,
@@ -171,13 +171,7 @@ fn new_js_commands_are_bounded_and_game_enter_cannot_navigate_or_start_autoplay(
     let profile = Profile::new(&loaded.story.id, &def);
     let commands = logic
         .ui_event(
-            &Event {
-                sound: None,
-                route: None,
-                name: "slots-last".into(),
-                item: Value::Null,
-                value: Value::Null,
-            },
+            &Event::ui("saveLastPage", "slots-last"),
             &session,
             &state.variables,
             &json!({"game":{},"saves":{"page":1}}),
@@ -344,15 +338,11 @@ fn bundled_live2d_routes_and_tap_callback_preserve_variables_and_replayable_hist
     }
     let definition = &loaded.interface;
     let state = State::new(definition);
+    let mut event = Event::ui("choice", "choose");
+    event.item = json!({"id":"tap"});
     let commands = logic
         .ui_event(
-            &Event {
-                sound: None,
-                route: None,
-                name: "choose".into(),
-                item: json!({"id":"tap"}),
-                value: Value::Null,
-            },
+            &event,
             &stage,
             &state.variables,
             &json!({"game":{"frameId":"live2d.stage"}}),

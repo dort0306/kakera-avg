@@ -26,7 +26,10 @@ impl PlayerApp {
             KeybindingsFile::load_bytes(&bytes, story_id).map_err(anyhow::Error::msg)
         });
         result.unwrap_or_else(|error| {
-            warnings.push(format!("快捷键偏好无效，已使用默认键位：{error:#}"));
+            warnings.push(crate::i18n::format(
+                "host-app-shortcuts-0001",
+                &[("arg0", format!("{:#}", error))],
+            ));
             Keybindings::defaults()
         })
     }
@@ -93,7 +96,11 @@ impl PlayerApp {
     }
 
     pub(super) fn start_shortcut_capture(&mut self, request: CaptureRequest) -> anyhow::Result<()> {
-        anyhow::ensure!(self.shortcut_capture.is_none(), "已有快捷键捕获正在进行");
+        anyhow::ensure!(
+            self.shortcut_capture.is_none(),
+            "{}",
+            crate::i18n::format("host-app-shortcuts-0002", &[])
+        );
         self.pickers = Default::default();
         let scope = self.shortcut_scope();
         self.shortcut_capture = Some(input::Capture::new(request.action, request.result_event));
@@ -139,13 +146,10 @@ impl PlayerApp {
             input::CaptureTick::Complete(binding) => {
                 self.shortcut_scope = None;
                 self.input_barrier = true;
-                Some(Event {
-                    sound: None,
-                    route: None,
-                    name: capture.result_event.clone(),
-                    item: json!({"action": capture.action.id()}),
-                    value: json!(binding.canonical()),
-                })
+                let mut event = Event::host(capture.result_event.clone());
+                event.item = json!({"action": capture.action.id()});
+                event.value = json!(binding.canonical());
+                Some(event)
             }
         }
     }
@@ -173,10 +177,18 @@ mod tests {
     <button id="captureAdvance" width="120" height="40" text="捕获" event="capture-advance"/>
     <button id="cancelCapture" width="120" height="40" text="取消" event="cancel-capture"/>
     <button id="applyDraft" width="120" height="40" text="应用" event="apply-draft"/>
+    <button id="apply-enter" width="10" height="10" text="键" event="apply-enter"/>
+    <button id="apply-ff-tab" width="10" height="10" text="键" event="apply-ff-tab"/>
+    <button id="apply-swap" width="10" height="10" text="键" event="apply-swap"/>
+    <button id="apply-conflict" width="10" height="10" text="键" event="apply-conflict"/>
+    <button id="reset-bindings" width="10" height="10" text="键" event="reset-bindings"/>
+    <button id="apply-skip-enter" width="10" height="10" text="键" event="apply-skip-enter"/>
+    <button id="apply-invalid" width="10" height="10" text="键" event="apply-invalid"/>
+    <button id="apply-mixed" width="10" height="10" text="键" event="apply-mixed"/>
   </screen>
   <screen id="menu" modal="true" pause="true" sequence="fade"><label id="menuCaption" width="600" height="60" text="演出"/></screen>
 </ui>"#;
-    const SCRIPT: &str = "on.advance('opening',()=> 'second');on.end('second');on.ui('capture-advance',ctx=>ctx.captureShortcut('advance','captured'));on.ui('captured',ctx=>ctx.setUi('draft',ctx.value));on.ui('cancel-capture',ctx=>ctx.cancelShortcutCapture());on.ui('apply-draft',ctx=>ctx.keybinding('advance',ctx.ui.draft.length===0?null:ctx.ui.draft));on.ui('apply-enter',ctx=>ctx.keybinding('advance','Enter'));on.ui('apply-ff-tab',ctx=>ctx.keybinding('fast_forward','Tab'));on.ui('apply-swap',ctx=>{ctx.keybinding('advance','Enter');ctx.keybinding('fast_forward','Tab');});on.ui('apply-conflict',ctx=>{ctx.keybinding('advance','Tab');ctx.keybinding('fast_forward','Tab');});on.ui('reset-bindings',ctx=>ctx.resetKeybindings());on.ui('apply-skip-enter',ctx=>ctx.keybinding('skip_sequence','Enter'));on.ui('apply-invalid',ctx=>ctx.keybinding('advance','NotAKey'));on.ui('apply-mixed',ctx=>{ctx.keybinding('advance','Enter');ctx.setting('muted',true);});";
+    const SCRIPT: &str = "frame('opening').advance(()=> 'second');frame('second').end();ui('captureAdvance').bind('capture-advance', ctx=>ctx.captureShortcut('advance','captured'));ui('$host').bind('captured', ctx=>ctx.setUi('draft',ctx.value));ui('cancelCapture').bind('cancel-capture', ctx=>ctx.cancelShortcutCapture());ui('applyDraft').bind('apply-draft', ctx=>ctx.keybinding('advance',ctx.ui.draft.length===0?null:ctx.ui.draft));ui('apply-enter').bind('apply-enter', ctx=>ctx.keybinding('advance','Enter'));ui('apply-ff-tab').bind('apply-ff-tab', ctx=>ctx.keybinding('fast_forward','Tab'));ui('apply-swap').bind('apply-swap', ctx=>{ctx.keybinding('advance','Enter');ctx.keybinding('fast_forward','Tab');});ui('apply-conflict').bind('apply-conflict', ctx=>{ctx.keybinding('advance','Tab');ctx.keybinding('fast_forward','Tab');});ui('reset-bindings').bind('reset-bindings', ctx=>ctx.resetKeybindings());ui('apply-skip-enter').bind('apply-skip-enter', ctx=>ctx.keybinding('skip_sequence','Enter'));ui('apply-invalid').bind('apply-invalid', ctx=>ctx.keybinding('advance','NotAKey'));ui('apply-mixed').bind('apply-mixed', ctx=>{ctx.keybinding('advance','Enter');ctx.setting('muted',true);});";
 
     struct Harness {
         app: PlayerApp,
@@ -244,13 +256,13 @@ mod tests {
             })
         }
         fn event(&mut self, name: &str) -> anyhow::Result<()> {
-            self.app.custom_event(Event {
-                sound: None,
-                route: None,
-                name: name.into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null,
-            })
+            let target = match name {
+                "capture-advance" => "captureAdvance",
+                "cancel-capture" => "cancelCapture",
+                "apply-draft" => "applyDraft",
+                other => other,
+            };
+            self.app.custom_event(Event::ui(target, name))
         }
         fn update(&mut self, events: Vec<egui::Event>, focused: bool, modifiers: egui::Modifiers) {
             let _ = self.ctx.run(

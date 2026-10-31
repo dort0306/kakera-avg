@@ -1,0 +1,10 @@
+title = KAKERA 国际化示例
+guide = 向导
+opening = 这段文字与语音分别选择语言。更换文本后，本句完整显示；更换语音后，从下一次进入场景起使用新映射。
+ending = 示例结束。语言偏好独立保存，读档不会覆盖玩家选择。
+finish = 进入结尾
+start = 从开头开始
+languages = 语言设置
+apply = 应用
+cancel = 取消
+counter = 参数示例：{ $n }

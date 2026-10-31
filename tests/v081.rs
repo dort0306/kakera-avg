@@ -364,7 +364,7 @@ fn pack_cli_defaults_to_two_and_explicit_one_stays_available() -> Result<()> {
         root.path().join("story.xml"),
         r#"<story schema="8" id="pack-cli" content-version="1" entry="opening"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/></assets><characters/><visuals/><frames><frame id="opening"><text>入口</text></frame></frames><next end="true"/></story>"#,
     )?;
-    std::fs::write(root.path().join("story.js"), "on.end('opening');")?;
+    std::fs::write(root.path().join("story.js"), "frame('opening').end();")?;
     std::fs::write(
         root.path().join("ui.xml"),
         r#"<ui schema="3" initial="hud"><screen id="hud" modal="false"/></ui>"#,

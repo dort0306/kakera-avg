@@ -15,6 +15,10 @@ use std::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
+    pub languages: crate::localization::Selection,
+    pub localized_text: BTreeMap<String, String>,
+    pub overflow_messages: BTreeMap<String, String>,
+    pub localization_numbers: BTreeMap<String, i64>,
     pub window_title: String,
     pub regions: BTreeMap<String, crate::image_layout::Region>,
     pub slot_page: u16,
@@ -33,6 +37,10 @@ impl State {
     pub fn try_new(def: &Definition) -> Result<Self> {
         let variables = def.initial_variables();
         let mut state = Self {
+            languages: def.localization.selection(Default::default(), Vec::new()),
+            localized_text: BTreeMap::new(),
+            overflow_messages: BTreeMap::new(),
+            localization_numbers: BTreeMap::new(),
             window_title: def.window_title.resolve(&variables)?.to_owned(),
             regions: BTreeMap::new(),
             slot_page: 1,
@@ -55,6 +63,72 @@ impl State {
         self.resolved_colors = self.colors.resolve(&def.palette)?;
         self.color_binds = resolved_color_binds(def, self)?;
         self.regions = resolved_regions(def, self)?;
+        self.localization_numbers
+            .insert("saves.page".into(), i64::from(self.slot_page));
+        self.localization_numbers.insert("saves.pages".into(), 20);
+        self.localization_numbers
+            .insert("cg.total".into(), def.gallery.len() as i64);
+        self.localization_numbers
+            .entry("cg.unlocked".into())
+            .or_insert_with(|| def.gallery.values().filter(|cg| cg.unlocked).count() as i64);
+        self.localized_text.clear();
+        self.overflow_messages.clear();
+        fn localized(
+            def: &Definition,
+            state: &mut State,
+            nodes: &[super::Node],
+            bytes: &mut usize,
+        ) -> Result<()> {
+            for node in nodes {
+                state.overflow_messages.insert(
+                    node.id.clone(),
+                    crate::i18n::format("host-interface-render-0001", &[("arg0", node.id.clone())]),
+                );
+                if let Some(binding) = &node.localized {
+                    let text = binding
+                        .resolve(
+                            &def.localization,
+                            &state.languages,
+                            &state.variables,
+                            &state.localization_numbers,
+                        )
+                        .map_err(|cause| anyhow::anyhow!("{}: {cause:#}", binding.location))?;
+                    *bytes = bytes.saturating_add(text.len());
+                    ensure!(
+                        *bytes <= 64 * 1024 * 1024,
+                        "{}",
+                        crate::i18n::text("host-i18n-detail-0059")
+                    );
+                    state.localized_text.insert(node.id.clone(), text);
+                }
+                localized(def, state, &node.children, bytes)?;
+            }
+            Ok(())
+        }
+        let mut bytes = 0usize;
+        for screen in def.screens.values() {
+            localized(def, self, &screen.nodes, &mut bytes)?;
+        }
+        self.window_title = if let Some(binding) = &def.localized_title {
+            let text = binding
+                .resolve(
+                    &def.localization,
+                    &self.languages,
+                    &self.variables,
+                    &self.localization_numbers,
+                )
+                .map_err(|cause| anyhow::anyhow!("{}: {cause:#}", binding.location))?;
+            ensure!(
+                !text.trim().is_empty()
+                    && text.chars().count() <= 256
+                    && !text.chars().any(char::is_control),
+                "{}",
+                crate::i18n::text("host-i18n-detail-0060")
+            );
+            text
+        } else {
+            def.window_title.resolve(&self.variables)?.into()
+        };
         Ok(())
     }
     pub fn paused(&self, def: &Definition) -> bool {
@@ -88,14 +162,16 @@ impl Profile {
         let profile: Self = serde_json::from_slice(&read_json_bytes(path)?)?;
         ensure!(
             profile.schema_version == 1 && profile.story_id == id,
-            "CG 进度版本或故事不匹配"
+            "{}",
+            crate::i18n::format("host-interface-host-0001", &[])
         );
         ensure!(
             profile
                 .unlocked
                 .iter()
                 .all(|id| def.gallery.contains_key(id)),
-            "CG 进度含未知 ID"
+            "{}",
+            crate::i18n::format("host-interface-host-0002", &[])
         );
         let mut result = profile;
         result.unlocked.extend(Self::new(id, def).unlocked);
@@ -130,6 +206,11 @@ impl UiValue {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    Locale {
+        channel: String,
+        #[serde(deserialize_with = "Option::deserialize")]
+        locale: Option<String>,
+    },
     PlaySound {
         id: String,
     },
@@ -228,6 +309,7 @@ pub enum Command {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
+    Locales,
     Quit,
     UiAudio,
     Present,
@@ -268,7 +350,8 @@ pub struct Plan {
 fn operation(current: &mut Operation, next: Operation) -> Result<()> {
     let aggregate = matches!(
         (&*current, &next),
-        (Operation::Settings, Operation::Settings)
+        (Operation::Locales, Operation::Locales)
+            | (Operation::Settings, Operation::Settings)
             | (Operation::Profile, Operation::Profile)
             | (Operation::UiAudio, Operation::UiAudio)
             | (Operation::Keybindings, Operation::Keybindings)
@@ -276,7 +359,8 @@ fn operation(current: &mut Operation, next: Operation) -> Result<()> {
     );
     ensure!(
         matches!(current, Operation::None) || aggregate,
-        "一次 UI 事件不能混合多个 IO/剧情操作"
+        "{}",
+        crate::i18n::format("host-interface-host-0003", &[])
     );
     *current = next;
     Ok(())
@@ -289,7 +373,11 @@ pub fn prepare(
     commands: Vec<Command>,
     entering: bool,
 ) -> Result<Plan> {
-    ensure!(commands.len() <= 32, "UI 命令超过 32 条");
+    ensure!(
+        commands.len() <= 32,
+        "{}",
+        crate::i18n::format("host-interface-host-0004", &[])
+    );
     let mut plan = Plan {
         command_count: commands.len(),
         ui_actions: Vec::new(),
@@ -306,6 +394,7 @@ pub fn prepare(
         capture: None,
         cancel_capture: false,
     };
+    let mut locale_modified = BTreeSet::new();
     let mut keybinding_modified = BTreeSet::new();
     let mut keybinding_reset = false;
     let mut color_modified = BTreeSet::new();
@@ -323,34 +412,76 @@ pub fn prepare(
                         | Command::Portrait { .. }
                         | Command::Live2d { .. }
                 ),
-                "game.enter 仅允许 unlock/setUi/message/transition/animate/portrait"
+                "{}",
+                crate::i18n::format("host-interface-host-0005", &[])
             );
         }
         match command {
+            Command::Locale { channel, locale } => {
+                ensure!(
+                    def.localization.enabled(),
+                    "{}",
+                    crate::i18n::text("host-i18n-detail-0061")
+                );
+                ensure!(
+                    locale_modified.insert(channel.clone()),
+                    "{}",
+                    crate::i18n::text("host-i18n-detail-0062")
+                );
+                if let Some(id) = &locale {
+                    crate::localization::canonical(id)?;
+                    ensure!(
+                        match channel.as_str() {
+                            "text" => def.localization.texts.contains_key(id),
+                            "voice" => def.localization.voices.contains_key(id),
+                            _ => false,
+                        },
+                        "{}",
+                        crate::i18n::text("host-i18n-detail-0063")
+                    );
+                }
+                match channel.as_str() {
+                    "text" => plan.state.languages.requests.text = locale,
+                    "voice" => plan.state.languages.requests.voice = locale,
+                    _ => anyhow::bail!("{}", crate::i18n::text("host-i18n-detail-0064")),
+                };
+                plan.state.languages = def.localization.selection(
+                    plan.state.languages.requests.clone(),
+                    plan.state.languages.system.clone(),
+                );
+                operation(&mut plan.operation, Operation::Locales)?;
+            }
             Command::PlaySound { id } => {
                 ensure!(
                     !entering && def.media.sound_exists(&id),
-                    "UI 音效不存在或生命周期禁止"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0006", &[])
                 );
                 plan.ui_actions.push(super::presentation::Action::Sound(id));
             }
             Command::Sequence { id } => {
                 ensure!(
                     !entering && def.media.sequences.contains_key(&id),
-                    "UI 演出不存在或生命周期禁止"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0007", &[])
                 );
                 ensure!(
                     !plan
                         .ui_actions
                         .iter()
                         .any(|a| matches!(a, super::presentation::Action::Sequence(_))),
-                    "一次只能启动一个演出"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0008", &[])
                 );
                 plan.ui_actions
                     .push(super::presentation::Action::Sequence(id));
             }
             Command::SoundEnabled { enabled } => {
-                ensure!(!entering, "生命周期禁止修改音效偏好");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0009", &[])
+                );
                 operation(&mut plan.operation, Operation::UiAudio)?;
                 plan.ui_actions
                     .push(super::presentation::Action::Enabled(enabled));
@@ -358,7 +489,8 @@ pub fn prepare(
             Command::SoundActor { actor, enabled } => {
                 ensure!(
                     !entering && def.media.actors.contains(&actor),
-                    "未知音效角色或生命周期禁止"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0010", &[])
                 );
                 operation(&mut plan.operation, Operation::UiAudio)?;
                 plan.ui_actions
@@ -367,22 +499,27 @@ pub fn prepare(
             Command::SoundExclude { asset, excluded } => {
                 ensure!(
                     !entering && def.media.audio.contains(&asset),
-                    "未知音效资源或生命周期禁止"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0011", &[])
                 );
                 operation(&mut plan.operation, Operation::UiAudio)?;
                 plan.ui_actions
                     .push(super::presentation::Action::Exclude(asset, excluded));
             }
             Command::Present { screen } => {
-                ensure!(!entering, "game.enter 禁止交接");
-                let target = def
-                    .screens
-                    .get(&screen)
-                    .ok_or_else(|| anyhow::anyhow!("交接页面不存在"))?;
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0012", &[])
+                );
+                let target = def.screens.get(&screen).ok_or_else(|| {
+                    anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0013", &[]))
+                })?;
                 if target.modal {
                     ensure!(
                         plan.state.stack.len() < 8 && !plan.state.stack.contains(&screen),
-                        "交接页面重复或栈超限"
+                        "{}",
+                        crate::i18n::format("host-interface-host-0014", &[])
                     );
                     plan.state.stack.push(screen);
                 } else {
@@ -391,7 +528,11 @@ pub fn prepare(
                 operation(&mut plan.operation, Operation::Present)?;
             }
             Command::Resume { frame } => {
-                ensure!(!entering, "game.enter 禁止返回剧情");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0015", &[])
+                );
                 operation(&mut plan.operation, Operation::Resume(frame))?;
             }
 
@@ -400,22 +541,28 @@ pub fn prepare(
                     "left" => crate::model::Slot::Left,
                     "center" => crate::model::Slot::Center,
                     "right" => crate::model::Slot::Right,
-                    _ => anyhow::bail!("未知 Live2D 槽位"),
+                    _ => anyhow::bail!("{}", crate::i18n::format("host-interface-host-0016", &[])),
                 };
-                ensure!(motion.len() <= 256, "Live2D 动作名过长");
+                ensure!(
+                    motion.len() <= 256,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0017", &[])
+                );
                 plan.live2d.push((slot, motion));
             }
             Command::SlotsPage { page } => {
                 ensure!(
                     (1..=crate::save::PAGE_COUNT).contains(&page),
-                    "存档页须在 1–20"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0018", &[])
                 );
                 plan.state.slot_page = page;
             }
             Command::LoadAuto { slot } => {
                 ensure!(
                     (1..=crate::save::AUTO_COUNT).contains(&slot),
-                    "自动槽须在 1–10"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0019", &[])
                 );
                 operation(&mut plan.operation, Operation::LoadAuto(slot))?;
             }
@@ -428,17 +575,28 @@ pub fn prepare(
                     "left" => crate::model::Slot::Left,
                     "center" => crate::model::Slot::Center,
                     "right" => crate::model::Slot::Right,
-                    _ => anyhow::bail!("未知立绘槽位：{slot}"),
+                    _ => anyhow::bail!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0020",
+                            &[("arg0", slot.to_string())]
+                        )
+                    ),
                 };
                 crate::effects::validate_portrait(animation).map_err(anyhow::Error::msg)?;
                 plan.portraits.push((slot, animation));
             }
             Command::Transition { transition } => {
-                ensure!(entering, "transition 仅可用于 game.enter");
+                ensure!(
+                    entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0021", &[])
+                );
                 crate::effects::validate_transition(transition).map_err(anyhow::Error::msg)?;
                 ensure!(
                     plan.transition.replace(transition).is_none(),
-                    "一次进入不能重复指定转场"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0022", &[])
                 );
             }
             Command::Animate { target, animation } => {
@@ -460,20 +618,30 @@ pub fn prepare(
                     def.screens
                         .values()
                         .any(|s| valid(&s.nodes, &target, false)),
-                    "动画目标不存在、在 repeat 内或不是 scene/图片节点：{target}"
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0023",
+                        &[("arg0", target.to_string())]
+                    )
                 );
                 crate::effects::validate_animation(animation).map_err(anyhow::Error::msg)?;
                 plan.animations.push((target, animation));
             }
             Command::Open { screen } => {
-                let target = def
-                    .screens
-                    .get(&screen)
-                    .ok_or_else(|| anyhow::anyhow!("未知 UI 屏幕：{screen}"))?;
+                let target = def.screens.get(&screen).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0024",
+                            &[("arg0", screen.to_string())]
+                        )
+                    )
+                })?;
                 if target.modal {
                     ensure!(
                         plan.state.stack.len() < 8 && !plan.state.stack.contains(&screen),
-                        "UI 模态栈重复或超过 8 层"
+                        "{}",
+                        crate::i18n::format("host-interface-host-0025", &[])
                     );
                     plan.state.stack.push(screen);
                 } else {
@@ -481,15 +649,24 @@ pub fn prepare(
                 }
             }
             Command::Close => {
-                ensure!(plan.state.stack.len() > 1, "不能关闭唯一根屏幕");
+                ensure!(
+                    plan.state.stack.len() > 1,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0026", &[])
+                );
                 plan.state.stack.pop();
             }
             Command::Quit {} => operation(&mut plan.operation, Operation::Quit)?,
             Command::SetUi { name, value } => {
-                let decl = def
-                    .variables
-                    .get(&name)
-                    .ok_or_else(|| anyhow::anyhow!("未知 UI 变量：{name}"))?;
+                let decl = def.variables.get(&name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0027",
+                            &[("arg0", name.to_string())]
+                        )
+                    )
+                })?;
                 let value = value.value()?;
                 rules::validate_value(decl, &value).map_err(anyhow::Error::msg)?;
                 plan.state.variables.insert(name, value);
@@ -498,16 +675,32 @@ pub fn prepare(
                 action,
                 result_event,
             } => {
-                ensure!(!entering, "game.enter 不能启动快捷键捕获");
-                let action = crate::shortcuts::Action::from_id(&action)
-                    .ok_or_else(|| anyhow::anyhow!("未知快捷键动作：{action}"))?;
                 ensure!(
-                    def.ui_handlers.contains(&result_event),
-                    "快捷键捕获结果事件未注册：{result_event}"
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0028", &[])
+                );
+                let action = crate::shortcuts::Action::from_id(&action).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0029",
+                            &[("arg0", action.to_string())]
+                        )
+                    )
+                })?;
+                ensure!(
+                    def.host_handlers.contains(&result_event),
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0030",
+                        &[("arg0", result_event.to_string())]
+                    )
                 );
                 ensure!(
                     plan.capture.is_none() && !plan.cancel_capture,
-                    "一次 UI 事件只能有一个捕获请求"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0031", &[])
                 );
                 plan.capture = Some(CaptureRequest {
                     action,
@@ -515,19 +708,45 @@ pub fn prepare(
                 });
             }
             Command::CancelShortcutCapture {} => {
-                ensure!(!entering, "game.enter 不能取消快捷键捕获");
-                ensure!(!plan.cancel_capture, "重复取消快捷键捕获");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0032", &[])
+                );
+                ensure!(
+                    !plan.cancel_capture,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0033", &[])
+                );
                 plan.cancel_capture = true;
             }
             Command::Keybinding { action, binding } => {
-                ensure!(!entering, "game.enter 不能修改快捷键");
-                ensure!(!keybinding_reset, "恢复默认不能与单项修改同批");
-                let action = crate::shortcuts::Action::from_id(&action)
-                    .ok_or_else(|| anyhow::anyhow!("未知快捷键动作：{action}"))?;
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0034", &[])
+                );
+                ensure!(
+                    !keybinding_reset,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0035", &[])
+                );
+                let action = crate::shortcuts::Action::from_id(&action).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0036",
+                            &[("arg0", action.to_string())]
+                        )
+                    )
+                })?;
                 ensure!(
                     keybinding_modified.insert(action),
-                    "同一批重复修改快捷键：{}",
-                    action.id()
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0037",
+                        &[("arg0", action.id().to_string())]
+                    )
                 );
                 let binding = binding
                     .map(|text| crate::shortcuts::Binding::parse(&text))
@@ -537,32 +756,77 @@ pub fn prepare(
                 operation(&mut plan.operation, Operation::Keybindings)?;
             }
             Command::ResetKeybindings {} => {
-                ensure!(!entering, "game.enter 不能恢复默认快捷键");
-                ensure!(keybinding_modified.is_empty(), "恢复默认不能与单项修改同批");
-                ensure!(!keybinding_reset, "重复恢复默认快捷键");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0038", &[])
+                );
+                ensure!(
+                    keybinding_modified.is_empty(),
+                    "{}",
+                    crate::i18n::format("host-interface-host-0039", &[])
+                );
+                ensure!(
+                    !keybinding_reset,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0040", &[])
+                );
                 keybinding_reset = true;
                 plan.state.keybindings = crate::shortcuts::Keybindings::defaults();
                 operation(&mut plan.operation, Operation::Keybindings)?;
             }
             Command::ColorPreference { slot, value } => {
-                ensure!(!entering, "game.enter 不能修改配色偏好");
-                ensure!(def.palette.contains_key(&slot), "未知配色槽位：{slot}");
-                ensure!(!color_reset, "恢复默认配色不能与单项修改同批");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0041", &[])
+                );
+                ensure!(
+                    def.palette.contains_key(&slot),
+                    "{}",
+                    crate::i18n::format("host-interface-host-0042", &[("arg0", slot.to_string())])
+                );
+                ensure!(
+                    !color_reset,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0043", &[])
+                );
                 ensure!(
                     color_modified.insert(slot.clone()),
-                    "同一批重复修改配色槽位：{slot}"
+                    "{}",
+                    crate::i18n::format("host-interface-host-0044", &[("arg0", slot.to_string())])
                 );
                 let value = value
                     .map(|text| crate::color::Rgba::parse(&text))
                     .transpose()
-                    .map_err(|reason| anyhow::anyhow!("槽位 {slot}：{reason}"))?;
+                    .map_err(|reason| {
+                        anyhow::anyhow!(
+                            "{}",
+                            crate::i18n::format(
+                                "host-interface-host-0045",
+                                &[("arg0", slot.to_string()), ("arg1", reason.to_string())]
+                            )
+                        )
+                    })?;
                 plan.state.colors.set(&slot, value);
                 operation(&mut plan.operation, Operation::Colors)?;
             }
             Command::ResetColors {} => {
-                ensure!(!entering, "game.enter 不能恢复默认配色");
-                ensure!(color_modified.is_empty(), "恢复默认配色不能与单项修改同批");
-                ensure!(!color_reset, "重复恢复默认配色");
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0046", &[])
+                );
+                ensure!(
+                    color_modified.is_empty(),
+                    "{}",
+                    crate::i18n::format("host-interface-host-0047", &[])
+                );
+                ensure!(
+                    !color_reset,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0048", &[])
+                );
                 color_reset = true;
                 plan.state.colors = crate::interface::palette::Colors::default();
                 operation(&mut plan.operation, Operation::Colors)?;
@@ -582,7 +846,11 @@ pub fn prepare(
                 operation(&mut plan.operation, Operation::Choose(option))?
             }
             Command::Unlock { id } => {
-                ensure!(def.gallery.contains_key(&id), "未知 CG：{id}");
+                ensure!(
+                    def.gallery.contains_key(&id),
+                    "{}",
+                    crate::i18n::format("host-interface-host-0049", &[("arg0", id.to_string())])
+                );
                 if plan.profile.unlocked.insert(id) {
                     operation(&mut plan.operation, Operation::Profile)?;
                 }
@@ -592,9 +860,9 @@ pub fn prepare(
                     name.as_str(),
                     "muted" | "autosave" | "skip_all" | "fullscreen"
                 ) {
-                    let enabled = value
-                        .as_bool()
-                        .ok_or_else(|| anyhow::anyhow!("设置需要 bool"))?;
+                    let enabled = value.as_bool().ok_or_else(|| {
+                        anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0050", &[]))
+                    })?;
                     match name.as_str() {
                         "muted" => plan.settings.muted = enabled,
                         "autosave" => plan.settings.autosave = enabled,
@@ -602,10 +870,9 @@ pub fn prepare(
                         _ => plan.settings.skip_all = enabled,
                     }
                 } else {
-                    let value = value
-                        .as_f64()
-                        .ok_or_else(|| anyhow::anyhow!("设置需要有限数值"))?
-                        as f32;
+                    let value = value.as_f64().ok_or_else(|| {
+                        anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0051", &[]))
+                    })? as f32;
                     match name.as_str() {
                         "auto_delay" => plan.settings.auto_delay = value,
                         "video_volume" => plan.settings.video_volume = value,
@@ -613,14 +880,24 @@ pub fn prepare(
                         "bgm_volume" => plan.settings.bgm_volume = value,
                         "voice_volume" => plan.settings.voice_volume = value,
                         "se_volume" => plan.settings.se_volume = value,
-                        _ => anyhow::bail!("未知设置：{name}"),
+                        _ => anyhow::bail!(
+                            "{}",
+                            crate::i18n::format(
+                                "host-interface-host-0052",
+                                &[("arg0", name.to_string())]
+                            )
+                        ),
                     }
                 }
                 plan.settings.validate()?;
                 operation(&mut plan.operation, Operation::Settings)?;
             }
             Command::Message { text } => {
-                ensure!(text.len() <= 4096, "UI 提示超过 4096 字节");
+                ensure!(
+                    text.len() <= 4096,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0053", &[])
+                );
                 plan.message = Some(text);
             }
         }
@@ -628,7 +905,8 @@ pub fn prepare(
     if matches!(plan.operation, Operation::Keybindings) {
         ensure!(
             !keybinding_modified.is_empty() || keybinding_reset,
-            "快捷键事务缺少修改"
+            "{}",
+            crate::i18n::format("host-interface-host-0054", &[])
         );
         plan.state
             .keybindings
@@ -637,23 +915,27 @@ pub fn prepare(
     } else {
         ensure!(
             keybinding_modified.is_empty() && !keybinding_reset,
-            "快捷键修改事务状态错误"
+            "{}",
+            crate::i18n::format("host-interface-host-0055", &[])
         );
     }
     if matches!(plan.operation, Operation::Colors) {
         ensure!(
             !color_modified.is_empty() || color_reset,
-            "配色事务缺少修改"
+            "{}",
+            crate::i18n::format("host-interface-host-0056", &[])
         );
     } else {
         ensure!(
             color_modified.is_empty() && !color_reset,
-            "配色修改事务状态错误"
+            "{}",
+            crate::i18n::format("host-interface-host-0057", &[])
         );
     }
     ensure!(
         !(plan.capture.is_some() && plan.cancel_capture),
-        "不能同时启动和取消快捷键捕获"
+        "{}",
+        crate::i18n::format("host-interface-host-0058", &[])
     );
     if plan.capture.is_some() || plan.cancel_capture {
         ensure!(
@@ -665,11 +947,18 @@ pub fn prepare(
                 && plan.auto_play.is_none()
                 && plan.transition.is_none()
                 && plan.profile == *profile,
-            "快捷键捕获不能混合持久 IO、演出或其他剧情操作"
+            "{}",
+            crate::i18n::format("host-interface-host-0059", &[])
         );
     }
+    plan.state.localization_numbers.insert(
+        "cg.unlocked".into(),
+        def.gallery
+            .keys()
+            .filter(|id| plan.profile.unlocked.contains(*id))
+            .count() as i64,
+    );
     plan.state.refresh(def)?;
-    plan.state.window_title = def.window_title.resolve(&plan.state.variables)?.to_owned();
     Ok(plan)
 }
 pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
@@ -682,13 +971,32 @@ pub fn validate_images(def: &Definition, state: &State) -> Result<()> {
                     .and_then(|path| path.strip_prefix("ui."))
                 {
                     let Some(VariableValue::String(image)) = state.variables.get(id) else {
-                        anyhow::bail!("UI 图片变量类型错误")
+                        anyhow::bail!("{}", crate::i18n::format("host-interface-host-0060", &[]))
                     };
-                    ensure!(def.images.contains(image), "UI 图片变量引用不存在：{image}");
+                    ensure!(
+                        def.images.contains(image),
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-host-0061",
+                            &[("arg0", image.to_string())]
+                        )
+                    );
                 }
                 Ok(())
             };
-            check().map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
+            check().map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0062",
+                        &[
+                            ("arg0", node.location.to_string()),
+                            ("arg1", node.id.to_string()),
+                            ("arg2", format!("{:#}", e))
+                        ]
+                    )
+                )
+            })?;
             walk(def, state, &node.children)?;
         }
         Ok(())
@@ -717,37 +1025,58 @@ fn resolved_color_binds(
                             Some(VariableValue::String(text)) => {
                                 crate::color::Rgba::parse(text).map_err(anyhow::Error::msg)?
                             }
-                            _ => anyhow::bail!("color-bind 的 UI 变量类型错误"),
+                            _ => anyhow::bail!(
+                                "{}",
+                                crate::i18n::format("host-interface-host-0063", &[])
+                            ),
                         }
                     } else if let Some(id) = path.strip_prefix("colors.") {
-                        *state
-                            .resolved_colors
-                            .get(id)
-                            .ok_or_else(|| anyhow::anyhow!("未知配色槽位：{id}"))?
+                        *state.resolved_colors.get(id).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "{}",
+                                crate::i18n::format(
+                                    "host-interface-host-0064",
+                                    &[("arg0", id.to_string())]
+                                )
+                            )
+                        })?
                     } else {
-                        anyhow::bail!("color-bind 需要 ui 字符串或 colors 槽位")
+                        anyhow::bail!("{}", crate::i18n::format("host-interface-host-0065", &[]))
                     };
                     output.insert(node.id.clone(), color);
                 }
                 if matches!(node.kind, super::Kind::ColorPicker { .. }) {
-                    let path = node
-                        .bind
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("color-picker 缺少 value 绑定"))?;
-                    let id = path
-                        .strip_prefix("ui.")
-                        .ok_or_else(|| anyhow::anyhow!("color-picker 需要 ui 字符串"))?;
+                    let path = node.bind.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0066", &[]))
+                    })?;
+                    let id = path.strip_prefix("ui.").ok_or_else(|| {
+                        anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0067", &[]))
+                    })?;
                     match state.variables.get(id) {
                         Some(VariableValue::String(text)) => {
                             crate::color::Rgba::parse(text).map_err(anyhow::Error::msg)?;
                         }
-                        _ => anyhow::bail!("color-picker 的值类型错误"),
+                        _ => anyhow::bail!(
+                            "{}",
+                            crate::i18n::format("host-interface-host-0068", &[])
+                        ),
                     }
                 }
                 Ok(())
             };
-            check(output)
-                .map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
+            check(output).map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0069",
+                        &[
+                            ("arg0", node.location.to_string()),
+                            ("arg1", node.id.to_string()),
+                            ("arg2", format!("{:#}", e))
+                        ]
+                    )
+                )
+            })?;
             walk(state, &node.children, output)?;
         }
         Ok(())
@@ -775,7 +1104,7 @@ fn resolved_regions(
                     let Some(VariableValue::String(text)) =
                         state.variables.get(path.strip_prefix("ui.").unwrap_or(""))
                     else {
-                        anyhow::bail!("region-bind 类型错误");
+                        anyhow::bail!("{}", crate::i18n::format("host-interface-host-0070", &[]));
                     };
                     Some(crate::image_layout::Region::parse(text)?)
                 } else {
@@ -807,7 +1136,19 @@ fn resolved_regions(
                 }
                 Ok(())
             })();
-            result.map_err(|e| anyhow::anyhow!("{}：节点 {}：{e:#}", node.location, node.id))?;
+            result.map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-host-0071",
+                        &[
+                            ("arg0", node.location.to_string()),
+                            ("arg1", node.id.to_string()),
+                            ("arg2", format!("{:#}", e))
+                        ]
+                    )
+                )
+            })?;
             walk(def, state, &node.children, output)?;
         }
         Ok(())

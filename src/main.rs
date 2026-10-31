@@ -1,4 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
+use kakera_avg::i18n;
 
 mod launch_console;
 use anyhow::{Context, Result, ensure};
@@ -42,54 +43,84 @@ fn options() -> Result<Option<Options>> {
         if arg == "--project" {
             ensure!(
                 options.project.is_none() && options.package.is_none(),
-                "只能选择一个工程或资源包"
+                "{}",
+                crate::i18n::format("host-main-0001", &[])
             );
-            options.project = Some(PathBuf::from(args.next().context("缺少工程目录")?));
+            options.project = Some(PathBuf::from(
+                args.next().context(crate::i18n::text("host-main-0021"))?,
+            ));
         } else if arg == "--package" {
             ensure!(
                 options.project.is_none() && options.package.is_none(),
-                "只能选择一个工程或资源包"
+                "{}",
+                crate::i18n::format("host-main-0002", &[])
             );
-            options.package = Some(PathBuf::from(args.next().context("缺少包路径")?));
+            options.package = Some(PathBuf::from(
+                args.next().context(crate::i18n::text("host-main-0022"))?,
+            ));
         } else if arg == "--renderer" {
             options.renderer = args
                 .next()
-                .context("缺少渲染后端")?
+                .context(crate::i18n::text("host-main-0023"))?
                 .into_string()
-                .map_err(|_| anyhow::anyhow!("后端名称 UTF-8"))?;
+                .map_err(|_| anyhow::anyhow!("{}", crate::i18n::format("host-main-0003", &[])))?;
             ensure!(
                 ["auto", "d3d11", "cpu"].contains(&options.renderer.as_str()),
-                "后端只能 auto/d3d11/cpu"
+                "{}",
+                crate::i18n::format("host-main-0004", &[])
             );
         } else if arg == "--cubism-core" {
-            options.load.core = Some(PathBuf::from(args.next().context("缺少 DLL 路径")?));
+            options.load.core = Some(PathBuf::from(
+                args.next().context(crate::i18n::text("host-main-0024"))?,
+            ));
         } else if arg == "--no-live2d" {
             options.load.no_live2d = true;
         } else if arg == "--save-dir" {
-            options.saves = Some(PathBuf::from(args.next().context("缺少存档目录")?));
+            options.saves = Some(PathBuf::from(
+                args.next().context(crate::i18n::text("host-main-0025"))?,
+            ));
         } else if arg == "--debug-listen" {
-            ensure!(options.debug_listen.is_none(), "重复 debug-listen");
+            ensure!(
+                options.debug_listen.is_none(),
+                "{}",
+                crate::i18n::format("host-main-0005", &[])
+            );
             options.debug_listen = Some(
                 args.next()
-                    .context("缺少调试监听地址")?
+                    .context(crate::i18n::text("host-main-0026"))?
                     .to_string_lossy()
                     .parse()?,
             );
         } else if arg == "--debug-token-file" {
-            ensure!(options.debug_token.is_none(), "重复 debug-token-file");
-            options.debug_token = Some(PathBuf::from(args.next().context("缺少令牌文件")?));
+            ensure!(
+                options.debug_token.is_none(),
+                "{}",
+                crate::i18n::format("host-main-0006", &[])
+            );
+            options.debug_token = Some(PathBuf::from(
+                args.next().context(crate::i18n::text("host-main-0027"))?,
+            ));
         } else if arg == "--check" {
             options.check = true;
         } else if arg == "--no-audio" {
             options.no_audio = true;
         } else if arg == "--help" || arg == "-h" {
             println!(
-                "Kakera AVG v{}\n用法：kakera-avg [--project <目录> | --package <game.kpak>] [--renderer auto|d3d11|cpu] [--check]\n--project 工程状态：监控文件并自动验证更新\n--package 发布状态：只读 KPAK 1/2，不监控散文件\n--check 完整校验包/内容/资源后退出；默认不打开窗口或 GPU，显式 --renderer d3d11 可同时验证设备\n--no-audio 禁用音频设备输出\n--no-live2d 显式使用静态 fallback\n--cubism-core <DLL> 指定受信任的 Cubism Core\n--save-dir <目录> 使用隔离用户数据\n--debug-listen <loopback:port> 工程调试 API，初始暂停，须配 --debug-token-file 与 --save-dir\n--debug-token-file <文件> 32–128 字符调试令牌；仅显式 --project 可用\n默认读取 exe 旁 game.kpak；源码启动若没有包则使用 games/demo 工程。",
-                env!("CARGO_PKG_VERSION")
+                "{}",
+                crate::i18n::format(
+                    "host-main-0007",
+                    &[("arg0", env!("CARGO_PKG_VERSION").to_string())]
+                )
             );
             return Ok(None);
         } else {
-            anyhow::bail!("未知参数：{}", arg.to_string_lossy());
+            anyhow::bail!(
+                "{}",
+                crate::i18n::format(
+                    "host-main-0008",
+                    &[("arg0", format!("{}", arg.to_string_lossy()))]
+                )
+            );
         }
     }
     if options.debug_listen.is_some() || options.debug_token.is_some() {
@@ -100,17 +131,19 @@ fn options() -> Result<Option<Options>> {
                 && options.saves.is_some()
                 && options.debug_listen.is_some()
                 && options.debug_token.is_some(),
-            "调试要求显式 --project、--save-dir、--debug-listen、--debug-token-file，禁止发布/--check"
+            "{}",
+            crate::i18n::format("host-main-0009", &[])
         );
         ensure!(
             options.debug_listen.unwrap().ip().is_loopback(),
-            "调试仅支持 loopback 地址"
+            "{}",
+            crate::i18n::format("host-main-0010", &[])
         );
     }
     if options.project.is_none() && options.package.is_none() {
         let packaged = std::env::current_exe()?
             .parent()
-            .context("程序目录")?
+            .context(crate::i18n::text("host-main-0028"))?
             .join("game.kpak");
         if packaged.is_file() {
             options.package = Some(packaged);
@@ -141,16 +174,31 @@ fn run() -> Result<()> {
         None
     };
     let stage = if let Some(path) = &options.project {
-        println!("运行状态：工程（实时监控） {}", path.display());
+        println!(
+            "{}",
+            crate::i18n::format("host-main-0011", &[("arg0", format!("{}", path.display()))])
+        );
         Some(StagedProject::capture(path)?)
     } else {
         None
     };
     let archive = if stage.is_none() {
-        let path = options.package.as_ref().context("包路径")?;
-        println!("运行状态：发布（只读资源包） {}", path.display());
+        let path = options
+            .package
+            .as_ref()
+            .context(crate::i18n::text("host-main-0029"))?;
+        println!(
+            "{}",
+            crate::i18n::format("host-main-0012", &[("arg0", format!("{}", path.display()))])
+        );
         let archive = Archive::open(path)?;
-        println!("资源包格式：KPAK {}", archive.version());
+        println!(
+            "{}",
+            crate::i18n::format(
+                "host-main-0013",
+                &[("arg0", format!("{}", archive.version()))]
+            )
+        );
         if options.check {
             archive.verify_all()?;
         }
@@ -161,7 +209,9 @@ fn run() -> Result<()> {
     let source: &dyn ContentSource = if let Some(stage) = &stage {
         stage
     } else {
-        archive.as_ref().context("包来源")?
+        archive
+            .as_ref()
+            .context(crate::i18n::text("host-main-0030"))?
     };
     let bundle = Bundle::load(source, &options.load)?;
     if let Some(stage) = &stage {
@@ -173,17 +223,27 @@ fn run() -> Result<()> {
     if options.check {
         let story = &bundle.loaded.story;
         println!(
-            "校验通过：{}，{} 个场景，{} 个变量，{} 个 JS 文件，{} 个 XML UI 页面",
-            story.id,
-            story.frames.len(),
-            story.variables.len(),
-            bundle.loaded.scripts.len(),
-            bundle.loaded.interface.screens.len()
+            "{}",
+            crate::i18n::format(
+                "host-main-0014",
+                &[
+                    ("arg0", story.id.to_string()),
+                    ("arg1", format!("{}", story.frames.len())),
+                    ("arg2", format!("{}", story.variables.len())),
+                    ("arg3", format!("{}", bundle.loaded.scripts.len())),
+                    ("arg4", format!("{}", bundle.loaded.interface.screens.len()))
+                ]
+            )
         );
         println!(
-            "媒体校验：{} 个视频，{} 个 Live2D 模型",
-            bundle.assets.media.videos.len(),
-            bundle.assets.live2d.models.len()
+            "{}",
+            crate::i18n::format(
+                "host-main-0015",
+                &[
+                    ("arg0", format!("{}", bundle.assets.media.videos.len())),
+                    ("arg1", format!("{}", bundle.assets.live2d.models.len()))
+                ]
+            )
         );
         #[cfg(windows)]
         if options.renderer == "d3d11" {
@@ -195,17 +255,29 @@ fn run() -> Result<()> {
         Some(path) => SaveStore::at(path),
         None => SaveStore::for_story(&bundle.loaded.story)?,
     };
-    println!("存档目录：{}", saves.directory().display());
+    println!(
+        "{}",
+        crate::i18n::format(
+            "host-main-0016",
+            &[("arg0", format!("{}", saves.directory().display()))]
+        )
+    );
     let window_title =
         kakera_avg::interface::host::State::new(&bundle.loaded.interface).window_title;
     let debug = options
         .debug_listen
         .map(|address| -> Result<_> {
             let token = kakera_avg::debug::token_file(
-                options.debug_token.as_deref().context("调试令牌文件")?,
+                options
+                    .debug_token
+                    .as_deref()
+                    .context(crate::i18n::text("host-main-0031"))?,
             )?;
             let server = kakera_avg::debug::Server::bind(address, token)?;
-            println!("调试 API：{}（JSON Lines v1，初始暂停）", server.address);
+            println!(
+                "{}",
+                crate::i18n::format("host-main-0017", &[("arg0", server.address.to_string())])
+            );
             Ok(server)
         })
         .transpose()?;
@@ -237,7 +309,8 @@ fn run() -> Result<()> {
     {
         ensure!(
             options.renderer != "d3d11",
-            "此平台尚未实现 D3D11；使用 CPU 呈现或后续 Vulkan/Metal 后端"
+            "{}",
+            crate::i18n::format("host-main-0018", &[])
         );
         eframe::run_native(
             &window_title,
@@ -249,15 +322,23 @@ fn run() -> Result<()> {
                 )?))
             }),
         )
-        .map_err(|e| anyhow::anyhow!("窗口失败：{e}"))
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                crate::i18n::format("host-main-0019", &[("arg0", e.to_string())])
+            )
+        })
     }
 }
 fn main() {
     let dialog = launch_console::initialize();
     if let Err(error) = run() {
-        eprintln!("Kakera 启动失败：{error:#}");
+        eprintln!(
+            "{}",
+            crate::i18n::format("host-main-0020", &[("arg0", format!("{:#}", error))])
+        );
         if dialog {
-            launch_console::error_dialog(&format!("{error:#}"));
+            launch_console::error_dialog(&crate::i18n::diagnostics(&format!("{error:#}")));
         }
         std::process::exit(1);
     }

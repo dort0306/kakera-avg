@@ -21,7 +21,7 @@ impl ContentSource for Memory {
 }
 const STORY: &str = r#"<story schema="8" id="routes" content-version="8" entry="start"><interface src="ui.xml"/><scripts><script src="main.js"/></scripts><assets><font id="font" src="font.otf"/></assets><characters/><visuals/><frames><frame id="start"><text>开始</text></frame></frames><next end="true"/></story>"#;
 fn source(route: &str) -> Memory {
-    Memory([("story.xml",STORY.to_owned()),("main.js","on.end('start');on.ui('legacy',ctx=>ctx.close());".into()),("ui.xml",format!(r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"><button id="go" width="100" height="40" {route}/></screen><include src="ui/menu.xml"/></ui>"#)),("ui/menu.xml",r#"<ui schema="3"><screen id="menu"><button id="back" width="100" height="40" route="close"/></screen><screen id="other" modal="false" pause="false"/></ui>"#.into())].into_iter().map(|(p,s)|(p.into(),s.into_bytes())).collect())
+    Memory([("story.xml",STORY.to_owned()),("main.js","frame('start').end();".into()),("ui.xml",format!(r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"><button id="go" width="100" height="40" {route}/></screen><include src="ui/menu.xml"/></ui>"#)),("ui/menu.xml",r#"<ui schema="3"><screen id="menu"><button id="back" width="100" height="40" route="close"/></screen><screen id="other" modal="false" pause="false"/></ui>"#.into())].into_iter().map(|(p,s)|(p.into(),s.into_bytes())).collect())
 }
 #[test]
 fn strict_routes_and_cross_file_targets() -> Result<()> {

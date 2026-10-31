@@ -11,8 +11,9 @@ use kakera_avg::{
     settings::Settings,
 };
 use serde_json::{Value, json};
+mod common;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::{Path, PathBuf},
 };
 static STORY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -105,11 +106,12 @@ fn run_event(
 ) -> anyhow::Result<Plan> {
     let session = f.story.start();
     let data = snapshot(f, state, &session);
+    let key = common::event_key(&f.definition, name);
     let commands = f.logic.ui_event(
         &Event {
             sound: None,
             route: None,
-            name: name.into(),
+            key,
             item,
             value,
         },
@@ -325,9 +327,9 @@ fn locked_unknown_and_background_toolbar_routes_are_bounded() {
 fn image_bind_types_paths_urls_and_batch_failures_are_rejected() {
     let f = demo();
     let bad = format!(
-        "{UI_JS}\non.ui('bad-batch', ctx => {{ ctx.setUi('cgImage', 'assets/bg/room.png'); ctx.setUi('cgTitle', '坏图'); ctx.open('cg-view'); }});"
+        "{UI_JS}\nui('bad-batch').bind('bad-batch', ctx => {{ ctx.setUi('cgImage', 'assets/bg/room.png'); ctx.setUi('cgTitle', '坏图'); ctx.open('cg-view'); }});"
     );
-    let bad_fixture = fixture_from(&UI, &bad);
+    let bad_fixture = fixture_from(&common::probe(&UI, &["bad-batch"]), &bad);
     let bad_state = demo_state(&bad_fixture);
     let error = run_event(
         &bad_fixture,
@@ -354,7 +356,7 @@ fn image_bind_types_paths_urls_and_batch_failures_are_rejected() {
     assert_eq!(bad_state.stack, vec!["hud"]);
 
     let minimal = r#"<ui schema="3" initial="hud"><variables><string id="pic" initial="bg.room"/></variables><screen id="hud" modal="false" pause="false"><image id="only" width="100" height="100" image-bind="ui.pic"/></screen></ui>"#;
-    let handlers = BTreeSet::new();
+    let handlers = common::declarations(minimal);
     let parsed = interface::parse(minimal, "ui.xml", &f.story, &handlers).unwrap();
     let profile = Profile::new(&f.story.id, &parsed);
     let settings = Settings::default();
@@ -406,7 +408,7 @@ fn image_regions_validate_against_the_switched_texture() {
     let source = DirectorySource::new(&root).unwrap();
     let (mut loaded, _logic) = load_game(&source).unwrap();
     let ui = r#"<ui schema="3" initial="hud"><variables><string id="region" initial="0,0,64,64"/></variables><screen id="hud" modal="false" pause="false"><image id="crop" width="100" height="100" image="ui.panel" region-bind="ui.region"/></screen></ui>"#;
-    let custom = interface::parse(ui, "ui.xml", &loaded.story, &BTreeSet::new()).unwrap();
+    let custom = interface::parse(ui, "ui.xml", &loaded.story, &[]).unwrap();
     let assets = kakera_avg::assets::PreparedAssets::load_deferred(&loaded.story, &source).unwrap();
     let mut custom = custom;
     assets.validate_interface(&mut custom).unwrap();
@@ -514,14 +516,14 @@ fn palette_ui() -> String {
   <screen id="hud" modal="false" pause="false">
     <panel id="tinted" width="400" height="300" color-bind="ui.color"/>
     <label id="tintedText" width="400" height="40" bind="ui.text" color-bind="colors.accent"/>
-    <color-picker id="picker" x="100" y="100" width="256" height="320" value="ui.color" event="pick"/>
+    <color-picker id="picker" x="100" y="100" width="256" height="282" value="ui.color" event="pick"/>
   </screen>
 </ui>"##
         .to_owned()
 }
-fn color_fixture(ui: &str) -> (Story, Definition, BTreeSet<String>) {
+fn color_fixture(ui: &str) -> (Story, Definition, Vec<interface::Registration>) {
     let demo = demo();
-    let handlers: BTreeSet<String> = ["pick".to_owned()].into_iter().collect();
+    let handlers = common::declarations(ui);
     let definition = interface::parse(ui, "ui.xml", &demo.story, &handlers).unwrap();
     (demo.story, definition, handlers)
 }
@@ -678,6 +680,10 @@ fn palette_color_bind_and_picker_declarations_are_strict() {
         "picker needs ui string",
     );
     invalid(
+        &palette_ui().replace(" value=\"ui.color\"", ""),
+        "picker needs value",
+    );
+    invalid(
         &palette_ui().replace(
             "value=\"ui.color\"",
             "value=\"ui.color\" color=\"#FFFFFFFF\"",
@@ -686,14 +692,62 @@ fn palette_color_bind_and_picker_declarations_are_strict() {
     );
     invalid(
         &palette_ui().replace(
-            "width=\"256\" height=\"320\"",
-            "width=\"120\" height=\"320\"",
+            "width=\"256\" height=\"282\"",
+            "width=\"120\" height=\"282\"",
         ),
         "picker size",
     );
+    // The colour disc is min(width, height - reserved alpha row) and needs 128.
+    for (replacement, reason) in [
+        ("width=\"128\" height=\"153\"", "alpha picker height"),
+        (
+            "width=\"128\" height=\"128\"",
+            "alpha picker compact square",
+        ),
+        ("width=\"127\" height=\"282\"", "alpha picker width"),
+    ] {
+        invalid(
+            &palette_ui().replace("width=\"256\" height=\"282\"", replacement),
+            reason,
+        );
+    }
+    for (width, height, alpha) in [("128", "128", "false"), ("128", "154", "true")] {
+        let ui = palette_ui().replace(
+            "width=\"256\" height=\"282\"",
+            &format!("width=\"{width}\" height=\"{height}\" alpha=\"{alpha}\""),
+        );
+        assert!(
+            interface::parse(&ui, "ui.xml", &story, &handlers).is_ok(),
+            "{width}x{height} alpha={alpha} must be accepted"
+        );
+    }
     invalid(
         &palette_ui().replace("event=\"pick\"", "event=\"missing\""),
         "picker event",
+    );
+    // No legacy preview/HEX appearance switches exist; unknown attributes stay rejected.
+    for attr in [
+        "show-preview=\"false\"",
+        "show-hex=\"false\"",
+        "preview=\"false\"",
+    ] {
+        invalid(
+            &palette_ui().replace("event=\"pick\"", &format!("event=\"pick\" {attr}")),
+            "picker unknown appearance attribute",
+        );
+    }
+    let mut many = String::from(
+        r##"<ui schema="3" initial="hud"><variables><string id="color" initial="#FF0000FF"/></variables><screen id="hud" modal="false" pause="false">"##,
+    );
+    for index in 0..9 {
+        many.push_str(&format!(
+            r##"<color-picker id="p{index}" x="0" y="0" width="128" height="154" value="ui.color" event="pick" alpha="false"/>"##
+        ));
+    }
+    many.push_str("</screen></ui>");
+    assert!(
+        interface::parse(&many, "ui.xml", &story, &handlers).is_err(),
+        "nine pickers must be rejected"
     );
     invalid(
         &palette_ui()
@@ -723,7 +777,7 @@ fn preference_files_are_excluded_from_discovery_and_explicit_package_includes() 
         r#"<ui schema="3" initial="hud"><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"#,
     )
     .unwrap();
-    std::fs::write(root.path().join("story.js"), "on.end('a');").unwrap();
+    std::fs::write(root.path().join("story.js"), "frame('a').end();").unwrap();
     for name in [
         "keybindings.json",
         "KeyBindings.JSON",
@@ -776,7 +830,7 @@ fn non_modal_single_image_root_returns_by_an_explicit_author_route() {
   <screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen>
   <screen id="solo" modal="false" pause="false"><panel id="soloBg" width="1280" height="720" color="#000000FF"/><image id="soloImage" width="1280" height="720" image-bind="ui.pic" fit="contain"/></screen>
 </ui>"##;
-    let definition = interface::parse(ui, "ui.xml", &f.story, &BTreeSet::new()).unwrap();
+    let definition = interface::parse(ui, "ui.xml", &f.story, &[]).unwrap();
     let profile = Profile::new(&f.story.id, &definition);
     let settings = Settings::default();
     let state = State::new(&definition);
@@ -841,7 +895,7 @@ fn non_modal_single_image_root_returns_by_an_explicit_author_route() {
 fn shared_image_binding_controls_two_nodes_without_touching_independent_bindings() {
     let f = demo();
     let ui = r#"<ui schema="3" initial="hud"><variables><string id="shared" initial="bg.room"/><string id="own" initial="ui.panel"/></variables><screen id="hud" modal="false" pause="false"><image id="a" width="100" height="100" image-bind="ui.shared"/><image id="b" width="100" height="100" image-bind="ui.shared"/><image id="c" width="100" height="100" image-bind="ui.own"/></screen></ui>"#;
-    let definition = interface::parse(ui, "ui.xml", &f.story, &BTreeSet::new()).unwrap();
+    let definition = interface::parse(ui, "ui.xml", &f.story, &[]).unwrap();
     let state = State::new(&definition);
     let profile = Profile::new(&f.story.id, &definition);
     let plan = host::prepare(

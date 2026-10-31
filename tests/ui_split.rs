@@ -53,8 +53,14 @@ fn source() -> Memory {
     Memory([
         ("story.xml", STORY), ("ui.xml", ROOT), ("ui/hud.xml", HUD), ("ui/state.xml", STATE),
         ("ui/pages.xml", r#"<ui schema="3"><include src="ui/hud.xml"/><screen id="settings"><button id="close" width="100" height="40" text="关闭" event="close"/></screen></ui>"#),
-        ("story.js", "on.end('start');on.ui('edit',ctx=>ctx.setUi('title',ctx.value));on.ui('close',ctx=>ctx.close());"),
+        ("story.js", "frame('start').end();ui('edit').bind('edit', ctx=>ctx.setUi('title',ctx.value));ui('close').bind('close', ctx=>ctx.close());"),
     ].into_iter().map(|(p,s)|(p.into(),s.as_bytes().to_vec())).collect())
+}
+/// Budget-only fixtures stop needing the sample page callbacks.
+fn budgets() -> Memory {
+    let mut source = source();
+    replace(&mut source, "story.js", "frame('start').end();");
+    source
 }
 fn replace(source: &mut Memory, path: &str, value: &str) {
     source.0.insert(path.into(), value.as_bytes().to_vec());
@@ -64,6 +70,7 @@ fn failure(source: &Memory) -> String {
         "{:#}",
         loader::load_game(source).err().expect("must reject")
     )
+    .replace(['\u{2068}', '\u{2069}'], "")
 }
 fn write_game(root: &Path, memory: &Memory) -> Result<()> {
     for (path, bytes) in &memory.0 {
@@ -105,18 +112,9 @@ fn nested_includes_resolve_global_references_locations_and_real_js() -> Result<(
     assert!(definition.text().contains("分幕 <提示>"));
     let state = State::new(definition);
     assert_eq!(state.window_title, "中文 & Game");
-    let commands = logic.ui_event(
-        &interface::Event {
-            sound: None,
-            route: None,
-            name: "edit".into(),
-            item: json!(null),
-            value: json!("新的分幕标题"),
-        },
-        &loaded.story.start(),
-        &state.variables,
-        &json!({}),
-    )?;
+    let mut edit = interface::Event::ui("edit", "edit");
+    edit.value = json!("新的分幕标题");
+    let commands = logic.ui_event(&edit, &loaded.story.start(), &state.variables, &json!({}))?;
     let plan = host::prepare(
         definition,
         &state,
@@ -133,7 +131,12 @@ fn nested_includes_resolve_global_references_locations_and_real_js() -> Result<(
     replace(&mut flat, "ui.xml", &compiled.xml);
     let (published, _) = loader::load_game(&flat)?;
     assert_eq!(published.interface.text(), definition.text());
-    assert_eq!(published.interface.events(), definition.events());
+    assert_eq!(
+        published.interface.lifecycle.keys().collect::<Vec<_>>(),
+        definition.lifecycle.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(published.interface.host_handlers, definition.host_handlers);
+    assert_eq!(published.interface.enter, definition.enter);
     assert_eq!(
         interface::source::compile(&flat, Path::new("ui.xml"))?.xml,
         compiled.xml
@@ -281,7 +284,7 @@ fn include_paths_roots_repetition_and_schema_are_strict() {
 
 #[test]
 fn include_and_merged_runtime_budgets_cannot_be_bypassed() -> Result<()> {
-    let mut s = source();
+    let mut s = budgets();
     let links = (0..127)
         .map(|i| format!("<include src=\"ui/empty{i}.xml\"/>"))
         .collect::<String>();
@@ -305,7 +308,7 @@ fn include_and_merged_runtime_budgets_cannot_be_bypassed() -> Result<()> {
         .replace("</ui>", "<include src=\"ui/empty127.xml\"/></ui>");
     replace(&mut s, "ui.xml", &entry);
     assert!(failure(&s).contains("超过 128"));
-    let mut s = source();
+    let mut s = budgets();
     replace(
         &mut s,
         "ui.xml",
@@ -330,7 +333,7 @@ fn include_and_merged_runtime_budgets_cannot_be_bypassed() -> Result<()> {
         r#"<ui schema="3"><include src="ui/16.xml"/></ui>"#,
     );
     assert!(failure(&s).contains("超过 16 层"));
-    let mut s = source();
+    let mut s = budgets();
     replace(
         &mut s,
         "ui/hud.xml",
@@ -346,7 +349,7 @@ fn include_and_merged_runtime_budgets_cannot_be_bypassed() -> Result<()> {
         (129, "variables", "128"),
         (257, "gallery", "256"),
     ] {
-        let mut s = source();
+        let mut s = budgets();
         let items = (0..count)
             .map(|i| match tag {
                 "nodes" => format!("<label id=\"n{i}\" width=\"10\" height=\"10\"/>"),

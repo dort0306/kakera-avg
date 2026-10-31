@@ -146,9 +146,11 @@ pub fn validate_portraits(
             .portraits
             .iter()
             .find(|p| p.slot == *slot)
-            .ok_or_else(|| format!("当前场景没有 {slot:?} 立绘"))?;
+            .ok_or_else(|| {
+                crate::i18n::format("host-effects-0001", &[("arg0", format!("{:?}", slot))])
+            })?;
         if !a.kind.accepts(p.pose) {
-            return Err("立绘动作与 XML 最终 pose 不兼容".into());
+            return Err(crate::i18n::text("host-effects-0002").into());
         }
     }
     Ok(())
@@ -386,14 +388,14 @@ impl Player {
 
 pub fn validate_transition(t: Transition) -> Result<(), String> {
     if t.duration > 5000 {
-        Err("转场 duration 必须在 0–5000ms".into())
+        Err(crate::i18n::text("host-effects-0003").into())
     } else {
         Ok(())
     }
 }
 pub fn validate_animation(a: Animation) -> Result<(), String> {
     if a.duration > 5000 || !a.strength.is_finite() || !(0.0..=128.0).contains(&a.strength) {
-        Err("动画 duration/strength 越界".into())
+        Err(crate::i18n::text("host-effects-0004").into())
     } else {
         Ok(())
     }

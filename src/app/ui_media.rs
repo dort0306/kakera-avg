@@ -27,6 +27,11 @@ pub(super) struct Prepared {
     running: Option<Running>,
 }
 impl UiMedia {
+    #[cfg(test)]
+    pub(super) fn elapse_for_test(&mut self, seconds: u64) {
+        self.clock = PresentationClock::new(Instant::now() - Duration::from_secs(seconds));
+        self.clock.set_paused(false);
+    }
     pub fn new(prefs: Preferences) -> Self {
         Self {
             prefs,
@@ -56,6 +61,10 @@ impl UiMedia {
 }
 impl PlayerApp {
     pub(super) fn prepare_ui_media(&self, plan: &Plan) -> Result<Prepared> {
+        for text in plan.state.localized_text.values() {
+            self.cpu_assets.validate_text(text)?;
+        }
+        self.cpu_assets.validate_text(&plan.state.window_title)?;
         let catalog = &self.custom.definition.media;
         let mut prefs = self.ui_media.prefs.clone();
         let mut running = None;
@@ -73,7 +82,8 @@ impl PlayerApp {
                 Action::Sequence(id) => {
                     ensure!(
                         !self.ui_media.active() && self.pending_auto.is_none(),
-                        "演出/剧情视频/自动保存等待中，不能启动 UI 演出"
+                        "{}",
+                        crate::i18n::format("host-app-ui-media-0001", &[])
                     );
                     let sequence = &catalog.sequences[id];
                     let commands = match &sequence.finish {
@@ -98,7 +108,11 @@ impl PlayerApp {
                             _ => 0.,
                         })
                         .sum::<f64>();
-                    ensure!(duration <= 600., "UI 演出时长超过 600 秒");
+                    ensure!(
+                        duration <= 600.,
+                        "{}",
+                        crate::i18n::format("host-app-ui-media-0002", &[])
+                    );
                     running = Some(Running {
                         id: id.clone(),
                         index: 0,
@@ -117,7 +131,8 @@ impl PlayerApp {
                     plan.operation,
                     Operation::None | Operation::UiAudio | Operation::Present
                 ),
-            "UI 演出/音效不能混合剧情或其他 IO 操作"
+            "{}",
+            crate::i18n::format("host-app-ui-media-0003", &[])
         );
         Ok(Prepared {
             prefs,
@@ -342,12 +357,12 @@ mod tests {
         std::fs::write(
             root.path().join("ui.xml"),
             format!(
-                r#"<ui schema="3" initial="hud"><variables><string id="status" initial="old"/></variables><ui-media><sequence id="reveal"><fade target="title" duration="1000"/></sequence><sequence id="leave" finish="close"><fade target="title" from="1" to="0" duration="1000"/></sequence>{video}</ui-media><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen><screen id="menu" sequence="reveal"><label id="title" width="400" height="50" text="演出"/></screen></ui>"#
+                r#"<ui schema="3" initial="hud"><variables><string id="status" initial="old"/></variables><ui-media><sequence id="reveal"><fade target="title" duration="1000"/></sequence><sequence id="leave" finish="close"><fade target="title" from="1" to="0" duration="1000"/></sequence>{video}</ui-media><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="leave" width="10" height="10" text="键" event="leave"/><button id="movie" width="10" height="10" text="键" event="movie"/><button id="role" width="10" height="10" text="键" event="role"/><button id="mixed" width="10" height="10" text="键" event="mixed"/></screen><screen id="menu" sequence="reveal"><label id="title" width="400" height="50" text="演出"/></screen></ui>"#
             ),
         )?;
         std::fs::write(
             root.path().join("story.js"),
-            "on.end('start');on.ui('leave',ctx=>ctx.sequence('leave'));on.ui('movie',ctx=>ctx.sequence('movie'));on.ui('role',ctx=>{ctx.setUi('status','changed');ctx.soundActor('a',false);});on.ui('mixed',ctx=>{ctx.sequence('reveal');ctx.restart();});",
+            "frame('start').end();ui('leave').bind('leave',ctx=>ctx.sequence('leave'));ui('movie').bind('movie',ctx=>ctx.sequence('movie'));ui('role').bind('role',ctx=>{ctx.setUi('status','changed');ctx.soundActor('a',false);});ui('mixed').bind('mixed',ctx=>{ctx.sequence('reveal');ctx.restart();});",
         )?;
         let b = Bundle::load(
             &package::Snapshot::directory(root.path())?,
@@ -371,13 +386,7 @@ mod tests {
         Ok((app, root, saves))
     }
     fn event(name: &str) -> Event {
-        Event {
-            sound: None,
-            route: None,
-            name: name.into(),
-            item: serde_json::Value::Null,
-            value: serde_json::Value::Null,
-        }
+        Event::ui(name, name)
     }
     fn elapse(app: &mut PlayerApp, seconds: f32) {
         app.ui_media.clock =

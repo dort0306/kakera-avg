@@ -79,7 +79,8 @@ impl Memory {
     fn new(size: usize) -> Result<Self> {
         ensure!(
             size > 0 && size <= 64 * 1024 * 1024,
-            "Cubism 内存预算超过 64MiB"
+            "{}",
+            crate::i18n::format("host-live2d-core-0001", &[])
         );
         Ok(Self(vec![Block([0; 64]); size.div_ceil(64)]))
     }
@@ -123,19 +124,35 @@ unsafe fn slice<'a, T>(ptr: *const T, count: usize) -> Result<&'a [T]> {
     if count == 0 {
         return Ok(&[]);
     }
-    ensure!(!ptr.is_null(), "Cubism 返回空数组");
+    ensure!(
+        !ptr.is_null(),
+        "{}",
+        crate::i18n::format("host-live2d-core-0002", &[])
+    );
     Ok(unsafe { std::slice::from_raw_parts(ptr, count) })
 }
 fn count(n: i32, max: usize) -> Result<usize> {
-    ensure!(n >= 0 && n as usize <= max, "Cubism 数量超出预算");
+    ensure!(
+        n >= 0 && n as usize <= max,
+        "{}",
+        crate::i18n::format("host-live2d-core-0003", &[])
+    );
     Ok(n as usize)
 }
 unsafe fn ids(ptr: *const *const c_char, n: usize) -> Result<Vec<String>> {
     let mut result = Vec::with_capacity(n);
     for p in unsafe { slice(ptr, n)? } {
-        ensure!(!p.is_null(), "Cubism ID 为空");
+        ensure!(
+            !p.is_null(),
+            "{}",
+            crate::i18n::format("host-live2d-core-0004", &[])
+        );
         let id = unsafe { CStr::from_ptr(*p) }.to_str()?;
-        ensure!(id.len() <= 256, "Cubism ID 过长");
+        ensure!(
+            id.len() <= 256,
+            "{}",
+            crate::i18n::format("host-live2d-core-0005", &[])
+        );
         result.push(id.into());
     }
     Ok(result)
@@ -147,17 +164,27 @@ impl Model {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), moc.ptr().cast(), bytes.len());
             ensure!(
                 (core.consistent)(moc.ptr(), bytes.len() as u32) == 1,
-                "moc3 一致性校验失败"
+                "{}",
+                crate::i18n::format("host-live2d-core-0006", &[])
             );
             let revived = (core.revive)(moc.ptr(), bytes.len() as u32);
-            ensure!(!revived.is_null(), "无法加载 moc3");
+            ensure!(
+                !revived.is_null(),
+                "{}",
+                crate::i18n::format("host-live2d-core-0007", &[])
+            );
             let size = (core.model_size)(revived);
             let mut memory = Memory::new(size as usize)?;
             let ptr = (core.initialize)(revived, memory.ptr(), size);
-            ensure!(!ptr.is_null(), "无法初始化 Cubism 模型");
+            ensure!(
+                !ptr.is_null(),
+                "{}",
+                crate::i18n::format("host-live2d-core-0008", &[])
+            );
             ensure!(
                 (core.offscreen_count)(ptr) == 0,
-                "不支持 Cubism 5.3 离屏分组混合，请导出普通网格模型"
+                "{}",
+                crate::i18n::format("host-live2d-core-0009", &[])
             );
             let n = count((core.parameter_count)(ptr), 4096)?;
             let names = ids((core.parameter_ids)(ptr), n)?;
@@ -186,7 +213,8 @@ impl Model {
                     && canvas.x > 0.0
                     && canvas.y > 0.0
                     && ppu > 0.0,
-                "Cubism 画布无效"
+                "{}",
+                crate::i18n::format("host-live2d-core-0010", &[])
             );
             let model = Self {
                 core,
@@ -212,17 +240,23 @@ impl Model {
             let pointer = (self.core.values)(self.ptr);
             ensure!(
                 !pointer.is_null() || self.parameters.is_empty(),
-                "Cubism 参数指针为空"
+                "{}",
+                crate::i18n::format("host-live2d-core-0011", &[])
             );
             for (i, p) in self.parameters.iter().enumerate() {
                 let v = values.get(&p.id).copied().unwrap_or(p.default);
-                ensure!(v.is_finite(), "Cubism 参数非有限数");
+                ensure!(
+                    v.is_finite(),
+                    "{}",
+                    crate::i18n::format("host-live2d-core-0012", &[])
+                );
                 *pointer.add(i) = v.clamp(p.min, p.max);
             }
             let pointer = (self.core.part_opacity)(self.ptr);
             ensure!(
                 !pointer.is_null() || self.parts.is_empty(),
-                "Cubism 部件指针为空"
+                "{}",
+                crate::i18n::format("host-live2d-core-0013", &[])
             );
             for (i, id) in self.parts.iter().enumerate() {
                 *pointer.add(i) = parts.get(id).copied().unwrap_or(1.0).clamp(0.0, 1.0);
@@ -257,19 +291,24 @@ impl Model {
             for i in 0..n {
                 ensure!(
                     (0..=2).contains(&blends[i]),
-                    "不支持 Cubism 高级混合模式 {}",
-                    blends[i]
+                    "{}",
+                    crate::i18n::format(
+                        "host-live2d-core-0014",
+                        &[("arg0", format!("{}", blends[i]))]
+                    )
                 );
                 ensure!(
                     tex[i] >= 0 && (tex[i] as usize) < textures,
-                    "Cubism 贴图索引越界"
+                    "{}",
+                    crate::i18n::format("host-live2d-core-0015", &[])
                 );
                 let len = count(counts[i], 65535)?;
                 let index_len = count(index_counts[i], 196605)?;
                 total += index_len;
                 ensure!(
                     total <= 1_000_000 && index_len % 3 == 0,
-                    "Cubism 网格预算或三角形无效"
+                    "{}",
+                    crate::i18n::format("host-live2d-core-0016", &[])
                 );
                 let positions = slice(vertices[i], len)?.to_vec();
                 let uv = slice(uvs[i], len)?.to_vec();
@@ -280,12 +319,14 @@ impl Model {
                         && v.x.abs() < 1e6
                         && v.y.abs() < 1e6)
                         && idx.iter().all(|v| (*v as usize) < len),
-                    "Cubism 网格顶点无效"
+                    "{}",
+                    crate::i18n::format("host-live2d-core-0017", &[])
                 );
                 let mask = slice(masks[i], count(mask_counts[i], 2048)?)?;
                 ensure!(
                     mask.iter().all(|m| *m >= 0 && (*m as usize) < n),
-                    "Cubism 蒙版索引无效"
+                    "{}",
+                    crate::i18n::format("host-live2d-core-0018", &[])
                 );
                 result.push(Drawable {
                     vertices: positions,

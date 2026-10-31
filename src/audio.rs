@@ -37,37 +37,61 @@ impl PreparedAudio {
             }
             let clip = (|| -> Result<SamplesBuffer> {
                 let bytes = read(&asset.path)?;
-                ensure!(bytes.len() <= MAX_CLIP_BYTES, "音频文件超过 128MiB");
-                let decoder =
-                    Decoder::try_from(Cursor::new(bytes)).context("无法解码 WAV/Ogg 音频")?;
+                ensure!(
+                    bytes.len() <= MAX_CLIP_BYTES,
+                    "{}",
+                    crate::i18n::format("host-audio-0001", &[])
+                );
+                let decoder = Decoder::try_from(Cursor::new(bytes))
+                    .context(crate::i18n::text("host-audio-0012"))?;
                 let channels = decoder.channels();
                 let sample_rate = decoder.sample_rate();
-                ensure!((1..=2).contains(&channels), "音频必须为单声道或双声道");
+                ensure!(
+                    (1..=2).contains(&channels),
+                    "{}",
+                    crate::i18n::format("host-audio-0002", &[])
+                );
                 ensure!(
                     (8000..=96000).contains(&sample_rate),
-                    "音频采样率必须在 8000–96000 Hz 之间"
+                    "{}",
+                    crate::i18n::format("host-audio-0003", &[])
                 );
                 let max_samples = (sample_rate as usize * channels as usize * 300)
                     .min(MAX_CLIP_BYTES / 4)
                     .min((MAX_CACHE_BYTES - total_bytes) / 4);
                 let samples: Vec<f32> = decoder.take(max_samples + 1).collect();
-                ensure!(!samples.is_empty(), "音频没有可播放采样");
+                ensure!(
+                    !samples.is_empty(),
+                    "{}",
+                    crate::i18n::format("host-audio-0004", &[])
+                );
                 ensure!(
                     samples.len() <= max_samples,
-                    "音频超过 5 分钟、单资源 128MiB 或缓存总量 256MiB 上限"
+                    "{}",
+                    crate::i18n::format("host-audio-0005", &[])
                 );
                 ensure!(
                     samples.iter().all(|sample| sample.is_finite()),
-                    "音频包含非法采样"
+                    "{}",
+                    crate::i18n::format("host-audio-0006", &[])
                 );
                 ensure!(
                     samples.len().is_multiple_of(channels as usize),
-                    "音频采样帧不完整"
+                    "{}",
+                    crate::i18n::format("host-audio-0007", &[])
                 );
                 total_bytes += samples.len() * 4;
                 Ok(SamplesBuffer::new(channels, sample_rate, samples))
             })()
-            .with_context(|| format!("音频资源 {id}：{}", asset.path.display()))?;
+            .with_context(|| {
+                crate::i18n::format(
+                    "host-audio-0008",
+                    &[
+                        ("arg0", id.to_string()),
+                        ("arg1", format!("{}", asset.path.display())),
+                    ],
+                )
+            })?;
             clips.insert(id.clone(), clip);
         }
         Ok(Self { clips })
@@ -219,9 +243,9 @@ impl AudioEngine {
             (
                 None,
                 if disabled {
-                    "音频输出已禁用"
+                    crate::i18n::text("host-audio-0013")
                 } else {
-                    "故事未配置音频"
+                    crate::i18n::text("host-audio-0014")
                 }
                 .to_owned(),
             )
@@ -237,7 +261,13 @@ impl AudioEngine {
             match result {
                 Ok(mut stream) => {
                     stream.log_on_drop(false);
-                    eprintln!("音频设备输出流已建立：{:?}", stream.config());
+                    eprintln!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-audio-0009",
+                            &[("arg0", format!("{:?}", stream.config()))]
+                        )
+                    );
                     (
                         Some(Device {
                             ui: Vec::new(),
@@ -248,12 +278,15 @@ impl AudioEngine {
                             stream,
                             errors,
                         }),
-                        "音频设备输出正常".to_owned(),
+                        crate::i18n::text("host-audio-0015").to_owned(),
                     )
                 }
                 Err(error) => {
-                    warning = Some(format!("音频设备不可用，已降级为静音：{error}"));
-                    (None, "音频设备不可用".to_owned())
+                    warning = Some(crate::i18n::format(
+                        "host-audio-0010",
+                        &[("arg0", error.to_string())],
+                    ));
+                    (None, crate::i18n::text("host-audio-0016").to_owned())
                 }
             }
         };
@@ -304,6 +337,18 @@ impl AudioEngine {
                 }
             }
         }
+    }
+
+    pub fn stop_voice(&mut self) {
+        if let Some(device) = self.device.as_mut()
+            && let Some(voice) = device.voice.take()
+        {
+            voice.stop();
+        }
+    }
+    /// Hot reload swaps prepared clips without replaying any active channel.
+    pub fn replace_prepared(&mut self, prepared: PreparedAudio) {
+        self.prepared = prepared;
     }
 
     pub fn configure_ui_video(&self, settings: &Settings, paused: bool) {
@@ -357,8 +402,11 @@ impl AudioEngine {
     pub fn poll_error(&mut self) -> Option<String> {
         let error = self.device.as_ref()?.errors.try_recv().ok()?;
         self.device = None;
-        self.status = "音频设备不可用".into();
-        Some(format!("音频输出中断，已降级为静音：{error}"))
+        self.status = crate::i18n::text("host-audio-0017").into();
+        Some(crate::i18n::format(
+            "host-audio-0011",
+            &[("arg0", error.to_string())],
+        ))
     }
 
     pub fn status(&self) -> String {
@@ -372,12 +420,12 @@ impl AudioEngine {
                 let state = match sink {
                     Some(sink) if !sink.empty() => {
                         if sink.is_paused() {
-                            "暂停"
+                            crate::i18n::text("host-audio-0018")
                         } else {
-                            "正在播放"
+                            crate::i18n::text("host-audio-0019")
                         }
                     }
-                    _ => "停止",
+                    _ => crate::i18n::text("host-audio-0020"),
                 };
                 status.push_str(&format!("\n{label}: {state}"));
             }

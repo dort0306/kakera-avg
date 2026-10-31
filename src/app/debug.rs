@@ -125,14 +125,30 @@ impl PlayerApp {
         match command {
             Command::Status => unreachable!(),
             Command::Breakpoints { frames } => {
-                ensure!(frames.len() <= 1000, "断点超过 1000");
+                ensure!(
+                    frames.len() <= 1000,
+                    "{}",
+                    crate::i18n::format("host-app-debug-0001", &[])
+                );
                 let mut resolved = BTreeSet::new();
                 for frame in frames {
-                    ensure!(frame.len() <= 256, "断点引用过长");
+                    ensure!(
+                        frame.len() <= 256,
+                        "{}",
+                        crate::i18n::format("host-app-debug-0002", &[])
+                    );
                     resolved.insert(
                         self.story
                             .resolve_frame(&frame)
-                            .ok_or_else(|| anyhow::anyhow!("断点场景不存在：{frame}"))?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "{}",
+                                    crate::i18n::format(
+                                        "host-app-debug-0003",
+                                        &[("arg0", frame.to_string())]
+                                    )
+                                )
+                            })?
                             .to_owned(),
                     );
                 }
@@ -157,7 +173,8 @@ impl PlayerApp {
                 ensure!(debug.paused, "step requires paused state");
                 ensure!(
                     self.effects.has_entered || debug.pending.is_some(),
-                    "请先从 UI 选择起始幕或载入存档"
+                    "{}",
+                    crate::i18n::format("host-app-debug-0004", &[])
                 );
                 ensure!(
                     self.message.is_none()
@@ -165,12 +182,14 @@ impl PlayerApp {
                         && self.handoff.is_none()
                         && self.custom.state.keyboard(&self.custom.definition)
                         && self.pending_auto.is_none(),
-                    "菜单/提示/自动存档等待阻挡调试步进"
+                    "{}",
+                    crate::i18n::format("host-app-debug-0005", &[])
                 );
                 if self.debug.as_ref().unwrap().pending.is_some() {
                     ensure!(
                         matches!(command, Command::Advance),
-                        "未决断点只接受 advance 或 resume"
+                        "{}",
+                        crate::i18n::format("host-app-debug-0006", &[])
                     );
                     let entry = self.debug.as_mut().unwrap().pending.take().unwrap();
                     self.commit_entry(entry)?;
@@ -184,13 +203,22 @@ impl PlayerApp {
                                 self.typewriter.complete()
                                     && !self.effects.active()
                                     && !self.ui_media.video(),
-                                "当前场景尚未可选择"
+                                "{}",
+                                crate::i18n::format("host-app-debug-0007", &[])
                             );
-                            ensure!(self.available.contains(&option), "选项不存在或已隐藏");
+                            ensure!(
+                                self.available.contains(&option),
+                                "{}",
+                                crate::i18n::format("host-app-debug-0008", &[])
+                            );
                             self.handle(UiIntent::Play(controller::Intent::Choose(option)))?;
                         }
                         Command::Reveal => {
-                            ensure!(!self.ui_media.video(), "视频播放中不可补全");
+                            ensure!(
+                                !self.ui_media.video(),
+                                "{}",
+                                crate::i18n::format("host-app-debug-0009", &[])
+                            );
                             self.typewriter.finish();
                         }
                         Command::SkipTransition => self.effects.finish(),
@@ -228,7 +256,7 @@ impl PlayerApp {
         let result = match result {
             Ok(()) => Ok(self.debug_snapshot()),
             Err(error) => {
-                let message = format!("{error:#}");
+                let message = crate::i18n::diagnostics(&format!("{error:#}"));
                 if let Some(debug) = &mut self.debug {
                     debug.last_error = Some(message.clone());
                 }
@@ -242,12 +270,21 @@ impl PlayerApp {
         if let Some(debug) = &self.debug
             && debug.paused
         {
-            egui::Window::new("调试暂停")
+            egui::Window::new(crate::i18n::text("host-app-debug-0012"))
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(format!("{} · 修订 {}", debug.reason, debug.epoch));
+                    ui.label(crate::i18n::format(
+                        "host-app-debug-0010",
+                        &[
+                            ("arg0", debug.reason.to_string()),
+                            ("arg1", debug.epoch.to_string()),
+                        ],
+                    ));
                     if let Some(entry) = &debug.pending {
-                        ui.label(format!("待提交：{}", entry.session.frame_id));
+                        ui.label(crate::i18n::format(
+                            "host-app-debug-0011",
+                            &[("arg0", entry.session.frame_id.to_string())],
+                        ));
                     }
                 });
         }

@@ -125,7 +125,7 @@ UI 根 ui-media 可跨 include 拆分；两格式仍汇总为单 UI 入口。音
 
 ## v0.9.0 生命周期与隐藏交接
 
-应用版本 0.9.0，story 8/UI 3，save 9，demo content-version=9。frame 内 video 已删除，只用 UI sequence.video；on.frameEnter/Exit 与 on.screenOpen/Close、ctx.present/resume 负责双向交接。flow-checkpoint.json 是固定隐藏自动槽，独立于 slot-* 和 auto-*，不显示、不发布、不监控；活动交接重启恢复 UI，视频从零播放，成功返回写 inactive 墓碑。发布前验证离幕插播、自然结束/跳过关闭与指定幕恢复、隐藏槽跨进程/原子失败/普通槽隔离。接口见 API 第 32 节，旧 frame 视频写法仅在归档手册保留。
+应用版本 0.9.0，story 8/UI 3，save 9，demo content-version=9。frame 内 video 已删除，只用 UI sequence.video；幕/页面生命周期回调（v0.11.0 起为 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`）与 ctx.present/resume 负责双向交接。flow-checkpoint.json 是固定隐藏自动槽，独立于 slot-* 和 auto-*，不显示、不发布、不监控；活动交接重启恢复 UI，视频从零播放，成功返回写 inactive 墓碑。发布前验证离幕插播、自然结束/跳过关闭与指定幕恢复、隐藏槽跨进程/原子失败/普通槽隔离。接口见 API 第 32 节，旧 frame 视频写法仅在归档手册保留。
 
 ## 多故事线入口
 
@@ -134,3 +134,9 @@ story.xml 可声明 `entry="opening secret-entry"`，入口可跨章节、使用
 ## 确认弹窗与正常退出
 
 确认页是普通 UI 3 模态 screen，发布时随 include 合并。demo 的 confirmation 页、可选标题与提示/按钮文字由 XML/JS 定义，RGBA alpha 控制遮罩/面板透明度；不要用系统提示窗口替代可定制游戏界面。退出按钮事件使用 ctx.quit()，可先经过确认页；无参、无路径或进程参数，播放器正常关闭并补写设置/已读。发布包无需新增原生插件或弹窗资源格式，字体和已有皮肤照常打包。两种容器与内容/存档版本不变。示例及限制见 [API](xml-js-api.zh-cn.md#自定义确认弹窗与退出游戏)。
+
+## v0.10.1 国际化资源
+
+默认游戏不启用；入口声明 localization 后，清单和全部语言的 FTL/字体/语音都经 ContentSource 准备验证，不根据打包机系统语言裁剪。KPAK 1/2 均保留 key、默认值、UI text-arg 及具名场景引用，源工程不改写。关闭时未引用 FTL 不自动入包。language.json（含大小写变体）属于玩家偏好，排除监控、默认依赖/显式附加和发布；不要将它写入清单 include。
+
+宿主 zh-CN.ftl 编译进播放器，不要求游戏额外分发，也不接受游戏覆盖。package.ps1 默认输出 kakera-avg-v0.10.1，复制 licenses 中的 Fluent/Unicode 相关许可。语音仍使用现有有界预解码，不因国际化放宽 PCM/包预算。接口及生成演示见 API 第 36 节和 tools/prepare-localization-demo.ps1。

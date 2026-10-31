@@ -76,7 +76,10 @@ impl Renderer {
         if let Some(gpu) = &mut self.gpu {
             match gpu.filter(source, filter) {
                 Ok(image) => return image,
-                Err(e) => self.fallback(format!("GPU 滤镜失败，回退 CPU：{e:#}")),
+                Err(e) => self.fallback(crate::i18n::format(
+                    "host-render-0001",
+                    &[("arg0", format!("{:#}", e))],
+                )),
             }
         }
         let image = crate::assets::filter_image(source, filter);
@@ -93,7 +96,10 @@ impl Renderer {
             };
             match gpu.model(attempt) {
                 Ok(image) => return Ok(image),
-                Err(e) => self.fallback(format!("GPU 模型合成失败，回退 CPU：{e:#}")),
+                Err(e) => self.fallback(crate::i18n::format(
+                    "host-render-0002",
+                    &[("arg0", format!("{:#}", e))],
+                )),
             }
         }
         Ok(Image::Cpu(crate::live2d::raster::composite(

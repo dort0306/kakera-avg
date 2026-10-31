@@ -26,13 +26,22 @@ pub enum Archive {
 }
 impl Archive {
     pub fn open(path: &Path) -> Result<Self> {
-        Self::open_file(path).with_context(|| format!("资源包 {}", path.display()))
+        Self::open_file(path).with_context(|| {
+            crate::i18n::format(
+                "host-package-streaming-0001",
+                &[("arg0", format!("{}", path.display()))],
+            )
+        })
     }
     fn open_file(path: &Path) -> Result<Self> {
         let mut file = open_file(path)?;
         let mut header = [0u8; 12];
         file.read_exact(&mut header)?;
-        ensure!(&header[..8] == MAGIC, "KPAK magic 错误");
+        ensure!(
+            &header[..8] == MAGIC,
+            "{}",
+            crate::i18n::format("host-package-streaming-0002", &[])
+        );
         match u32::from_le_bytes(header[8..12].try_into()?) {
             1 => {
                 // Decode the same opened object, even if the path is atomically replaced.
@@ -43,7 +52,13 @@ impl Archive {
                 Ok(Self::Solid(Snapshot::decode(&bytes)?))
             }
             2 => Ok(Self::Streaming(StreamArchive::from_file(file)?)),
-            version => anyhow::bail!("不支持的 KPAK 版本：{version}"),
+            version => anyhow::bail!(
+                "{}",
+                crate::i18n::format(
+                    "host-package-streaming-0003",
+                    &[("arg0", version.to_string())]
+                )
+            ),
         }
     }
     pub fn version(&self) -> u32 {
@@ -113,7 +128,8 @@ impl StreamArchive {
         let actual = file.metadata()?.len();
         ensure!(
             (HEADER as u64..=MAX_TOTAL).contains(&actual),
-            "KPAK 2 文件长度错误"
+            "{}",
+            crate::i18n::format("host-package-streaming-0004", &[])
         );
         file.rewind()?;
         let mut header = [0u8; HEADER];
@@ -126,7 +142,8 @@ impl StreamArchive {
                 && u32at(12) == 0
                 && u32at(40) == CHUNK_SIZE as u32
                 && u32at(44) == 0,
-            "KPAK 2 头/版本/flags 错误"
+            "{}",
+            crate::i18n::format("host-package-streaming-0005", &[])
         );
         let offset = u64at(16);
         let length = u64at(24);
@@ -135,33 +152,44 @@ impl StreamArchive {
                 && offset >= HEADER as u64
                 && offset.checked_add(length) == Some(actual)
                 && u64at(32) == actual,
-            "KPAK 2 索引长度/偏移或尾随数据错误"
+            "{}",
+            crate::i18n::format("host-package-streaming-0006", &[])
         );
         let mut bytes = vec![0u8; length as usize];
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(&mut bytes)?;
         ensure!(
             Sha256::digest(&bytes)[..] == header[48..80],
-            "KPAK 2 索引摘要错误"
+            "{}",
+            crate::i18n::format("host-package-streaming-0007", &[])
         );
         let mut cursor = Cursor {
             bytes: &bytes,
             pos: 0,
         };
         let count = cursor.u32()? as usize;
-        ensure!(count > 0 && count <= MAX_FILES, "KPAK 2 文件数错误");
+        ensure!(
+            count > 0 && count <= MAX_FILES,
+            "{}",
+            crate::i18n::format("host-package-streaming-0008", &[])
+        );
         let mut files = BTreeMap::new();
         let mut case = BTreeSet::new();
         let mut previous = String::new();
         let mut total = 0u64;
         for _ in 0..count {
             let len = cursor.u16()? as usize;
-            ensure!((1..=1024).contains(&len), "KPAK 2 路径长度错误");
+            ensure!(
+                (1..=1024).contains(&len),
+                "{}",
+                crate::i18n::format("host-package-streaming-0009", &[])
+            );
             let name = std::str::from_utf8(cursor.take(len)?)?.to_owned();
             validate_path(Path::new(&name))?;
             ensure!(
                 name > previous && case.insert(name.to_lowercase()),
-                "KPAK 2 路径排序/碰撞错误"
+                "{}",
+                crate::i18n::format("host-package-streaming-0010", &[])
             );
             previous = name.clone();
             let length = cursor.u64()?;
@@ -169,10 +197,17 @@ impl StreamArchive {
             ensure!(
                 length <= MAX_STREAM_BYTES
                     && references as u64 == length.div_ceil(CHUNK_SIZE as u64),
-                "KPAK 2 文件长度/块引用数量错误"
+                "{}",
+                crate::i18n::format("host-package-streaming-0011", &[])
             );
-            total = total.checked_add(length).context("KPAK 2 总量溢出")?;
-            ensure!(total <= MAX_TOTAL, "KPAK 2 逻辑总量超过 1TiB");
+            total = total
+                .checked_add(length)
+                .context(crate::i18n::text("host-package-streaming-0042"))?;
+            ensure!(
+                total <= MAX_TOTAL,
+                "{}",
+                crate::i18n::format("host-package-streaming-0012", &[])
+            );
             // Validate bytes before allocating the reference table.
             let raw = cursor.take(references * 4)?;
             let chunks = raw
@@ -184,9 +219,17 @@ impl StreamArchive {
             files.insert(name, Arc::new(Member { length, chunks }));
         }
         let count = cursor.u32()? as usize;
-        ensure!(count <= MAX_CHUNKS, "KPAK 2 块数超过预算");
+        ensure!(
+            count <= MAX_CHUNKS,
+            "{}",
+            crate::i18n::format("host-package-streaming-0013", &[])
+        );
         let table = cursor.take(count * 48)?;
-        ensure!(cursor.pos == bytes.len(), "KPAK 2 索引尾随数据");
+        ensure!(
+            cursor.pos == bytes.len(),
+            "{}",
+            crate::i18n::format("host-package-streaming-0014", &[])
+        );
         let mut chunks = Vec::with_capacity(count);
         let mut next = HEADER as u64;
         for bytes in table.as_chunks::<48>().0 {
@@ -200,32 +243,45 @@ impl StreamArchive {
                 chunk.offset == next
                     && (1..=MAX_PACKED_CHUNK).contains(&chunk.packed)
                     && (1..=CHUNK_SIZE as u32).contains(&chunk.raw),
-                "KPAK 2 块布局/预算错误"
+                "{}",
+                crate::i18n::format("host-package-streaming-0015", &[])
             );
             next = next
                 .checked_add(u64::from(chunk.packed))
-                .context("KPAK 2 块偏移溢出")?;
-            ensure!(next <= offset, "KPAK 2 块越过索引");
+                .context(crate::i18n::text("host-package-streaming-0043"))?;
+            ensure!(
+                next <= offset,
+                "{}",
+                crate::i18n::format("host-package-streaming-0016", &[])
+            );
             chunks.push(chunk);
         }
         ensure!(
             next == offset && files.contains_key("story.xml"),
-            "KPAK 2 孤立数据或缺少 story.xml"
+            "{}",
+            crate::i18n::format("host-package-streaming-0017", &[])
         );
         let mut used = vec![false; chunks.len()];
         for member in files.values() {
             for (i, id) in member.chunks.iter().enumerate() {
-                let chunk = chunks.get(*id as usize).context("KPAK 2 非法块引用")?;
+                let chunk = chunks
+                    .get(*id as usize)
+                    .context(crate::i18n::text("host-package-streaming-0044"))?;
                 let expected =
                     (member.length - i as u64 * CHUNK_SIZE as u64).min(CHUNK_SIZE as u64);
                 ensure!(
                     u64::from(chunk.raw) == expected,
-                    "KPAK 2 文件与块长度不匹配"
+                    "{}",
+                    crate::i18n::format("host-package-streaming-0018", &[])
                 );
                 used[*id as usize] = true;
             }
         }
-        ensure!(used.iter().all(|used| *used), "KPAK 2 孤立块");
+        ensure!(
+            used.iter().all(|used| *used),
+            "{}",
+            crate::i18n::format("host-package-streaming-0019", &[])
+        );
         Ok(Self {
             file: Arc::new(Mutex::new(file)),
             index: Arc::new(Index { files, chunks }),
@@ -233,10 +289,12 @@ impl StreamArchive {
     }
     fn chunk(&self, id: u32) -> Result<Vec<u8>> {
         let chunk = &self.index.chunks[id as usize];
-        let mut file = self
-            .file
-            .lock()
-            .map_err(|_| anyhow::anyhow!("KPAK 2 文件锁损坏"))?;
+        let mut file = self.file.lock().map_err(|_| {
+            anyhow::anyhow!(
+                "{}",
+                crate::i18n::format("host-package-streaming-0020", &[])
+            )
+        })?;
         let packed = read_chunk(&mut file, chunk)?;
         drop(file);
         decode_chunk(&packed, chunk)
@@ -257,9 +315,17 @@ impl StreamArchive {
         validate_path(path)?;
         self.index
             .files
-            .get(path.to_str().context("路径必须 UTF-8")?)
+            .get(
+                path.to_str()
+                    .context(crate::i18n::text("host-package-streaming-0045"))?,
+            )
             .cloned()
-            .with_context(|| format!("包中缺少 {}", path.display()))
+            .with_context(|| {
+                crate::i18n::format(
+                    "host-package-streaming-0021",
+                    &[("arg0", format!("{}", path.display()))],
+                )
+            })
     }
 }
 fn read_chunk(file: &mut File, chunk: &Chunk) -> Result<Vec<u8>> {
@@ -271,23 +337,44 @@ fn read_chunk(file: &mut File, chunk: &Chunk) -> Result<Vec<u8>> {
 fn decode_chunk(bytes: &[u8], chunk: &Chunk) -> Result<Vec<u8>> {
     ensure!(
         bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]),
-        "KPAK 2 非标准 Zstandard 帧"
+        "{}",
+        crate::i18n::format("host-package-streaming-0022", &[])
     );
-    let size = zstd::zstd_safe::find_frame_compressed_size(bytes)
-        .map_err(|e| anyhow::anyhow!("KPAK 2 Zstandard 帧：{e:?}"))?;
-    ensure!(size == bytes.len(), "KPAK 2 块含尾随帧/数据");
-    let content_size = zstd::zstd_safe::get_frame_content_size(bytes)
-        .map_err(|e| anyhow::anyhow!("KPAK 2 Zstandard 长度：{e:?}"))?;
+    let size = zstd::zstd_safe::find_frame_compressed_size(bytes).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            crate::i18n::format(
+                "host-package-streaming-0023",
+                &[("arg0", format!("{:?}", e))]
+            )
+        )
+    })?;
+    ensure!(
+        size == bytes.len(),
+        "{}",
+        crate::i18n::format("host-package-streaming-0024", &[])
+    );
+    let content_size = zstd::zstd_safe::get_frame_content_size(bytes).map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            crate::i18n::format(
+                "host-package-streaming-0025",
+                &[("arg0", format!("{:?}", e))]
+            )
+        )
+    })?;
     ensure!(
         content_size == Some(u64::from(chunk.raw)),
-        "KPAK 2 帧原文长度错误"
+        "{}",
+        crate::i18n::format("host-package-streaming-0026", &[])
     );
     let mut decoder = zstd::bulk::Decompressor::new()?;
     decoder.window_log_max(20)?;
     let data = decoder.decompress(bytes, chunk.raw as usize)?;
     ensure!(
         data.len() == chunk.raw as usize && Sha256::digest(&data)[..] == chunk.hash,
-        "KPAK 2 块摘要/长度错误"
+        "{}",
+        crate::i18n::format("host-package-streaming-0027", &[])
     );
     Ok(data)
 }
@@ -296,8 +383,11 @@ impl ContentSource for StreamArchive {
         let member = self.member(path)?;
         ensure!(
             member.length <= MAX_READ_BYTES,
-            "内容超过 128MiB，请使用流式入口：{}",
-            path.display()
+            "{}",
+            crate::i18n::format(
+                "host-package-streaming-0028",
+                &[("arg0", format!("{}", path.display()))]
+            )
         );
         let mut bytes = Vec::with_capacity(member.length as usize);
         self.open(path)?
@@ -330,7 +420,9 @@ impl Read for StreamReader {
             return Ok(0);
         }
         if self.failed {
-            return Err(std::io::Error::other("KPAK 2 流已失败"));
+            return Err(std::io::Error::other(crate::i18n::text(
+                "host-package-streaming-0046",
+            )));
         }
         if self.position == self.bytes.len() {
             let Some(id) = self.member.chunks.get(self.next) else {
@@ -342,7 +434,10 @@ impl Read for StreamReader {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     self.failed = true;
-                    return Err(std::io::Error::other(format!("KPAK 2 块 {id}: {e:#}")));
+                    return Err(std::io::Error::other(crate::i18n::format(
+                        "host-package-streaming-0029",
+                        &[("arg0", id.to_string()), ("arg1", format!("{:#}", e))],
+                    )));
                 }
             };
             self.next += 1;
@@ -363,7 +458,11 @@ pub fn write_streaming(
     overwrite: bool,
     validate: impl FnOnce(&StreamArchive) -> Result<()>,
 ) -> Result<u64> {
-    ensure!((1..=22).contains(&level), "压缩级别须在 1–22");
+    ensure!(
+        (1..=22).contains(&level),
+        "{}",
+        crate::i18n::format("host-package-streaming-0030", &[])
+    );
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -371,11 +470,13 @@ pub fn write_streaming(
     std::fs::create_dir_all(parent)?;
     ensure!(
         !parent.canonicalize()?.starts_with(stage.original_root()),
-        "输出包必须位于工程目录之外"
+        "{}",
+        crate::i18n::format("host-package-streaming-0031", &[])
     );
     ensure!(
         overwrite || !path.exists(),
-        "输出已存在，使用 --force 才能覆盖"
+        "{}",
+        crate::i18n::format("host-package-streaming-0032", &[])
     );
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     let length = encode(stage, temp.as_file_mut(), level)?;
@@ -421,15 +522,21 @@ fn encode(stage: &StagedProject, file: &mut File, level: i32) -> Result<u64> {
                 let chunk = &chunks[*id as usize];
                 ensure!(
                     decode_chunk(&read_chunk(file, chunk)?, chunk)? == bytes,
-                    "KPAK 2 内容摘要碰撞"
+                    "{}",
+                    crate::i18n::format("host-package-streaming-0033", &[])
                 );
                 *id
             } else {
-                ensure!(chunks.len() < MAX_CHUNKS, "KPAK 2 块数超过预算");
+                ensure!(
+                    chunks.len() < MAX_CHUNKS,
+                    "{}",
+                    crate::i18n::format("host-package-streaming-0034", &[])
+                );
                 let packed = compressor.compress(bytes)?;
                 ensure!(
                     packed.len() <= MAX_PACKED_CHUNK as usize,
-                    "KPAK 2 压缩块超预算"
+                    "{}",
+                    crate::i18n::format("host-package-streaming-0035", &[])
                 );
                 let id = chunks.len() as u32;
                 file.seek(SeekFrom::Start(offset))?;
@@ -442,21 +549,31 @@ fn encode(stage: &StagedProject, file: &mut File, level: i32) -> Result<u64> {
                 });
                 hashes.insert(hash, id);
                 offset += packed.len() as u64;
-                ensure!(offset <= MAX_TOTAL, "KPAK 2 包超过 1TiB");
+                ensure!(
+                    offset <= MAX_TOTAL,
+                    "{}",
+                    crate::i18n::format("host-package-streaming-0036", &[])
+                );
                 id
             };
             index.extend(id.to_le_bytes());
             remaining -= length as u64;
-            ensure!(index.len() <= MAX_INDEX, "KPAK 2 索引超过 128MiB");
+            ensure!(
+                index.len() <= MAX_INDEX,
+                "{}",
+                crate::i18n::format("host-package-streaming-0037", &[])
+            );
         }
         ensure!(
             input.read(&mut [0u8; 1])? == 0 && hash_file.finalize()[..] == entry.hash,
-            "KPAK 2 暂存文件改变：{path}"
+            "{}",
+            crate::i18n::format("host-package-streaming-0038", &[("arg0", path.to_string())])
         );
     }
     ensure!(
         index.len() + 4 + chunks.len() * 48 <= MAX_INDEX,
-        "KPAK 2 索引超过 128MiB"
+        "{}",
+        crate::i18n::format("host-package-streaming-0039", &[])
     );
     index.extend((chunks.len() as u32).to_le_bytes());
     for chunk in chunks {
@@ -465,11 +582,19 @@ fn encode(stage: &StagedProject, file: &mut File, level: i32) -> Result<u64> {
         index.extend(chunk.raw.to_le_bytes());
         index.extend(chunk.hash);
     }
-    ensure!(index.len() <= MAX_INDEX, "KPAK 2 索引超过 128MiB");
+    ensure!(
+        index.len() <= MAX_INDEX,
+        "{}",
+        crate::i18n::format("host-package-streaming-0040", &[])
+    );
     let length = offset
         .checked_add(index.len() as u64)
-        .context("KPAK 2 包长度溢出")?;
-    ensure!(length <= MAX_TOTAL, "KPAK 2 包超过 1TiB");
+        .context(crate::i18n::text("host-package-streaming-0047"))?;
+    ensure!(
+        length <= MAX_TOTAL,
+        "{}",
+        crate::i18n::format("host-package-streaming-0041", &[])
+    );
     file.seek(SeekFrom::Start(offset))?;
     file.write_all(&index)?;
     let mut header = Vec::with_capacity(HEADER);

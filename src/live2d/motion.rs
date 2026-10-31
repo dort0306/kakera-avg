@@ -77,57 +77,106 @@ pub struct Motion {
     pub curves: Vec<Curve>,
 }
 fn number(v: &Value) -> Result<f32> {
-    let n = v.as_f64().context("动作数据需要数值")? as f32;
-    ensure!(n.is_finite() && n.abs() <= 1e6, "动作数值越界");
+    let n = v
+        .as_f64()
+        .context(crate::i18n::text("host-live2d-motion-0018"))? as f32;
+    ensure!(
+        n.is_finite() && n.abs() <= 1e6,
+        "{}",
+        crate::i18n::format("host-live2d-motion-0001", &[])
+    );
     Ok(n)
 }
 impl Motion {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        ensure!(bytes.len() <= 8 * 1024 * 1024, "motion3 超过 8MiB");
+        ensure!(
+            bytes.len() <= 8 * 1024 * 1024,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0002", &[])
+        );
         let v: Value = serde_json::from_slice(bytes)?;
-        ensure!(v["Version"] == 3, "需要 motion3 Version 3");
+        ensure!(
+            v["Version"] == 3,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0003", &[])
+        );
         let duration = number(&v["Meta"]["Duration"])?;
-        ensure!(duration > 0.0 && duration <= 300.0, "动作时长须在 0–300 秒");
-        let list = v["Curves"].as_array().context("动作缺少 Curves")?;
-        ensure!(list.len() <= 4096, "动作曲线过多");
+        ensure!(
+            duration > 0.0 && duration <= 300.0,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0004", &[])
+        );
+        let list = v["Curves"]
+            .as_array()
+            .context(crate::i18n::text("host-live2d-motion-0019"))?;
+        ensure!(
+            list.len() <= 4096,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0005", &[])
+        );
         let mut curves = Vec::new();
         let mut budget = 0;
         for c in list {
-            let target = c["Target"].as_str().context("曲线 Target")?.to_owned();
+            let target = c["Target"]
+                .as_str()
+                .context(crate::i18n::text("host-live2d-motion-0020"))?
+                .to_owned();
             ensure!(
                 ["Parameter", "PartOpacity", "Model"].contains(&target.as_str()),
-                "未知曲线目标"
+                "{}",
+                crate::i18n::format("host-live2d-motion-0006", &[])
             );
-            let id = c["Id"].as_str().context("曲线 Id")?.to_owned();
-            ensure!(id.len() <= 256, "曲线 ID 过长");
+            let id = c["Id"]
+                .as_str()
+                .context(crate::i18n::text("host-live2d-motion-0021"))?
+                .to_owned();
+            ensure!(
+                id.len() <= 256,
+                "{}",
+                crate::i18n::format("host-live2d-motion-0007", &[])
+            );
             if target == "Model" {
                 ensure!(
                     ["Opacity", "EyeBlink", "LipSync"].contains(&id.as_str()),
-                    "未知模型动作目标 {id}"
+                    "{}",
+                    crate::i18n::format("host-live2d-motion-0008", &[("arg0", id.to_string())])
                 );
             }
             let values: Vec<f32> = c["Segments"]
                 .as_array()
-                .context("曲线缺少 Segments")?
+                .context(crate::i18n::text("host-live2d-motion-0022"))?
                 .iter()
                 .map(number)
                 .collect::<Result<_>>()?;
-            ensure!(values.len() >= 2, "曲线缺少起点");
+            ensure!(
+                values.len() >= 2,
+                "{}",
+                crate::i18n::format("host-live2d-motion-0009", &[])
+            );
             let mut start = [values[0], values[1]];
             let initial = start[1];
             let mut pos = 2;
             let mut segments = Vec::new();
             while pos < values.len() {
                 budget += 1;
-                ensure!(budget <= 100000, "动作片段预算耗尽");
+                ensure!(
+                    budget <= 100000,
+                    "{}",
+                    crate::i18n::format("host-live2d-motion-0010", &[])
+                );
                 let tag = values[pos];
                 pos += 1;
                 let len = if tag == 1.0 { 6 } else { 2 };
-                ensure!(pos + len <= values.len(), "动作片段不完整");
+                ensure!(
+                    pos + len <= values.len(),
+                    "{}",
+                    crate::i18n::format("host-live2d-motion-0011", &[])
+                );
                 let end = values[pos + len - 2];
                 ensure!(
                     start[0] >= 0.0 && end > start[0] && end <= duration + 0.01,
-                    "动作时间不单调或越界"
+                    "{}",
+                    crate::i18n::format("host-live2d-motion-0012", &[])
                 );
                 let seg = match tag {
                     0.0 => Segment::Linear([start[0], start[1], end, values[pos + 1]]),
@@ -135,7 +184,8 @@ impl Motion {
                         ensure!(
                             (start[0]..=end).contains(&values[pos])
                                 && (start[0]..=end).contains(&values[pos + 2]),
-                            "Bezier 控制点时间越界"
+                            "{}",
+                            crate::i18n::format("host-live2d-motion-0013", &[])
                         );
                         Segment::Bezier([
                             start[0],
@@ -150,7 +200,13 @@ impl Motion {
                     }
                     2.0 => Segment::Step([start[0], start[1], end, values[pos + 1]]),
                     3.0 => Segment::Inverse([start[0], start[1], end, values[pos + 1]]),
-                    _ => anyhow::bail!("未知动作片段类型 {tag}"),
+                    _ => anyhow::bail!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-live2d-motion-0014",
+                            &[("arg0", tag.to_string())]
+                        )
+                    ),
                 };
                 start = [end, values[pos + len - 1]];
                 pos += len;
@@ -221,18 +277,32 @@ impl Motion {
 pub struct Expression(pub Vec<(String, f32, String)>);
 impl Expression {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        ensure!(bytes.len() <= 1024 * 1024, "表情文件超过 1MiB");
+        ensure!(
+            bytes.len() <= 1024 * 1024,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0015", &[])
+        );
         let v: Value = serde_json::from_slice(bytes)?;
-        let entries = v["Parameters"].as_array().context("表情缺少 Parameters")?;
-        ensure!(entries.len() <= 4096, "表情参数过多");
+        let entries = v["Parameters"]
+            .as_array()
+            .context(crate::i18n::text("host-live2d-motion-0023"))?;
+        ensure!(
+            entries.len() <= 4096,
+            "{}",
+            crate::i18n::format("host-live2d-motion-0016", &[])
+        );
         let mut result = Vec::new();
         for p in entries {
-            let id = p["Id"].as_str().context("表情 Id")?.to_owned();
+            let id = p["Id"]
+                .as_str()
+                .context(crate::i18n::text("host-live2d-motion-0024"))?
+                .to_owned();
             let value = number(&p["Value"])?;
             let blend = p["Blend"].as_str().unwrap_or("Add").to_owned();
             ensure!(
                 ["Add", "Multiply", "Overwrite"].contains(&blend.as_str()),
-                "未知表情混合"
+                "{}",
+                crate::i18n::format("host-live2d-motion-0017", &[])
             );
             result.push((id, value, blend));
         }

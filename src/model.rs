@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+pub mod diagnostic;
 pub mod effects;
 pub mod rules;
+pub use diagnostic::Diagnostic;
 
 /// The controller sees plans, never interpreter handles or content IO.
 pub trait Logic {
@@ -13,8 +15,12 @@ pub trait Logic {
         frame: &str,
         choice: Option<&str>,
         variables: &Variables,
-    ) -> Result<Option<TransitionRule>, String>;
-    fn options(&self, story: &Story, session: &Session) -> Result<Vec<String>, String>;
+    ) -> Result<Option<TransitionRule>, crate::model::Diagnostic>;
+    fn options(
+        &self,
+        story: &Story,
+        session: &Session,
+    ) -> Result<Vec<String>, crate::model::Diagnostic>;
 }
 
 pub type Variables = BTreeMap<String, VariableValue>;
@@ -38,7 +44,7 @@ impl std::fmt::Display for VariableValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(value) => write!(f, "{value}"),
-            Self::Bool(value) => f.write_str(if *value { "是" } else { "否" }),
+            Self::Bool(value) => f.write_str(if *value { "true" } else { "false" }),
             Self::String(value) => f.write_str(value),
         }
     }
@@ -240,10 +246,12 @@ impl Story {
     }
 
     /// Start a fresh story at an explicitly declared entry (ID or author alias).
-    pub fn start_at(&self, reference: &str) -> Result<Session, String> {
-        let id = self.resolve_frame(reference).ok_or("起始幕不存在")?;
+    pub fn start_at(&self, reference: &str) -> Result<Session, crate::model::Diagnostic> {
+        let id = self
+            .resolve_frame(reference)
+            .ok_or(crate::model::Diagnostic::new("host-model-0005", &[]))?;
         if !self.entries.iter().any(|entry| entry == id) {
-            return Err("目标未声明为起始幕".into());
+            return Err(crate::model::Diagnostic::new("host-model-0006", &[]));
         }
         let mut session = Session::at(id);
         session.variables = self.initial_variables();
@@ -266,32 +274,41 @@ impl Story {
         &self,
         session: &Session,
         logic: &dyn Logic,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::model::Diagnostic> {
         rules::validate_variables(self, &session.variables)?;
         rules::validate_variables(self, &session.history_base_variables)?;
         if !self.frames.contains_key(&session.frame_id) {
-            return Err(format!("存档场景不存在：{}", session.frame_id));
+            return Err(crate::model::Diagnostic::new(
+                "host-model-0001",
+                &[("arg0", session.frame_id.to_string())],
+            ));
         }
         if session.history.is_empty() || session.history.len() > MAX_HISTORY {
-            return Err(format!("历史条数必须在 1–{MAX_HISTORY} 之间"));
+            return Err(crate::model::Diagnostic::new(
+                "host-model-0002",
+                &[("arg0", MAX_HISTORY.to_string())],
+            ));
         }
         for entry in &session.history {
             if !self.frames.contains_key(&entry.frame_id) {
-                return Err(format!("历史场景不存在：{}", entry.frame_id));
+                return Err(crate::model::Diagnostic::new(
+                    "host-model-0003",
+                    &[("arg0", entry.frame_id.to_string())],
+                ));
             }
         }
         let last = session.history.last().expect("nonempty history");
         if last.frame_id != session.frame_id
             || (last.choice_id.is_some() || last.resume_to.is_some())
         {
-            return Err("历史末尾必须是未离开的当前场景".into());
+            return Err(crate::model::Diagnostic::new("host-model-0007", &[]));
         }
         let mut variables = session.history_base_variables.clone();
         for pair in session.history.windows(2) {
             let previous = &pair[0];
             let rule = if let Some(target) = &previous.resume_to {
                 if previous.choice_id.is_some() || !self.frames.contains_key(target) {
-                    return Err("UI 返回历史无效".into());
+                    return Err(crate::model::Diagnostic::new("host-model-0008", &[]));
                 }
                 Some(TransitionRule::plain(target.clone()))
             } else {
@@ -303,9 +320,12 @@ impl Story {
                 )?
             };
             if rule.as_ref().map(|rule| &rule.to) != Some(&pair[1].frame_id) {
-                return Err(format!(
-                    "历史路由不一致：{} → {}",
-                    previous.frame_id, pair[1].frame_id
+                return Err(crate::model::Diagnostic::new(
+                    "host-model-0004",
+                    &[
+                        ("arg0", previous.frame_id.to_string()),
+                        ("arg1", pair[1].frame_id.to_string()),
+                    ],
                 ));
             }
             variables = rules::apply_effects(
@@ -315,7 +335,7 @@ impl Story {
             )?;
         }
         if variables != session.variables {
-            return Err("当前变量与历史重放结果不一致".into());
+            return Err(crate::model::Diagnostic::new("host-model-0009", &[]));
         }
         logic.options(self, session)?;
         Ok(())

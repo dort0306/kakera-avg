@@ -33,7 +33,10 @@ impl CustomUi {
         let path = saves.directory().join("profile.json");
         let profile = if path.exists() {
             Profile::load(&path, &story.id, &definition).unwrap_or_else(|error| {
-                warnings.push(format!("CG 进度无效，已使用初值：{error:#}"));
+                warnings.push(crate::i18n::format(
+                    "host-app-custom-0001",
+                    &[("arg0", format!("{:#}", error))],
+                ));
                 Profile::new(&story.id, &definition)
             })
         } else {
@@ -96,13 +99,7 @@ impl PlayerApp {
         });
         let commands = if custom.definition.enter {
             self.logic.ui_event(
-                &Event {
-                    sound: None,
-                    route: None,
-                    name: "game.enter".into(),
-                    item: Value::Null,
-                    value: Value::Null,
-                },
+                &crate::interface::Event::game(),
                 session,
                 &base.state.variables,
                 &snapshot.values,
@@ -119,14 +116,19 @@ impl PlayerApp {
             true,
         )?;
         plan.command_count += base.command_count;
-        ensure!(plan.command_count <= 32, "生命周期整批命令超过 32");
+        ensure!(
+            plan.command_count <= 32,
+            "{}",
+            crate::i18n::format("host-app-custom-0002", &[])
+        );
         plan.ui_actions.splice(0..0, base.ui_actions);
         if matches!(plan.operation, Operation::None) {
             plan.operation = base.operation;
         } else {
             ensure!(
                 matches!(base.operation, Operation::None),
-                "生命周期持久 IO 冲突"
+                "{}",
+                crate::i18n::format("host-app-custom-0003", &[])
             );
         }
         plan.message = plan.message.or(base.message);
@@ -180,7 +182,12 @@ impl PlayerApp {
                     .saves
                     .list_page(&self.story, custom.state.slot_page)
                     .expect("validated page");
-                let (autosaves, mut images) = self.saves.auto_metadata(&self.story);
+                let (autosaves, mut images) = self.saves.auto_metadata_with(&self.story, &|id| {
+                    custom.definition.localization.frame_text(
+                        &self.story.frames[id],
+                        custom.state.languages.text.as_deref(),
+                    )
+                });
                 custom.autosaves = autosaves;
                 for info in &custom.slots {
                     if let crate::save::SlotState::Ready {
@@ -222,21 +229,19 @@ impl PlayerApp {
     }
     pub(super) fn custom_event(&mut self, event: Event) -> Result<()> {
         let custom = &self.custom;
+        // Route-only and sound-only events never reach the interpreter. Everything that
+        // does must carry a real ordinary event name; reserved lifecycle names cannot be
+        // granted by an incoming string.
+        let scripted =
+            event.route.is_none() && !(event.key.event.is_empty() && event.sound.is_some());
         ensure!(
-            event.name != "game.enter"
-                && ![
-                    "frame.enter:",
-                    "frame.exit:",
-                    "screen.open:",
-                    "screen.close:"
-                ]
-                .iter()
-                .any(|p| event.name.starts_with(p)),
-            "生命周期事件不能作为用户事件触发"
+            !scripted || !crate::interface::reserved_event(&event.key.event),
+            "{}",
+            crate::i18n::format("host-app-custom-0004", &[])
         );
         let mut commands = if let Some(route) = &event.route {
             vec![route.command()]
-        } else if event.name.is_empty() && event.sound.is_some() {
+        } else if event.key.event.is_empty() && event.sound.is_some() {
             Vec::new()
         } else {
             self.logic.ui_event(
@@ -258,6 +263,10 @@ impl PlayerApp {
             false,
         )?;
         let plan = self.page_lifecycle(plan, &self.session, None)?;
+        for text in plan.state.localized_text.values() {
+            self.cpu_assets.validate_text(text)?;
+        }
+        self.cpu_assets.validate_text(&plan.state.window_title)?;
         let refresh = plan.state.stack != custom.state.stack
             || plan.state.slot_page != custom.state.slot_page;
         // While a capture waits for its key, ordinary UI clicks must not act on the game.
@@ -291,14 +300,16 @@ impl PlayerApp {
                 ) && plan.auto_play.is_none()
                     && plan.portraits.is_empty()
                     && plan.live2d.is_empty()),
-            "请先从 UI 显式选择起始幕或载入存档"
+            "{}",
+            crate::i18n::format("host-app-custom-0005", &[])
         );
         if matches!(plan.operation, Operation::Present | Operation::Resume(_)) {
             return self.commit_page_plan(plan);
         }
         ensure!(
             self.handoff.is_none() || matches!(plan.operation, Operation::None | Operation::Quit),
-            "交接期间禁止普通剧情/持久 IO 操作"
+            "{}",
+            crate::i18n::format("host-app-custom-0006", &[])
         );
         let validate_current = || {
             self.prepared_live2d
@@ -322,14 +333,19 @@ impl PlayerApp {
         if matches!(plan.operation, Operation::None) {
             return self.commit_page_plan(plan);
         }
+        if matches!(plan.operation, Operation::Locales) {
+            return self.commit_language_plan(plan);
+        }
         let ui_prepared = self.prepare_ui_media(&plan)?;
         let rebound = matches!(plan.operation, Operation::Keybindings);
         match &plan.operation {
+            Operation::Locales => unreachable!("handled language transaction"),
             Operation::Quit => {}
             Operation::Save(slot, overwrite) => {
                 ensure!(
                     *overwrite || !self.saves.slot_path(*slot).exists(),
-                    "槽位已有存档，请通过确认页显式覆盖"
+                    "{}",
+                    crate::i18n::format("host-app-custom-0007", &[])
                 );
                 self.save_current(*slot)?;
             }
@@ -350,9 +366,9 @@ impl PlayerApp {
                 });
                 let session = self
                     .story
-                    .start_at(
-                        target.ok_or_else(|| anyhow::anyhow!("多起始幕游戏必须显式选择起始幕"))?,
-                    )
+                    .start_at(target.ok_or_else(|| {
+                        anyhow::anyhow!("{}", crate::i18n::format("host-app-custom-0008", &[]))
+                    })?)
                     .map_err(anyhow::Error::msg)?;
                 return self.enter_planned(session, false, true, Some(plan));
             }

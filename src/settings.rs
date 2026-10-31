@@ -39,11 +39,13 @@ impl Settings {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.auto_delay.is_finite() && (0.2..=15.0).contains(&self.auto_delay),
-            "自动播放等待须在 0.2–15 秒"
+            "{}",
+            crate::i18n::format("host-settings-0001", &[])
         );
         ensure!(
             self.text_speed.is_finite() && (0.0..=80.0).contains(&self.text_speed),
-            "文字速度必须在 0–80 之间"
+            "{}",
+            crate::i18n::format("host-settings-0002", &[])
         );
         for value in [
             self.bgm_volume,
@@ -53,7 +55,8 @@ impl Settings {
         ] {
             ensure!(
                 value.is_finite() && (0.0..=1.0).contains(&value),
-                "音量必须在 0–1 之间"
+                "{}",
+                crate::i18n::format("host-settings-0003", &[])
             );
         }
         Ok(())

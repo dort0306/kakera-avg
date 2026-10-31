@@ -68,13 +68,15 @@ impl Decoder {
             let size = [(packed >> 32) as usize, (packed & 0xffff_ffff) as usize];
             ensure!(
                 size[0] > 0 && size[1] > 0 && size[0] <= 1920 && size[1] <= 1080,
-                "视频尺寸须在 1920×1080 内"
+                "{}",
+                crate::i18n::format("host-media-windows-mf-0001", &[])
             );
             let rate = current.GetUINT64(&MF_MT_FRAME_RATE)?;
             let fps = (rate >> 32) as f64 / (rate & 0xffff_ffff) as f64;
             ensure!(
                 fps.is_finite() && fps > 0.0 && fps <= 60.1,
-                "视频帧率须在 0–60fps"
+                "{}",
+                crate::i18n::format("host-media-windows-mf-0002", &[])
             );
             let stride = current
                 .GetUINT32(&MF_MT_DEFAULT_STRIDE)
@@ -97,7 +99,11 @@ impl Decoder {
                 .reader
                 .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)?;
             let duration = u64::try_from(&value)? as f64 / 10_000_000.0;
-            ensure!(duration > 0.0 && duration <= 300.0, "视频时长须在 0–300 秒");
+            ensure!(
+                duration > 0.0 && duration <= 300.0,
+                "{}",
+                crate::i18n::format("host-media-windows-mf-0003", &[])
+            );
             Ok(duration)
         }
     }
@@ -107,7 +113,11 @@ impl Decoder {
             let mut reads = 0;
             while !self.ended && self.last_time < target {
                 reads += 1;
-                ensure!(reads <= 18001, "视频解码读取预算耗尽");
+                ensure!(
+                    reads <= 18001,
+                    "{}",
+                    crate::i18n::format("host-media-windows-mf-0004", &[])
+                );
                 let mut flags = 0;
                 let mut time = 0;
                 let mut sample = None;
@@ -121,7 +131,7 @@ impl Decoder {
                 )?;
                 self.ended = flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0;
                 if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
-                    anyhow::bail!("不支持播放中改变视频格式");
+                    anyhow::bail!("{}", crate::i18n::format("host-media-windows-mf-0005", &[]));
                 }
                 if let Some(sample) = sample {
                     let buffer = sample.ConvertToContiguousBuffer()?;
@@ -150,7 +160,10 @@ impl Decoder {
                             };
                             copy_rgb(top, pitch, self.size, &mut rgba)
                         } else {
-                            Err(anyhow::anyhow!("视频缓冲尺寸无效"))
+                            Err(anyhow::anyhow!(
+                                "{}",
+                                crate::i18n::format("host-media-windows-mf-0006", &[])
+                            ))
                         };
                         let unlocked = buffer.Unlock();
                         result?;
@@ -171,7 +184,8 @@ impl Decoder {
 unsafe fn copy_rgb(top: *const u8, pitch: i32, size: [usize; 2], out: &mut [u8]) -> Result<()> {
     ensure!(
         !top.is_null() && pitch.unsigned_abs() as usize >= size[0] * 4,
-        "无效视频行缓冲"
+        "{}",
+        crate::i18n::format("host-media-windows-mf-0007", &[])
     );
     for y in 0..size[1] {
         // SAFETY: MF's locked buffer provides height rows at its documented signed pitch.
@@ -217,16 +231,25 @@ fn audio(path: &std::path::Path) -> Result<Option<rodio::buffer::SamplesBuffer>>
                 let result = (|| -> Result<()> {
                     ensure!(
                         len % 8 == 0 && pcm.len() + len as usize / 4 <= 48000 * 2 * 300,
-                        "视频音频超过 300 秒或缓冲无效"
+                        "{}",
+                        crate::i18n::format("host-media-windows-mf-0008", &[])
                     );
-                    ensure!(len == 0 || !data.is_null(), "视频音频指针为空");
+                    ensure!(
+                        len == 0 || !data.is_null(),
+                        "{}",
+                        crate::i18n::format("host-media-windows-mf-0009", &[])
+                    );
                     if len > 0 {
                         for sample in std::slice::from_raw_parts(data, len as usize)
                             .as_chunks::<4>()
                             .0
                         {
                             let v = f32::from_le_bytes(*sample);
-                            ensure!(v.is_finite(), "无效音频采样");
+                            ensure!(
+                                v.is_finite(),
+                                "{}",
+                                crate::i18n::format("host-media-windows-mf-0010", &[])
+                            );
                             pcm.push(v);
                         }
                     }
@@ -242,7 +265,7 @@ fn audio(path: &std::path::Path) -> Result<Option<rodio::buffer::SamplesBuffer>>
                 );
             }
         }
-        anyhow::bail!("视频音频解码预算耗尽")
+        anyhow::bail!("{}", crate::i18n::format("host-media-windows-mf-0011", &[]))
     }
 }
 pub fn prepare(file: tempfile::NamedTempFile) -> Result<VideoAsset> {

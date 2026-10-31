@@ -35,24 +35,41 @@ impl PreparedMedia {
             if a.kind != AssetKind::Video {
                 continue;
             }
-            ensure!(videos.len() < 16, "视频资源超过 16 项");
+            ensure!(
+                videos.len() < 16,
+                "{}",
+                crate::i18n::format("host-media-0001", &[])
+            );
             let mut file = tempfile::Builder::new().suffix(".mp4").tempfile()?;
             source
                 .copy_to(&a.path, file.as_file_mut())
-                .with_context(|| format!("视频资源 {id}"))?;
+                .with_context(|| {
+                    crate::i18n::format("host-media-0002", &[("arg0", id.to_string())])
+                })?;
             file.flush()?;
             #[cfg(windows)]
-            let asset = windows_mf::prepare(file)
-                .with_context(|| format!("视频 {id}: {}", a.path.display()))?;
+            let asset = windows_mf::prepare(file).with_context(|| {
+                crate::i18n::format(
+                    "host-media-0003",
+                    &[
+                        ("arg0", id.to_string()),
+                        ("arg1", format!("{}", a.path.display())),
+                    ],
+                )
+            })?;
             #[cfg(not(windows))]
             let asset: VideoAsset = {
                 let _ = file;
-                anyhow::bail!("视频后端需要 Windows Media Foundation")
+                anyhow::bail!("{}", crate::i18n::format("host-media-0004", &[]))
             };
             if let Some(audio) = &asset.audio {
                 total += audio.size_hint().0 * 4;
             }
-            ensure!(total <= 256 * 1024 * 1024, "视频音频缓存超过 256MiB");
+            ensure!(
+                total <= 256 * 1024 * 1024,
+                "{}",
+                crate::i18n::format("host-media-0005", &[])
+            );
             videos.insert(id.clone(), Arc::new(asset));
         }
         Ok(Self { videos })
@@ -76,7 +93,10 @@ impl Worker {
             #[cfg(windows)]
             let decoder = windows_mf::Decoder::new(asset.file.path());
             #[cfg(not(windows))]
-            let decoder: Result<()> = Err(anyhow::anyhow!("Windows 视频后端不可用"));
+            let decoder: Result<()> = Err(anyhow::anyhow!(
+                "{}",
+                crate::i18n::format("host-media-0006", &[])
+            ));
             let mut decoder = match decoder {
                 Ok(d) => d,
                 Err(e) => {
@@ -88,7 +108,10 @@ impl Worker {
                 #[cfg(windows)]
                 let result = decoder.frame(position);
                 #[cfg(not(windows))]
-                let result: Result<DecodedFrame> = Err(anyhow::anyhow!("Windows 视频后端不可用"));
+                let result: Result<DecodedFrame> = Err(anyhow::anyhow!(
+                    "{}",
+                    crate::i18n::format("host-media-0007", &[])
+                ));
                 let failed = result.is_err();
                 // The UI retains the last image; never block the producer on a full output queue.
                 let _ = frames.try_send(result);
@@ -136,7 +159,7 @@ impl VideoPlayer {
         let asset = media
             .videos
             .get(&cue.asset)
-            .context("视频未预加载")?
+            .context(crate::i18n::text("host-media-0008"))?
             .clone();
         Ok(Self {
             worker: Some(Worker::new(asset.clone())),

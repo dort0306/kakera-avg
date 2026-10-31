@@ -40,7 +40,11 @@ fn scan(mut input: impl Read, mut output: Option<&mut dyn Write>) -> Result<Entr
             break;
         }
         length += count as u64;
-        ensure!(length <= MAX_STREAM_BYTES, "单文件超过 64GiB");
+        ensure!(
+            length <= MAX_STREAM_BYTES,
+            "{}",
+            crate::i18n::format("host-package-staged-0001", &[])
+        );
         hash.update(&buffer[..count]);
         if let Some(output) = output.as_deref_mut() {
             output.write_all(&buffer[..count])?;
@@ -80,21 +84,48 @@ impl StagedProject {
             .clone()
             .map(Ok)
             .unwrap_or_else(|| files_with_limit(&original, MAX_FILES))?;
-        ensure!(paths.len() <= MAX_FILES, "工程文件超过预算");
+        ensure!(
+            paths.len() <= MAX_FILES,
+            "{}",
+            crate::i18n::format("host-package-staged-0002", &[])
+        );
         super::selection::validate_selected(&original, &paths)?;
         for path in paths {
-            let name = path.to_str().context("路径必须 UTF-8")?.to_owned();
-            ensure!(name.len() <= 1024, "路径超过 1024 字节");
+            let name = path
+                .to_str()
+                .context(crate::i18n::text("host-package-staged-0011"))?
+                .to_owned();
+            ensure!(
+                name.len() <= 1024,
+                "{}",
+                crate::i18n::format("host-package-staged-0003", &[])
+            );
             let target = directory.path().join(&path);
-            std::fs::create_dir_all(target.parent().context("暂存目录")?)?;
+            std::fs::create_dir_all(
+                target
+                    .parent()
+                    .context(crate::i18n::text("host-package-staged-0012"))?,
+            )?;
             let mut file = std::fs::File::create(target)?;
-            let entry = scan(source.open(&path)?, Some(&mut file))
-                .with_context(|| format!("暂存 {}", path.display()))?;
+            let entry = scan(source.open(&path)?, Some(&mut file)).with_context(|| {
+                crate::i18n::format(
+                    "host-package-staged-0004",
+                    &[("arg0", format!("{}", path.display()))],
+                )
+            })?;
             total += entry.length;
-            ensure!(total <= MAX_TOTAL, "工程逻辑总量超过 1TiB");
+            ensure!(
+                total <= MAX_TOTAL,
+                "{}",
+                crate::i18n::format("host-package-staged-0005", &[])
+            );
             files.insert(name, entry);
         }
-        ensure!(files.contains_key("story.xml"), "工程缺少 story.xml");
+        ensure!(
+            files.contains_key("story.xml"),
+            "{}",
+            crate::i18n::format("host-package-staged-0006", &[])
+        );
         Ok(Self {
             source: DirectorySource::new(directory.path())?,
             _directory: directory,
@@ -116,16 +147,28 @@ impl StagedProject {
             .unwrap_or_else(|| files_with_limit(&self.original, MAX_FILES))?;
         super::selection::validate_selected(&self.original, &paths)?;
         for path in paths {
-            let name = path.to_str().context("路径必须 UTF-8")?.to_owned();
-            ensure!(name.len() <= 1024, "路径超过 1024 字节");
+            let name = path
+                .to_str()
+                .context(crate::i18n::text("host-package-staged-0013"))?
+                .to_owned();
+            ensure!(
+                name.len() <= 1024,
+                "{}",
+                crate::i18n::format("host-package-staged-0007", &[])
+            );
             let entry = scan(source.open(&path)?, None)?;
             total += entry.length;
-            ensure!(total <= MAX_TOTAL, "工程逻辑总量超过 1TiB");
+            ensure!(
+                total <= MAX_TOTAL,
+                "{}",
+                crate::i18n::format("host-package-staged-0008", &[])
+            );
             files.insert(name, entry);
         }
         ensure!(
             fingerprint(&files) == self.fingerprint,
-            "校验期间工程改变，请重试"
+            "{}",
+            crate::i18n::format("host-package-staged-0009", &[])
         );
         Ok(())
     }
@@ -156,7 +199,11 @@ impl StagedProject {
                 },
             );
         }
-        ensure!(self.expanded_bytes() <= MAX_TOTAL, "发布内容超过 1TiB");
+        ensure!(
+            self.expanded_bytes() <= MAX_TOTAL,
+            "{}",
+            crate::i18n::format("host-package-staged-0010", &[])
+        );
         Ok(publication.chapters.len())
     }
 

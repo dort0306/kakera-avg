@@ -18,7 +18,10 @@ pub type Shared = Rc<RefCell<Cache>>;
 impl Cache {
     pub fn frame(&self, revision: u64) -> Result<Option<Frame>> {
         if let Some(error) = &self.error {
-            return Err(anyhow!("截图失败：{error}"));
+            return Err(anyhow!(
+                "{}",
+                crate::i18n::format("host-capture-0001", &[("arg0", error.to_string())])
+            ));
         }
         Ok(self
             .game

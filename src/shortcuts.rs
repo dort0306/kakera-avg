@@ -136,7 +136,7 @@ impl Modifier {
 }
 
 macro_rules! define_keys {
-    ($( $variant:ident => ($token:literal, $display:literal), )+) => {
+    ($( $variant:ident => ($token:literal, $display:expr), )+) => {
         /// 第一版允许绑定的全部主键；Escape 不在其中，留给快捷键捕获取消使用。
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum Key {
@@ -172,20 +172,20 @@ macro_rules! define_keys {
 }
 
 define_keys! {
-    Space => ("Space", "空格"),
-    Enter => ("Enter", "回车"),
-    Tab => ("Tab", "制表键"),
-    Backspace => ("Backspace", "退格"),
-    Delete => ("Delete", "删除"),
-    Insert => ("Insert", "插入"),
-    Home => ("Home", "行首"),
-    End => ("End", "行尾"),
-    PageUp => ("PageUp", "向上翻页"),
-    PageDown => ("PageDown", "向下翻页"),
-    ArrowLeft => ("ArrowLeft", "左方向键"),
-    ArrowRight => ("ArrowRight", "右方向键"),
-    ArrowUp => ("ArrowUp", "上方向键"),
-    ArrowDown => ("ArrowDown", "下方向键"),
+    Space => ("Space", crate::i18n::text("host-shortcuts-0020")),
+    Enter => ("Enter", crate::i18n::text("host-shortcuts-0021")),
+    Tab => ("Tab", crate::i18n::text("host-shortcuts-0022")),
+    Backspace => ("Backspace", crate::i18n::text("host-shortcuts-0023")),
+    Delete => ("Delete", crate::i18n::text("host-shortcuts-0024")),
+    Insert => ("Insert", crate::i18n::text("host-shortcuts-0025")),
+    Home => ("Home", crate::i18n::text("host-shortcuts-0026")),
+    End => ("End", crate::i18n::text("host-shortcuts-0027")),
+    PageUp => ("PageUp", crate::i18n::text("host-shortcuts-0028")),
+    PageDown => ("PageDown", crate::i18n::text("host-shortcuts-0029")),
+    ArrowLeft => ("ArrowLeft", crate::i18n::text("host-shortcuts-0030")),
+    ArrowRight => ("ArrowRight", crate::i18n::text("host-shortcuts-0031")),
+    ArrowUp => ("ArrowUp", crate::i18n::text("host-shortcuts-0032")),
+    ArrowDown => ("ArrowDown", crate::i18n::text("host-shortcuts-0033")),
     KeyA => ("KeyA", "A"),
     KeyB => ("KeyB", "B"),
     KeyC => ("KeyC", "C"),
@@ -222,45 +222,45 @@ define_keys! {
     Digit7 => ("Digit7", "7"),
     Digit8 => ("Digit8", "8"),
     Digit9 => ("Digit9", "9"),
-    F1 => ("F1", "F1 功能键"),
-    F2 => ("F2", "F2 功能键"),
-    F3 => ("F3", "F3 功能键"),
-    F4 => ("F4", "F4 功能键"),
-    F5 => ("F5", "F5 功能键"),
-    F6 => ("F6", "F6 功能键"),
-    F7 => ("F7", "F7 功能键"),
-    F8 => ("F8", "F8 功能键"),
-    F9 => ("F9", "F9 功能键"),
-    F10 => ("F10", "F10 功能键"),
-    F11 => ("F11", "F11 功能键"),
-    F12 => ("F12", "F12 功能键"),
-    Minus => ("Minus", "减号"),
-    Equal => ("Equal", "等号"),
-    BracketLeft => ("BracketLeft", "左方括号"),
-    BracketRight => ("BracketRight", "右方括号"),
-    Backslash => ("Backslash", "反斜杠"),
-    Semicolon => ("Semicolon", "分号"),
-    Quote => ("Quote", "引号"),
-    Backquote => ("Backquote", "反引号"),
-    Comma => ("Comma", "逗号"),
-    Period => ("Period", "句点"),
-    Slash => ("Slash", "斜杠"),
-    Numpad0 => ("Numpad0", "小键盘 0"),
-    Numpad1 => ("Numpad1", "小键盘 1"),
-    Numpad2 => ("Numpad2", "小键盘 2"),
-    Numpad3 => ("Numpad3", "小键盘 3"),
-    Numpad4 => ("Numpad4", "小键盘 4"),
-    Numpad5 => ("Numpad5", "小键盘 5"),
-    Numpad6 => ("Numpad6", "小键盘 6"),
-    Numpad7 => ("Numpad7", "小键盘 7"),
-    Numpad8 => ("Numpad8", "小键盘 8"),
-    Numpad9 => ("Numpad9", "小键盘 9"),
-    NumpadAdd => ("NumpadAdd", "小键盘加号"),
-    NumpadSubtract => ("NumpadSubtract", "小键盘减号"),
-    NumpadMultiply => ("NumpadMultiply", "小键盘乘号"),
-    NumpadDivide => ("NumpadDivide", "小键盘除号"),
-    NumpadDecimal => ("NumpadDecimal", "小键盘小数点"),
-    NumpadEnter => ("NumpadEnter", "小键盘回车"),
+    F1 => ("F1", crate::i18n::text("host-shortcuts-0034")),
+    F2 => ("F2", crate::i18n::text("host-shortcuts-0035")),
+    F3 => ("F3", crate::i18n::text("host-shortcuts-0036")),
+    F4 => ("F4", crate::i18n::text("host-shortcuts-0037")),
+    F5 => ("F5", crate::i18n::text("host-shortcuts-0038")),
+    F6 => ("F6", crate::i18n::text("host-shortcuts-0039")),
+    F7 => ("F7", crate::i18n::text("host-shortcuts-0040")),
+    F8 => ("F8", crate::i18n::text("host-shortcuts-0041")),
+    F9 => ("F9", crate::i18n::text("host-shortcuts-0042")),
+    F10 => ("F10", crate::i18n::text("host-shortcuts-0043")),
+    F11 => ("F11", crate::i18n::text("host-shortcuts-0044")),
+    F12 => ("F12", crate::i18n::text("host-shortcuts-0045")),
+    Minus => ("Minus", crate::i18n::text("host-shortcuts-0046")),
+    Equal => ("Equal", crate::i18n::text("host-shortcuts-0047")),
+    BracketLeft => ("BracketLeft", crate::i18n::text("host-shortcuts-0048")),
+    BracketRight => ("BracketRight", crate::i18n::text("host-shortcuts-0049")),
+    Backslash => ("Backslash", crate::i18n::text("host-shortcuts-0050")),
+    Semicolon => ("Semicolon", crate::i18n::text("host-shortcuts-0051")),
+    Quote => ("Quote", crate::i18n::text("host-shortcuts-0052")),
+    Backquote => ("Backquote", crate::i18n::text("host-shortcuts-0053")),
+    Comma => ("Comma", crate::i18n::text("host-shortcuts-0054")),
+    Period => ("Period", crate::i18n::text("host-shortcuts-0055")),
+    Slash => ("Slash", crate::i18n::text("host-shortcuts-0056")),
+    Numpad0 => ("Numpad0", crate::i18n::text("host-shortcuts-0057")),
+    Numpad1 => ("Numpad1", crate::i18n::text("host-shortcuts-0058")),
+    Numpad2 => ("Numpad2", crate::i18n::text("host-shortcuts-0059")),
+    Numpad3 => ("Numpad3", crate::i18n::text("host-shortcuts-0060")),
+    Numpad4 => ("Numpad4", crate::i18n::text("host-shortcuts-0061")),
+    Numpad5 => ("Numpad5", crate::i18n::text("host-shortcuts-0062")),
+    Numpad6 => ("Numpad6", crate::i18n::text("host-shortcuts-0063")),
+    Numpad7 => ("Numpad7", crate::i18n::text("host-shortcuts-0064")),
+    Numpad8 => ("Numpad8", crate::i18n::text("host-shortcuts-0065")),
+    Numpad9 => ("Numpad9", crate::i18n::text("host-shortcuts-0066")),
+    NumpadAdd => ("NumpadAdd", crate::i18n::text("host-shortcuts-0067")),
+    NumpadSubtract => ("NumpadSubtract", crate::i18n::text("host-shortcuts-0068")),
+    NumpadMultiply => ("NumpadMultiply", crate::i18n::text("host-shortcuts-0069")),
+    NumpadDivide => ("NumpadDivide", crate::i18n::text("host-shortcuts-0070")),
+    NumpadDecimal => ("NumpadDecimal", crate::i18n::text("host-shortcuts-0071")),
+    NumpadEnter => ("NumpadEnter", crate::i18n::text("host-shortcuts-0072")),
 }
 
 /// 一个绑定的触发方式：组合键的按下边沿，或按住单个修饰键。
@@ -283,31 +283,37 @@ impl Binding {
     /// Escape/Windows/Meta、Ctrl+Alt 及系统保留组合。
     pub fn parse(text: &str) -> Result<Self, String> {
         if text.is_empty() {
-            return Err("快捷键不能为空".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0073").to_owned());
         }
         if text.len() > MAX_BINDING_BYTES {
-            return Err(format!(
-                "快捷键最多 {MAX_BINDING_BYTES} 字节（当前 {} 字节）",
-                text.len()
+            return Err(crate::i18n::format(
+                "host-shortcuts-0001",
+                &[
+                    ("arg0", MAX_BINDING_BYTES.to_string()),
+                    ("arg1", format!("{}", text.len())),
+                ],
             ));
         }
         if !text.is_ascii() {
-            return Err("快捷键只能使用 ASCII 键位名称".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0074").to_owned());
         }
         if text.chars().any(char::is_whitespace) {
-            return Err("快捷键不能包含空白字符".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0075").to_owned());
         }
 
         let parts: Vec<&str> = text.split('+').collect();
         if parts.len() > 4 {
-            return Err("快捷键最多只能由三个修饰键和一个主键组成".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0076").to_owned());
         }
         if parts.iter().any(|part| part.is_empty()) {
-            return Err("快捷键不能包含空段或多余的“+”".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0077").to_owned());
         }
         for (index, part) in parts.iter().enumerate() {
             if parts[..index].contains(part) {
-                return Err(format!("快捷键包含重复的键位标记「{part}」"));
+                return Err(crate::i18n::format(
+                    "host-shortcuts-0002",
+                    &[("arg0", part.to_string())],
+                ));
             }
             if let Some(reason) = reserved_token_reason(part) {
                 return Err(reason.to_owned());
@@ -317,9 +323,7 @@ impl Binding {
         let has_ctrl = parts.contains(&"Ctrl");
         let has_alt = parts.contains(&"Alt");
         if has_ctrl && has_alt {
-            return Err(
-                "不允许 Ctrl+Alt 组合（包括再加 Shift），以免与 AltGr 或系统组合混淆".to_owned(),
-            );
+            return Err(crate::i18n::text("host-shortcuts-0078").to_owned());
         }
 
         if parts.len() == 1 {
@@ -330,7 +334,10 @@ impl Binding {
                 });
             }
             let Some(key) = Key::from_token(token) else {
-                return Err(format!("未知的键位「{token}」"));
+                return Err(crate::i18n::format(
+                    "host-shortcuts-0003",
+                    &[("arg0", token.to_string())],
+                ));
             };
             return Ok(Self {
                 trigger: Trigger::Key {
@@ -343,7 +350,10 @@ impl Binding {
         let mut modifiers = Modifiers::default();
         for token in &parts[..parts.len() - 1] {
             let Some(modifier) = parse_modifier(token) else {
-                return Err(format!("未知的修饰键「{token}」；只允许 Ctrl、Alt、Shift"));
+                return Err(crate::i18n::format(
+                    "host-shortcuts-0004",
+                    &[("arg0", token.to_string())],
+                ));
             };
             match modifier {
                 Modifier::Ctrl => modifiers.ctrl = true,
@@ -355,12 +365,15 @@ impl Binding {
         let key_token = parts[parts.len() - 1];
         let Some(key) = Key::from_token(key_token) else {
             if parse_modifier(key_token).is_some() {
-                return Err("纯修饰键绑定只能单独使用一个 Ctrl、Alt 或 Shift".to_owned());
+                return Err(crate::i18n::text("host-shortcuts-0079").to_owned());
             }
-            return Err(format!("未知的键位「{key_token}」"));
+            return Err(crate::i18n::format(
+                "host-shortcuts-0005",
+                &[("arg0", key_token.to_string())],
+            ));
         };
         if modifiers.alt && matches!(key, Key::F4 | Key::Tab | Key::Space) {
-            return Err("Alt+F4、Alt+Tab、Alt+Space 等系统组合不能绑定".to_owned());
+            return Err(crate::i18n::text("host-shortcuts-0080").to_owned());
         }
 
         Ok(Self {
@@ -394,7 +407,10 @@ impl Binding {
                     format!("{prefix}+{}", key.display())
                 }
             }
-            Trigger::Hold(modifier) => format!("按住 {}", modifier.token()),
+            Trigger::Hold(modifier) => crate::i18n::format(
+                "host-shortcuts-0006",
+                &[("arg0", modifier.token().to_string())],
+            ),
         }
     }
 
@@ -493,23 +509,27 @@ impl Keybindings {
             return Ok(());
         };
         if advance == fast_forward {
-            return Err(format!(
-                "「{}」与「{}」不能使用相同的触发绑定「{}」",
-                Action::Advance.label(),
-                Action::FastForward.label(),
-                advance.display()
+            return Err(crate::i18n::format(
+                "host-shortcuts-0007",
+                &[
+                    ("arg0", Action::Advance.label().to_string()),
+                    ("arg1", Action::FastForward.label().to_string()),
+                    ("arg2", advance.display().to_string()),
+                ],
             ));
         }
         if let Trigger::Hold(modifier) = fast_forward.trigger
             && advance.modifiers().contains(modifier)
         {
-            return Err(format!(
-                "「{}」与「{}」冲突：按住 {} 会同时成为「{}」组合「{}」的按下前缀，请先修改快进键",
-                Action::FastForward.label(),
-                Action::Advance.label(),
-                modifier.token(),
-                Action::Advance.label(),
-                advance.display()
+            return Err(crate::i18n::format(
+                "host-shortcuts-0008",
+                &[
+                    ("arg0", Action::FastForward.label().to_string()),
+                    ("arg1", Action::Advance.label().to_string()),
+                    ("arg2", modifier.token().to_string()),
+                    ("arg3", Action::Advance.label().to_string()),
+                    ("arg4", advance.display().to_string()),
+                ],
             ));
         }
         Ok(())
@@ -519,20 +539,22 @@ impl Keybindings {
     pub fn display(&self, action: Action) -> String {
         match self.get(action) {
             Some(binding) => binding.display(),
-            None => "未绑定".to_owned(),
+            None => crate::i18n::text("host-shortcuts-0081").to_owned(),
         }
     }
 
     /// 只包含三个动作字段的对象；值恒为 null 或规范字符串。
     pub fn to_json(&self) -> Result<String, String> {
         self.validate()?;
-        serde_json::to_string(self).map_err(|error| format!("快捷键配置序列化失败：{error}"))
+        serde_json::to_string(self).map_err(|error| {
+            crate::i18n::format("host-shortcuts-0009", &[("arg0", error.to_string())])
+        })
     }
 
     /// 严格解析三动作对象，缺少/多余/重复字段或非法绑定均拒绝。
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let bindings: Self =
-            serde_json::from_str(text).map_err(|error| json_parse_error("快捷键配置", &error))?;
+        let bindings: Self = serde_json::from_str(text)
+            .map_err(|error| json_parse_error(crate::i18n::text("host-shortcuts-0082"), &error))?;
         bindings.validate()?;
         Ok(bindings)
     }
@@ -543,16 +565,25 @@ fn validate_binding(action: Action, binding: Option<Binding>) -> Result<(), Stri
         return Ok(());
     };
     let canonical = binding.canonical();
-    Binding::parse(&canonical)
-        .map_err(|reason| format!("「{}」的绑定无效：{reason}", action.label()))?;
+    Binding::parse(&canonical).map_err(|reason| {
+        crate::i18n::format(
+            "host-shortcuts-0010",
+            &[
+                ("arg0", action.label().to_string()),
+                ("arg1", reason.to_string()),
+            ],
+        )
+    })?;
     if action != Action::FastForward
         && let Trigger::Hold(modifier) = binding.trigger
     {
-        return Err(format!(
-            "「{}」不能绑定按住 {}；只有「{}」支持按住修饰键",
-            action.label(),
-            modifier.token(),
-            Action::FastForward.label()
+        return Err(crate::i18n::format(
+            "host-shortcuts-0011",
+            &[
+                ("arg0", action.label().to_string()),
+                ("arg1", modifier.token().to_string()),
+                ("arg2", Action::FastForward.label().to_string()),
+            ],
         ));
     }
     Ok(())
@@ -596,21 +627,21 @@ impl<'de> Visitor<'de> for KeybindingsVisitor {
     type Value = Keybindings;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("包含 advance、fast_forward、skip_sequence 三个字段的快捷键对象")
+        formatter.write_str(crate::i18n::text("host-shortcuts-0083"))
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>
     where
         E: DeError,
     {
-        Err(E::custom("快捷键配置必须是包含三个动作字段的对象"))
+        Err(E::custom(crate::i18n::text("host-shortcuts-0084")))
     }
 
     fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
     where
         A: SeqAccess<'de>,
     {
-        Err(A::Error::custom("快捷键配置必须是包含三个动作字段的对象"))
+        Err(A::Error::custom(crate::i18n::text("host-shortcuts-0085")))
     }
 
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -625,35 +656,37 @@ impl<'de> Visitor<'de> for KeybindingsVisitor {
             match field.as_str() {
                 "advance" => {
                     if advance.is_some() {
-                        return Err(A::Error::custom("快捷键对象包含重复字段「advance」"));
+                        return Err(A::Error::custom(crate::i18n::text("host-shortcuts-0086")));
                     }
                     advance = Some(map.next_value()?);
                 }
                 "fast_forward" => {
                     if fast_forward.is_some() {
-                        return Err(A::Error::custom("快捷键对象包含重复字段「fast_forward」"));
+                        return Err(A::Error::custom(crate::i18n::text("host-shortcuts-0087")));
                     }
                     fast_forward = Some(map.next_value()?);
                 }
                 "skip_sequence" => {
                     if skip_sequence.is_some() {
-                        return Err(A::Error::custom("快捷键对象包含重复字段「skip_sequence」"));
+                        return Err(A::Error::custom(crate::i18n::text("host-shortcuts-0088")));
                     }
                     skip_sequence = Some(map.next_value()?);
                 }
                 other => {
-                    return Err(A::Error::custom(format!(
-                        "快捷键对象包含未知字段「{other}」"
+                    return Err(A::Error::custom(crate::i18n::format(
+                        "host-shortcuts-0012",
+                        &[("arg0", other.to_string())],
                     )));
                 }
             }
         }
 
-        let advance = advance.ok_or_else(|| A::Error::custom("快捷键对象缺少字段「advance」"))?;
-        let fast_forward =
-            fast_forward.ok_or_else(|| A::Error::custom("快捷键对象缺少字段「fast_forward」"))?;
-        let skip_sequence =
-            skip_sequence.ok_or_else(|| A::Error::custom("快捷键对象缺少字段「skip_sequence」"))?;
+        let advance =
+            advance.ok_or_else(|| A::Error::custom(crate::i18n::text("host-shortcuts-0089")))?;
+        let fast_forward = fast_forward
+            .ok_or_else(|| A::Error::custom(crate::i18n::text("host-shortcuts-0090")))?;
+        let skip_sequence = skip_sequence
+            .ok_or_else(|| A::Error::custom(crate::i18n::text("host-shortcuts-0091")))?;
 
         let bindings = Keybindings {
             advance: parse_binding_field(advance, "advance").map_err(A::Error::custom)?,
@@ -681,7 +714,7 @@ impl<'de> Deserialize<'de> for OptionalBindingText {
             type Value = OptionalBindingText;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("字符串或 null")
+                formatter.write_str(crate::i18n::text("host-shortcuts-0092"))
             }
 
             fn visit_unit<E>(self) -> Result<Self::Value, E>
@@ -723,42 +756,42 @@ impl<'de> Deserialize<'de> for OptionalBindingText {
             where
                 E: DeError,
             {
-                Err(E::custom("快捷键绑定值必须是字符串或 null"))
+                Err(E::custom(crate::i18n::text("host-shortcuts-0093")))
             }
 
             fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E>
             where
                 E: DeError,
             {
-                Err(E::custom("快捷键绑定值必须是字符串或 null"))
+                Err(E::custom(crate::i18n::text("host-shortcuts-0094")))
             }
 
             fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E>
             where
                 E: DeError,
             {
-                Err(E::custom("快捷键绑定值必须是字符串或 null"))
+                Err(E::custom(crate::i18n::text("host-shortcuts-0095")))
             }
 
             fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
             where
                 E: DeError,
             {
-                Err(E::custom("快捷键绑定值必须是字符串或 null"))
+                Err(E::custom(crate::i18n::text("host-shortcuts-0096")))
             }
 
             fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                Err(A::Error::custom("快捷键绑定值必须是字符串或 null"))
+                Err(A::Error::custom(crate::i18n::text("host-shortcuts-0097")))
             }
 
             fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
             where
                 A: MapAccess<'de>,
             {
-                Err(A::Error::custom("快捷键绑定值必须是字符串或 null"))
+                Err(A::Error::custom(crate::i18n::text("host-shortcuts-0098")))
             }
         }
 
@@ -769,9 +802,16 @@ impl<'de> Deserialize<'de> for OptionalBindingText {
 fn parse_binding_field(value: OptionalBindingText, field: &str) -> Result<Option<Binding>, String> {
     match value.0 {
         None => Ok(None),
-        Some(text) => Binding::parse(&text)
-            .map(Some)
-            .map_err(|reason| format!("字段「{field}」的绑定「{text}」无效：{reason}")),
+        Some(text) => Binding::parse(&text).map(Some).map_err(|reason| {
+            crate::i18n::format(
+                "host-shortcuts-0013",
+                &[
+                    ("arg0", field.to_string()),
+                    ("arg1", text.to_string()),
+                    ("arg2", reason.to_string()),
+                ],
+            )
+        }),
     }
 }
 
@@ -788,23 +828,29 @@ impl KeybindingsFile {
     /// 严格读取偏好文件字节；大小、版本、story_id 与完整键位图都验证后才返回绑定。
     pub fn load_bytes(bytes: &[u8], story_id: &str) -> Result<Keybindings, String> {
         if bytes.len() > MAX_KEYBINDINGS_FILE_BYTES {
-            return Err(format!(
-                "快捷键偏好文件超过 16KiB 上限（当前 {} 字节）",
-                bytes.len()
+            return Err(crate::i18n::format(
+                "host-shortcuts-0014",
+                &[("arg0", format!("{}", bytes.len()))],
             ));
         }
         let file: Self = serde_json::from_slice(bytes)
-            .map_err(|error| json_parse_error("快捷键偏好", &error))?;
+            .map_err(|error| json_parse_error(crate::i18n::text("host-shortcuts-0099"), &error))?;
         if file.schema_version != KEYBINDINGS_SCHEMA_VERSION {
-            return Err(format!(
-                "不支持的快捷键偏好版本 {}；仅支持 schema_version={KEYBINDINGS_SCHEMA_VERSION}",
-                file.schema_version
+            return Err(crate::i18n::format(
+                "host-shortcuts-0015",
+                &[
+                    ("arg0", file.schema_version.to_string()),
+                    ("arg1", KEYBINDINGS_SCHEMA_VERSION.to_string()),
+                ],
             ));
         }
         if file.story_id != story_id {
-            return Err(format!(
-                "快捷键偏好 story_id 不匹配：期望「{story_id}」，文件为「{}」",
-                file.story_id
+            return Err(crate::i18n::format(
+                "host-shortcuts-0016",
+                &[
+                    ("arg0", story_id.to_string()),
+                    ("arg1", file.story_id.to_string()),
+                ],
             ));
         }
         file.bindings.validate()?;
@@ -819,12 +865,13 @@ impl KeybindingsFile {
             story_id: story_id.to_owned(),
             bindings: *bindings,
         };
-        let bytes =
-            serde_json::to_vec(&file).map_err(|error| format!("快捷键偏好序列化失败：{error}"))?;
+        let bytes = serde_json::to_vec(&file).map_err(|error| {
+            crate::i18n::format("host-shortcuts-0017", &[("arg0", error.to_string())])
+        })?;
         if bytes.len() > MAX_KEYBINDINGS_FILE_BYTES {
-            return Err(format!(
-                "快捷键偏好序列化后超过 16KiB 上限（当前 {} 字节）",
-                bytes.len()
+            return Err(crate::i18n::format(
+                "host-shortcuts-0018",
+                &[("arg0", format!("{}", bytes.len()))],
             ));
         }
         Ok(bytes)
@@ -833,15 +880,22 @@ impl KeybindingsFile {
 
 fn json_parse_error(prefix: &str, error: &serde_json::Error) -> String {
     let category = if error.is_io() {
-        "读取失败"
+        crate::i18n::text("host-shortcuts-0100")
     } else if error.is_syntax() {
-        "JSON 语法错误"
+        crate::i18n::text("host-shortcuts-0101")
     } else if error.is_data() {
-        "字段或值不合法"
+        crate::i18n::text("host-shortcuts-0102")
     } else {
-        "JSON 内容不完整"
+        crate::i18n::text("host-shortcuts-0103")
     };
-    format!("{prefix}解析失败（{category}）：{error}")
+    crate::i18n::format(
+        "host-shortcuts-0019",
+        &[
+            ("arg0", prefix.to_string()),
+            ("arg1", category.to_string()),
+            ("arg2", error.to_string()),
+        ],
+    )
 }
 
 #[cfg(test)]
@@ -1220,7 +1274,7 @@ mod tests {
 
         assert_eq!(
             Keybindings::defaults().display(Action::FastForward),
-            "按住 Ctrl"
+            "按住 \u{2068}Ctrl\u{2069}"
         );
         assert_eq!(Keybindings::defaults().display(Action::Advance), "空格");
     }

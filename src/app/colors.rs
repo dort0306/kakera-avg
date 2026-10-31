@@ -22,13 +22,19 @@ impl PlayerApp {
             Ok(colors) => {
                 state.colors = colors;
                 if let Err(error) = state.refresh(def) {
-                    warnings.push(format!("配色偏好无法应用，已使用默认值：{error:#}"));
+                    warnings.push(crate::i18n::format(
+                        "host-app-colors-0001",
+                        &[("arg0", format!("{:#}", error))],
+                    ));
                     state.colors = crate::interface::palette::Colors::default();
                     let _ = state.refresh(def);
                 }
             }
             Err(error) => {
-                warnings.push(format!("配色偏好无效，已使用默认值：{error:#}"));
+                warnings.push(crate::i18n::format(
+                    "host-app-colors-0002",
+                    &[("arg0", format!("{:#}", error))],
+                ));
             }
         }
     }
@@ -62,8 +68,8 @@ mod tests {
     use std::fs;
 
     const STORY: &str = r#"<story schema="8" id="colors-test" content-version="1" entry="opening"><scripts><script src="story.js"/></scripts><interface src="ui.xml"/><assets><font id="font" src="font.otf"/></assets><characters/><visuals/><frames><frame id="opening"><text>开始。</text></frame></frames><next end="true"/></story>"#;
-    const UI: &str = r##"<ui schema="3" initial="hud"><variables><string id="draft" initial="#00FF00FF"/></variables><palette><color id="accent" initial="#10253BFF"/></palette><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/></screen></ui>"##;
-    const SCRIPT: &str = "on.end('opening');on.ui('apply',ctx=>ctx.colorPreference('accent',ctx.ui.draft));on.ui('clear',ctx=>ctx.colorPreference('accent',null));on.ui('reset',ctx=>ctx.resetColors());on.ui('mixed',ctx=>{ctx.colorPreference('accent','#00FF00FF');ctx.setting('muted',true);});";
+    const UI: &str = r##"<ui schema="3" initial="hud"><variables><string id="draft" initial="#00FF00FF"/></variables><palette><color id="accent" initial="#10253BFF"/></palette><screen id="hud" modal="false" pause="false"><scene id="scene" width="1280" height="720"/><button id="apply" width="120" height="40" text="应用" event="apply"/><button id="clear" width="120" height="40" text="清除" event="clear"/><button id="reset" width="120" height="40" text="重置" event="reset"/><button id="mixed" width="120" height="40" text="混合" event="mixed"/></screen></ui>"##;
+    const SCRIPT: &str = "frame('opening').end();ui('apply').bind('apply',ctx=>ctx.colorPreference('accent',ctx.ui.draft));ui('clear').bind('clear',ctx=>ctx.colorPreference('accent',null));ui('reset').bind('reset',ctx=>ctx.resetColors());ui('mixed').bind('mixed',ctx=>{ctx.colorPreference('accent','#00FF00FF');ctx.setting('muted',true);});";
 
     struct Harness {
         app: PlayerApp,
@@ -117,13 +123,7 @@ mod tests {
             open(self.game.path(), self.saves.path())
         }
         fn event(&mut self, name: &str) -> anyhow::Result<()> {
-            self.app.custom_event(Event {
-                sound: None,
-                route: None,
-                name: name.into(),
-                item: serde_json::Value::Null,
-                value: serde_json::Value::Null,
-            })
+            self.app.custom_event(Event::ui(name, name))
         }
         fn file(&self) -> std::path::PathBuf {
             self.saves.path().join("ui-colors.json")
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn picker_preview_blocks_same_frame_fast_forward_and_autoplay() -> anyhow::Result<()> {
+    fn picker_gap_blocks_same_frame_fast_forward_and_autoplay() -> anyhow::Result<()> {
         use eframe::egui;
         let h = Harness::new()?;
         fs::write(
@@ -207,10 +207,10 @@ mod tests {
             ),
         )?;
         fs::write(h.game.path().join("ui.xml"), UI.replace(
-            "</screen>", "<color-picker id=\"picker\" x=\"100\" y=\"100\" width=\"256\" height=\"320\" value=\"ui.draft\" event=\"pick\"/></screen>",
+            "</screen>", "<color-picker id=\"picker\" x=\"100\" y=\"100\" width=\"256\" height=\"282\" value=\"ui.draft\" event=\"pick\"/></screen>",
         ))?;
         fs::write(h.game.path().join("story.js"), SCRIPT.replace(
-            "on.end('opening');", "on.advance('opening',()=> 'second');on.end('second');on.ui('pick',ctx=>ctx.setUi('draft',ctx.value));",
+            "frame('opening').end();", "frame('opening').advance(()=> 'second');frame('second').end();ui('picker').bind('pick',ctx=>ctx.setUi('draft',ctx.value));",
         ))?;
         for fast_forward in [false, true] {
             let mut app = h.reopen()?;
@@ -242,6 +242,8 @@ mod tests {
                 ctrl: fast_forward,
                 ..Default::default()
             };
+            // 256x282 alpha=true: D=256, centre (228, 228), ring radius 122. This point
+            // sits inside the control but outside the ring, square and alpha row.
             let point = egui::pos2(140.0, 340.0);
             let before = app.session.clone();
             update(

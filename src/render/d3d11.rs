@@ -98,7 +98,13 @@ fn compile(entry: PCSTR, target: PCSTR) -> Result<Vec<u8>> {
                     .into_owned()
                 })
                 .unwrap_or_default();
-            anyhow::bail!("HLSL 编译失败：{e} {message}");
+            anyhow::bail!(
+                "{}",
+                crate::i18n::format(
+                    "host-render-d3d11-0001",
+                    &[("arg0", e.to_string()), ("arg1", message.to_string())]
+                )
+            );
         }
         let blob = blob.context("shader blob")?;
         Ok(
@@ -255,13 +261,22 @@ impl Device {
                 samplers.push(state.context("sampler")?);
             }
             println!(
-                "渲染设备：D3D11 {}，feature level {:x}",
-                if software {
-                    "WARP（软件）"
-                } else {
-                    "硬件"
-                },
-                level.0
+                "{}",
+                crate::i18n::format(
+                    "host-render-d3d11-0002",
+                    &[
+                        (
+                            "arg0",
+                            (if software {
+                                "WARP（软件）"
+                            } else {
+                                "硬件"
+                            })
+                            .to_string()
+                        ),
+                        ("arg1", format!("{:x}", level.0))
+                    ]
+                )
             );
             Ok(Rc::new(Self {
                 raw,
@@ -290,10 +305,15 @@ impl Device {
             ensure!(
                 size.iter().all(|v| *v > 0 && *v <= 8192)
                     && size[0] * size[1] * 4 <= 256 * 1024 * 1024,
-                "GPU 图片尺寸/预算错误"
+                "{}",
+                crate::i18n::format("host-render-d3d11-0003", &[])
             );
             if let Some(data) = data {
-                ensure!(data.len() == size[0] * size[1] * 4, "GPU 图片字节数错误");
+                ensure!(
+                    data.len() == size[0] * size[1] * 4,
+                    "{}",
+                    crate::i18n::format("host-render-d3d11-0004", &[])
+                );
             }
             let desc = D3D11_TEXTURE2D_DESC {
                 Width: size[0] as u32,
@@ -369,7 +389,8 @@ impl Device {
             let data = bytes(data);
             ensure!(
                 !data.is_empty() && data.len() <= 128 * 1024 * 1024,
-                "GPU buffer 预算"
+                "{}",
+                crate::i18n::format("host-render-d3d11-0005", &[])
             );
             let mut buffer = None;
             self.raw.CreateBuffer(
@@ -400,7 +421,8 @@ impl Device {
                         .indices
                         .iter()
                         .all(|i| (*i as usize) < draw.vertices.len()),
-                "GPU mesh 预算/索引错误"
+                "{}",
+                crate::i18n::format("host-render-d3d11-0006", &[])
             );
             let vb = self.buffer(draw.vertices, D3D11_BIND_VERTEX_BUFFER)?;
             let ib = self.buffer(draw.indices, D3D11_BIND_INDEX_BUFFER)?;
@@ -467,7 +489,7 @@ impl Device {
         let texture = image
             .allocation
             .downcast_ref::<Texture>()
-            .context("后端图片类型错误")?;
+            .context(crate::i18n::text("host-render-d3d11-0009"))?;
         self.readback_texture(texture)
     }
     pub fn readback_texture(&self, texture: &Texture) -> Result<ColorImage> {
@@ -663,7 +685,11 @@ impl PixelBackend for Pixels {
                 }
                 let bytes = image.as_raw().len();
                 let total = self.source_bytes + bytes;
-                ensure!(total <= 256 * 1024 * 1024, "模型 GPU 贴图超过 256MiB");
+                ensure!(
+                    total <= 256 * 1024 * 1024,
+                    "{}",
+                    crate::i18n::format("host-render-d3d11-0007", &[])
+                );
                 let texture = self.device.texture(
                     [image.width() as usize, image.height() as usize],
                     Some(image.as_raw()),
@@ -709,11 +735,18 @@ impl PixelBackend for Pixels {
             if mesh.masks.is_empty() || masks.contains_key(&mesh.masks) {
                 continue;
             }
-            ensure!(masks.len() < 32, "GPU 蒙版超过 32 组");
+            ensure!(
+                masks.len() < 32,
+                "{}",
+                crate::i18n::format("host-render-d3d11-0008", &[])
+            );
             let target = self.device.texture(size, None, true)?;
             self.device.clear(&target);
             for index in &mesh.masks {
-                let source = draw.meshes.get(*index).context("蒙版引用越界")?;
+                let source = draw
+                    .meshes
+                    .get(*index)
+                    .context(crate::i18n::text("host-render-d3d11-0010"))?;
                 let mut params = [[0.0; 4]; 5];
                 params[2] = [1.0, 0.0, 1.0, 0.0];
                 params[4] = [size[0] as f32, size[1] as f32, 0.0, 0.0];
@@ -721,7 +754,9 @@ impl PixelBackend for Pixels {
                     target: &target,
                     vertices: &vertices[*index],
                     indices: &indices[*index],
-                    source: textures.get(source.texture).context("贴图引用")?,
+                    source: textures
+                        .get(source.texture)
+                        .context(crate::i18n::text("host-render-d3d11-0011"))?,
                     mask: None,
                     shader: Shader::Model,
                     params,
@@ -762,7 +797,9 @@ impl PixelBackend for Pixels {
                 target: &target,
                 vertices: &vertices[i],
                 indices: &indices[i],
-                source: textures.get(mesh.texture).context("模型贴图越界")?,
+                source: textures
+                    .get(mesh.texture)
+                    .context(crate::i18n::text("host-render-d3d11-0012"))?,
                 mask: mask.map(|m| &**m),
                 shader: Shader::Model,
                 params,

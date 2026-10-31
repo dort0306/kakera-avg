@@ -1,12 +1,25 @@
-# Kakera AVG Rust · v0.10.0
+# Kakera AVG Rust · v0.11.0
 
-文档规划：[动态图片、可配置快捷键与三角 HSV 接手入口](doc/ui-extensibility-roadmap.zh-cn.md)。v0.10.0 已落地三个工作包：同一 CG 查看页切换已声明图片、玩家可配置快捷键与独立偏好、内置三角 HSV 色盘及玩家配色持久化；接口、预算和限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，实际结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。
+v0.11.0 落地新版 JS 注册 API：剧情用 `frame('幕ID').advance(targetOrRun)/choice(option, targetOrRun, when?)/end()` 注册，界面用 `ui('控件或页面ID').bind('事件名', 回调)` 注册，生命周期用 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`，全局进入钩子和捕获结果分别绑定固定虚拟目标 `ui('$game')`、`ui('$host')`。旧 `on.*` 入口**已删除且无别名**：旧脚本在启动、`--check` 与打包时带文件名和栈拒绝，必须由作者迁移后重建资源包；`ctx` 参数、权限、命令与数据格式不变。接口见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api)，实际验证见 [验收记录](doc/js-api-redesign-validation.zh-cn.md)，设计依据见 [落地方案](doc/js-api-redesign-implementation-plan.zh-cn.md)。
+
+新版注册使用结构化键 **(目标类别, 目标 ID, 事件名)**，同名事件不再全局共享：两个按钮可以保留同一个 `event` 各自绑定不同回调，共享逻辑改为把同一个函数绑定到多个目标。完整装配后校验每个 XML 事件恰好一个注册，注册目标/事件必须与 XML 一致，页面与控件不可同 ID，`$game`/`$host` 为保留 ID。静态字符串目标在加载期校验存在，动态函数目标在执行边界校验，两者走同一 Controller 条件/更新/历史事务。
+
+
+v0.10.1 接入 fluent-rs 宿主提示框架（正式资源仅简体中文），新增默认关闭的游戏国际化；作者显式声明文本/语音语言集合及各自默认值，玩家分别选择，两通道独立回退。接口见 [API 第 36 节](doc/xml-js-api.zh-cn.md#36-v0101-国际化)，设计依据见 [落地方案](doc/v0.10.1-implementation-plan.zh-cn.md)，实际验证与未验项目见 [验收记录](doc/v0.10.1-validation.zh-cn.md)。
+
+当前选色器已按用户要求替换为 HSL 圆环与正方形：横向饱和度、纵向亮度，整个正方形可自由点击/拖动，黑白边缘保持标记位置。控件自身只保留环、方形和可选透明度条；**颜色预览与 HEX 改由作者 XML/JS 用 `color-bind` 与 `bind` 组合**，内置预览矩形、HEX 文本和旧预留高度已删除。XML/JS 接口及 RGBA 偏好格式保持不变，启动命令不变。方案与历史结果见 [HSL 方形选色器](doc/hsl-square-picker.zh-cn.md)，职责拆分见 [落地方案](doc/hsl-picker-composition-implementation-plan.zh-cn.md) 与 [验收记录](doc/hsl-picker-composition-validation-plan.zh-cn.md)（实际窗口已复验松开后不回跳；DPI 100/150/200% 等未执行项见记录末节）。
+
+文档规划：[动态图片、可配置快捷键与 HSL 方形选色器接手入口](doc/ui-extensibility-roadmap.zh-cn.md)。v0.10.0 已落地三个工作包：同一 CG 查看页切换已声明图片、玩家可配置快捷键与独立偏好、内置 HSL 圆环与正方形色盘及玩家配色持久化；接口、预算和限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，实际结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。
 
 Rust、QuickJS、XML/JavaScript 驱动的 Windows x64 AVG 播放器。界面、布局和交互优先用 XML/JS；只有现有能力无法满足需求时才扩展受约束的 Rust 宿主能力，这一规则已写入 AGENTS.md。
+
+2026-10-30 编辑器生命周期续接超时排查：编辑器原有引擎的独立生命周期及完整集成复跑通过，尚未确认引擎缺陷；新增页面 sequence 自然结束与失焦/调试暂停回归。启动与数据契约不变，UI 演出在失焦时冻结，调试 resume 不会强制窗口获得焦点。证据与限制见 [排查记录](doc/editor-lifecycle-investigation.zh-cn.md)。
 
 独立复验发现的三个 HSV 输入/焦点问题已修复：先确定本帧控件输入归属再仲裁剧情；隐藏、禁用或裁剪后清理焦点并等待松键；Tab/Shift+Tab 可在色盘子区与其他控件间导航。修复后 252 项测试通过、2 项忽略，原生窗口已复验键盘调色；DPI 等剩余未验范围见 [独立验收报告](doc/ui-extensibility-independent-review.zh-cn.md)。数据格式和启动方式不变。
 
 窗口支持固定 **16:9 客户区缩放**，拖动窗口边/角不产生比例黑边；设置页可切换无边框全屏，关闭后恢复进入前窗口大小和位置。全屏开关用 XML toggle 和 `ctx.setting("fullscreen", bool)`，默认窗口化，独立设置跨进程保存。非 16:9 显示器全屏仍保持等比画面并留边；不拉伸或裁掉 UI。
+
+旧三角 HSV 的修复与窗口复验仅作 [历史记录](doc/ui-extensibility-validation.zh-cn.md#2026-10-30-hsv-指针选色修复)；当前 `color-picker` 已整体替换为 HSL 圆环与正方形，不保留旧形状运行分支。
 
 v0.8.1 新增面向大体积游戏的 **KPAK 2 流式资源包**，默认打包为 2；播放器保留 KPAK 1 小包兼容。资源包版本独立于剧情/UI/存档，不恢复旧 story/flow/存档解析器。
 
@@ -26,7 +39,7 @@ UI XML 支持根级 `<include src="ui/settings.xml" />`，可将状态、画廊�
 
 UI 演出支持自动/JS 触发的顺序淡入淡出、UI 视频覆盖层及单次结束路由，点击或空格可跳过。HUD 的“演出与角色音效”页提供片头返回原页、片尾返回剧情界面、单音效/随机音效与角色开关示例。音效候选先过滤再随机，全排除静音；偏好独立保存在 `ui-audio.json`，不随读档回退，仅控制 UI 音效。演出进度不入档；同时只支持一个 UI 演出视频，首期不支持并行轨道。详见 [API 第 31 节](doc/xml-js-api.zh-cn.md#31-ui-演出过场视频与角色音效)、[计划](doc/ui-presentation-implementation-plan.zh-cn.md) 与 [验收](doc/ui-presentation-validation.zh-cn.md)。
 
-v0.9.0 将视频统一到 UI，frame 不再接受 video。新增 on.frameEnter/Exit、on.screenOpen/Close 与 ctx.present/resume，可在离幕时自动播放 UI 视频，结束后续接指定幕。隐藏 flow-checkpoint.json 独立保存剧情/待续点和 UI，既不显示在玩家槽位页，也不占普通自动槽；重启恢复演出从零播放。save 9、demo content-version=9，旧档拒绝且不迁移。见 [API 第 32 节](doc/xml-js-api.zh-cn.md#32-v090-幕与页面生命周期隐藏交接槽)。
+v0.9.0 将视频统一到 UI，frame 不再接受 video。新增幕/页面生命周期回调（现为 `frame(id).enter/exit` 与 `ui(id).bind('screen.open'/'screen.close')`）与 ctx.present/resume，可在离幕时自动播放 UI 视频，结束后续接指定幕。隐藏 flow-checkpoint.json 独立保存剧情/待续点和 UI，既不显示在玩家槽位页，也不占普通自动槽；重启恢复演出从零播放。save 9、demo content-version=9，旧档拒绝且不迁移。见 [API 第 32 节](doc/xml-js-api.zh-cn.md#32-v090-幕与页面生命周期隐藏交接槽)。
 
 ## 当前数据契约
 
@@ -65,7 +78,7 @@ cargo run --locked -- --package target/v083-game.kpak --cubism-core runtime/live
 ./tools/package.ps1
 ```
 
-脚本默认生成 target/package/kakera-avg-v0.10.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。
+脚本默认生成 target/package/kakera-avg-v0.11.0，已存在则拒绝覆盖。包只含播放器、game.kpak、程序旁 Core、字体/模型/依赖许可和手册，不复制游戏散文件或用户数据。剧本链合并为包内 story.xml；KPAK 1/2 确定性、去重、Zstandard 和 SHA-256 检错，无加密；2 为独立分块，1 为 solid。输出必须在工程外，只有显式 --force 才原子替换资源包。开启国际化时收集全部已声明语言的清单、FTL、字体与语音；language.json 不进入包或工程监控。
 
 发布程序自动发现 exe 旁 game.kpak，只读包、不启动监控；坏包失败，不回退散文件。Windows 发布无控制台，启动错误用原生对话框。PowerShell 自动化应以管道或 Start-Process -Wait 等待 GUI 子系统的 --check 返回。
 
@@ -111,7 +124,7 @@ KPAK 2 索引最多 128MiB，最多 1048576 唯一块；具体二进制契约见
 
 Windows 原生 D3D11 负责窗口、滤镜与 Live2D 网格/蒙版合成，GPU 结果直接注册原生纹理；CPU fallback 保留，窗口仍由 D3D11/WARP 呈现。视频使用 Windows Media Foundation，Core 参数/形变仍为 CPU。GPU 失败报告并回退，设备失效最多一次 WARP 重建。
 
-demo 为 30 场景/4 变量/3 JS/15 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
+demo 为 31 场景/4 变量/3 JS/19 页/2 视频/1 模型。Haru/Core 来自用户本地 SDK，字体、模型和 Core 原许可随本地包保留，未公开上传；Core 只从受信任宿主配置/程序旁加载，发布禁止回退源码 runtime。资源统一走 ContentSource，游戏 JS 无文件/网络/原生库/时钟/随机/异步能力。
 
 ## 验证与限制
 
@@ -122,7 +135,7 @@ cargo test --locked
 cargo run --locked -- --check
 ```
 
-当前策略见 [v0.9.0 落地文档](doc/v0.9.0-implementation-plan.zh-cn.md)，实际结果见 [v0.9.0 验收](doc/v0.9.0-validation.zh-cn.md)。完整契约见 [XML/JS API](doc/xml-js-api.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
+当前脚本契约见 [API 第 37 节](doc/xml-js-api.zh-cn.md#37-v0110-新版-js-注册-api) 与 [XML/JS API](doc/xml-js-api.zh-cn.md)，本轮实际结果见 [v0.11.0 验收记录](doc/js-api-redesign-validation.zh-cn.md)，制作便携目录见 [工程/发布指南](doc/project-release-pack-guide.zh-cn.md)。旧版结果在历史文档中单独保留，不能当成本轮复测。
 
 首发 Windows x64。未提供 Vulkan/Metal 原生后端、跨平台视频、任意 JS tick、CSS/DOM/富文本/回滚、网络流/seek/精确音画同步、Live2D physics3 求解/完整动作混合/自动口型/高级 offscreen。多显卡、高 DPI 跨屏、实际驱动丢失、设备声音与主观听感分别以验收记录为准。
 
@@ -132,7 +145,7 @@ v0.9.1 修复末幕 frameExit：文字完成后手动继续触发一次，UI 演
 
 修复策略与本轮结果见 [v0.9.1 计划](doc/v0.9.1-implementation-plan.zh-cn.md) 和 [v0.9.1 验收](doc/v0.9.1-validation.zh-cn.md)。
 
-UI 唤起剧情：控件 on.ui 或自动演出 screenClose 中用 `ctx.resume("幕ID或name")` 指定起始幕，用 `ctx.resume()` 从磁盘隐藏槽 continuation 恢复（包括 inactive）。首次无槽须指定起始幕；指定幕沿用变量/历史，不清空变量。成功唤起后同步隐藏槽，失败保留原状态。布局仍使用 XML，交互仍使用 JS。
+UI 唤起剧情：控件回调或自动演出的 screen.close 回调中用 `ctx.resume("幕ID或name")` 指定起始幕，用 `ctx.resume()` 从磁盘隐藏槽 continuation 恢复（包括 inactive）。首次无槽须指定起始幕；指定幕沿用变量/历史，不清空变量。成功唤起后同步隐藏槽，失败保留原状态。布局仍使用 XML，交互仍使用 JS。
 
 专用 CG：在 assets 声明 `<cg id="作者标记" src="…"/>`，visual 用 `cg="作者标记"` 显示完整 CG，不与背景/人物混用。专用资源自动加入画廊，`game.cgId` 提供当前标记；在现有 game.enter 回调中 `if (ctx.game.cgId) ctx.unlock(ctx.game.cgId)` 可在进入时解锁。`cg.progress` 显示共享解锁数量，profile.json 独立于各剧情槽，同标记只计一次。demo 增加纯 CG 结尾示例，content-version 升为 10，旧剧情槽明确拒绝；save 9/profile 1 不变。详见 [CG 策略](doc/cg-resources-implementation-plan.zh-cn.md)。
 CG 的自动检查与实际窗口结果见 [CG 验收记录](doc/cg-resources-validation.zh-cn.md)。
@@ -141,4 +154,6 @@ CG 的自动检查与实际窗口结果见 [CG 验收记录](doc/cg-resources-va
 
 自定义确认弹窗直接使用 XML 模态 screen：标题可省略，正文/按钮文字可绑定，遮罩与面板通过 RGBA 设置颜色和透明度，图片/点九背景及按钮皮肤由作者配置。demo 主菜单和 HUD 的“退出游戏”展示有标题确认，“重新开始”展示无标题确认；取消后回到原页面。`ctx.quit()` 可由普通 UI 事件关闭游戏窗口，走正常退出补写与资源清理，不强制杀进程；确认流程由 XML/JS 决定。详见 [API](doc/xml-js-api.zh-cn.md#自定义确认弹窗与退出游戏)、[计划](doc/confirmation-quit-implementation-plan.zh-cn.md) 与 [验收](doc/confirmation-quit-validation.zh-cn.md)。story 8/UI 3/save 9/content 11/KPAK 1/2 不变。
 
-v0.10.0 完成 UI 扩展性三项：同一 `cg-view`/`cgFull` 查看页在已声明图片间切换，并支持上一张/下一张、工具栏隐藏与背景恢复；玩家可为前进、快进、演出跳过绑定单键/组合并写入独立 `keybindings.json`，捕获、冲突、整批交换、原子失败回滚和释放屏障均有覆盖；新增三角 HSV `color-picker`、`color-bind`、作者 `palette` 与玩家 `ui-colors.json`，demo 设置页提供“快捷键…”与“配色…”编辑页。接口与限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/content-version 11 不变；两个新偏好文件排除监控、打包和发布复制。
+v0.10.0 完成 UI 扩展性三项：同一 `cg-view`/`cgFull` 查看页在已声明图片间切换，并支持上一张/下一张、工具栏隐藏与背景恢复；玩家可为前进、快进、演出跳过绑定单键/组合并写入独立 `keybindings.json`，捕获、冲突、整批交换、原子失败回滚和释放屏障均有覆盖；新增 HSL 圆环与正方形 `color-picker`、`color-bind`、作者 `palette` 与玩家 `ui-colors.json`，demo 设置页提供“快捷键…”与“配色…”编辑页。接口与限制见 [API 第 33–35 节](doc/xml-js-api.zh-cn.md#33-v0100-动态图片查看组合)，结果见 [UI 扩展性验收](doc/ui-extensibility-validation.zh-cn.md)。story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/content-version 11 不变；两个新偏好文件排除监控、打包和发布复制。
+
+国际化示例（默认 demo 仍关闭）：运行 `./tools/prepare-localization-demo.ps1`，再 `cargo run --locked -- --project target/localization-demo --save-dir target/localization-saves --no-live2d`。全部素材从现有 demo 复制并保留许可；语音语言使用占位 WAV 映射，不是正式多语言配音。清单、FTL、两个选择区及应用/取消代码见 [示例说明](doc/localization-example/README.md)。语言偏好 schema 1 独立保存在 language.json，坏文件保留并提示；运行中切换需静止 UI 边界，不改剧情档案。Windows 探测系统首选语言，其他平台目前以作者默认降级；不承诺 RTL/复杂塑形/多音轨。Fluent 依赖许可见 [许可清单](licenses/i18n-notices.md)。

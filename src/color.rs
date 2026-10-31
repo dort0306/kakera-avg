@@ -1,4 +1,4 @@
-//! 纯颜色与三角几何工具。
+//! 颜色转换与纯几何工具；当前选色器使用编码 sRGB 空间的 HSL。
 //!
 //! 本模块只使用 std，不进行 IO，也不引用 crate 内其他模块。对外颜色是未预乘的
 //! 编码 sRGB RGBA 字节；HSV 同样针对编码后的 sRGB 通道（不是线性光 HSV，也不是 HSL）。
@@ -34,17 +34,17 @@ impl Rgba {
     /// 六位形式补 `alpha=FF`；空值、长度错误、非十六进制字符、名称、路径和空白一律拒绝。
     pub fn parse(text: &str) -> Result<Self, String> {
         if text.is_empty() {
-            return Err("颜色为空，要求 #RRGGBB 或 #RRGGBBAA".to_string());
+            return Err(crate::i18n::text("host-color-0004").to_string());
         }
         let bytes = text.as_bytes();
         if bytes[0] != b'#' {
-            return Err("颜色必须以 '#' 开头".to_string());
+            return Err(crate::i18n::text("host-color-0005").to_string());
         }
         let hex = &bytes[1..];
         if hex.len() != 6 && hex.len() != 8 {
-            return Err(format!(
-                "颜色长度错误：要求 #RRGGBB 或 #RRGGBBAA，实际为 {} 个字节",
-                bytes.len()
+            return Err(crate::i18n::format(
+                "host-color-0001",
+                &[("arg0", format!("{}", bytes.len()))],
             ));
         }
         let high = parse_hex_pair(hex, 0)?;
@@ -96,6 +96,64 @@ pub struct Hsva {
     pub v: f32,
     /// Alpha，规范范围 `[0, 1]`。
     pub a: f32,
+}
+
+/// 编码 sRGB 空间的 HSL；只用于呈现，不进入存档。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hsla {
+    pub h: f32,
+    pub s: f32,
+    pub l: f32,
+    pub a: f32,
+}
+
+impl Hsla {
+    /// 无彩色保留色相；黑/白保留饱和度，避免端点编辑丢失横向位置。
+    pub fn from_rgba(rgba: Rgba, last_hue: Option<f32>, last_saturation: Option<f32>) -> Self {
+        let (h, _, _) = rgb_to_hsv(rgba.r, rgba.g, rgba.b);
+        let max = rgba.r.max(rgba.g).max(rgba.b) as f32 / 255.0;
+        let min = rgba.r.min(rgba.g).min(rgba.b) as f32 / 255.0;
+        let delta = max - min;
+        let l = (max + min) * 0.5;
+        Self {
+            h: if delta == 0.0 {
+                normalize_hue(last_hue.unwrap_or(0.0))
+            } else {
+                h
+            },
+            s: if l == 0.0 || l == 1.0 {
+                unit_or(last_saturation.unwrap_or(0.0), 0.0)
+            } else {
+                (delta / (1.0 - (2.0 * l - 1.0).abs())).clamp(0.0, 1.0)
+            },
+            l,
+            a: rgba.a as f32 / 255.0,
+        }
+    }
+
+    pub fn to_rgba(self) -> Rgba {
+        let hue = normalize_hue(self.h);
+        let saturation = unit_or(self.s, 0.0);
+        let lightness = unit_or(self.l, 0.0);
+        let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+        let sector = hue / 60.0;
+        let second = chroma * (1.0 - (sector % 2.0 - 1.0).abs());
+        let (r, g, b) = match sector as u32 {
+            0 => (chroma, second, 0.0),
+            1 => (second, chroma, 0.0),
+            2 => (0.0, chroma, second),
+            3 => (0.0, second, chroma),
+            4 => (second, 0.0, chroma),
+            _ => (chroma, 0.0, second),
+        };
+        let offset = lightness - chroma * 0.5;
+        Rgba {
+            r: quantize_unit(r + offset),
+            g: quantize_unit(g + offset),
+            b: quantize_unit(b + offset),
+            a: quantize_unit(unit_or(self.a, 1.0)),
+        }
+    }
 }
 
 impl Hsva {
@@ -449,10 +507,12 @@ fn hex_value(byte: u8) -> Option<u8> {
 fn parse_hex_pair(hex: &[u8], offset: usize) -> Result<u8, String> {
     let high_position = offset + 1;
     let low_position = offset + 2;
-    let high = hex_value(hex[offset])
-        .ok_or_else(|| format!("颜色第 {high_position} 位不是十六进制数字"))?;
-    let low = hex_value(hex[offset + 1])
-        .ok_or_else(|| format!("颜色第 {low_position} 位不是十六进制数字"))?;
+    let high = hex_value(hex[offset]).ok_or_else(|| {
+        crate::i18n::format("host-color-0002", &[("arg0", high_position.to_string())])
+    })?;
+    let low = hex_value(hex[offset + 1]).ok_or_else(|| {
+        crate::i18n::format("host-color-0003", &[("arg0", low_position.to_string())])
+    })?;
     Ok(high << 4 | low)
 }
 
@@ -1270,5 +1330,111 @@ mod tests {
             Hsva::from_rgba(transparent, None, None).to_rgba(),
             transparent
         );
+    }
+}
+
+#[cfg(test)]
+mod hsl_tests {
+    use super::*;
+
+    #[test]
+    fn hsl_reference_colors_and_transparent_rgb() {
+        for (h, expected) in [
+            (0.0, "#FF000080"),
+            (60.0, "#FFFF0080"),
+            (120.0, "#00FF0080"),
+            (180.0, "#00FFFF80"),
+            (240.0, "#0000FF80"),
+            (300.0, "#FF00FF80"),
+        ] {
+            assert_eq!(
+                Hsla {
+                    h,
+                    s: 1.0,
+                    l: 0.5,
+                    a: 0.5
+                }
+                .to_rgba()
+                .format(),
+                expected
+            );
+        }
+        for s in [0.0, 0.3, 1.0] {
+            assert_eq!(
+                Hsla {
+                    h: 33.0,
+                    s,
+                    l: 1.0,
+                    a: 1.0
+                }
+                .to_rgba(),
+                Rgba::WHITE
+            );
+            assert_eq!(
+                Hsla {
+                    h: 33.0,
+                    s,
+                    l: 0.0,
+                    a: 1.0
+                }
+                .to_rgba()
+                .format(),
+                "#000000FF"
+            );
+        }
+        assert_eq!(
+            Hsla {
+                h: 0.0,
+                s: 1.0,
+                l: 0.5,
+                a: 0.0
+            }
+            .to_rgba()
+            .format(),
+            "#FF000000"
+        );
+        assert_eq!(
+            Hsla {
+                h: 0.0,
+                s: 0.5,
+                l: 0.5,
+                a: 1.0
+            }
+            .to_rgba()
+            .format(),
+            "#BF4040FF"
+        );
+    }
+
+    #[test]
+    fn hsl_rgba_roundtrip_and_degenerate_color_memory() {
+        for r in (0..=255).step_by(17) {
+            for g in (0..=255).step_by(17) {
+                for b in (0..=255).step_by(17) {
+                    let original = Rgba { r, g, b, a: 73 };
+                    let actual = Hsla::from_rgba(original, None, None).to_rgba();
+                    assert!(
+                        actual.r.abs_diff(r) <= 1
+                            && actual.g.abs_diff(g) <= 1
+                            && actual.b.abs_diff(b) <= 1
+                    );
+                    assert_eq!(actual.a, 73);
+                }
+            }
+        }
+        for text in ["#000000FF", "#FFFFFFFF"] {
+            let hsl = Hsla::from_rgba(Rgba::parse(text).unwrap(), Some(210.0), Some(0.7));
+            assert_eq!((hsl.h, hsl.s), (210.0, 0.7));
+        }
+        let gray = Hsla::from_rgba(Rgba::parse("#808080FF").unwrap(), Some(120.0), Some(0.7));
+        assert_eq!((gray.h, gray.s), (120.0, 0.0));
+        let bounded = Hsla {
+            h: f32::NAN,
+            s: f32::INFINITY,
+            l: f32::NEG_INFINITY,
+            a: f32::NAN,
+        }
+        .to_rgba();
+        assert_eq!(bounded.format(), "#000000FF");
     }
 }
