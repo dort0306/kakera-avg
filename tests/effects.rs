@@ -331,6 +331,7 @@ fn effect_preparation_and_mesh_rendering_use_cached_assets_and_fixed_clip() {
                                 data: &data,
                                 frame: &loaded.story.frames["opening"],
                                 assets: &assets,
+                                particles: &Default::default(),
                                 visible_text: "",
                                 blocked: false
                             }

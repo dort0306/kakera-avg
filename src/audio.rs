@@ -114,6 +114,16 @@ pub enum Channel {
     Se,
 }
 
+/// The single gain rule for every audio path: total mute wins, otherwise the master
+/// volume multiplies the channel value. UI sound effects use `se_volume`.
+pub fn gain(settings: &Settings, channel: f32) -> f32 {
+    if settings.muted {
+        0.0
+    } else {
+        settings.master_volume * channel
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioCommand {
     Stop(Channel),
@@ -207,11 +217,7 @@ impl AudioEngine {
                 !sink.empty()
             });
             for (_, sink) in &device.ui {
-                sink.set_volume(if settings.muted {
-                    0.
-                } else {
-                    settings.se_volume
-                });
+                sink.set_volume(gain(settings, settings.se_volume));
                 if focused { sink.play() } else { sink.pause() }
             }
         }
@@ -353,11 +359,7 @@ impl AudioEngine {
 
     pub fn configure_ui_video(&self, settings: &Settings, paused: bool) {
         if let Some(sink) = self.device.as_ref().and_then(|d| d.video.as_ref()) {
-            sink.set_volume(if settings.muted {
-                0.0
-            } else {
-                settings.video_volume
-            });
+            sink.set_volume(gain(settings, settings.video_volume));
             if paused {
                 sink.pause();
             } else {
@@ -389,7 +391,7 @@ impl AudioEngine {
             (&device.video, settings.video_volume, !focused || overlay),
         ] {
             if let Some(sink) = sink {
-                sink.set_volume(if settings.muted { 0.0 } else { volume });
+                sink.set_volume(gain(settings, volume));
                 if pause {
                     sink.pause();
                 } else {
@@ -431,5 +433,40 @@ impl AudioEngine {
             }
         }
         status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn master_gain_multiplies_every_channel_and_mute_wins() {
+        let mut settings = Settings::default();
+        assert_eq!(gain(&settings, 0.4), 0.4);
+        settings.master_volume = 0.5;
+        for (channel, expected) in [(0.4, 0.2), (0.8, 0.4), (0.6, 0.3), (1.0, 0.5)] {
+            assert!((gain(&settings, channel) - expected).abs() < 1e-6);
+        }
+        // Changing the master never rewrites a channel value.
+        assert_eq!(settings.bgm_volume, 0.35);
+        settings.master_volume = 0.0;
+        assert_eq!(gain(&settings, 0.7), 0.0);
+        settings.master_volume = 1.0;
+        assert_eq!(gain(&settings, 0.7), 0.7);
+        settings.muted = true;
+        assert_eq!(gain(&settings, 0.7), 0.0);
+        settings.muted = false;
+        assert_eq!(gain(&settings, 0.7), 0.7);
+    }
+
+    #[test]
+    fn numeric_settings_are_checked_before_the_f32_cast() {
+        assert!(Settings::validate_number("master_volume", 1.000_000_1).is_err());
+        assert!(Settings::validate_number("master_volume", -1e-9).is_err());
+        assert!(Settings::validate_number("master_volume", f64::NAN).is_err());
+        assert!(Settings::validate_number("master_volume", 0.25).is_ok());
+        assert!(Settings::validate_number("bgm_volume", 1.0).is_ok());
+        assert!(Settings::validate_number("unknown", 0.5).is_err());
     }
 }

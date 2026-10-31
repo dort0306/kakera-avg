@@ -13,6 +13,7 @@ pub mod data;
 pub mod host;
 pub mod pagination;
 pub mod palette;
+pub mod particles;
 pub mod presentation;
 pub mod render;
 pub mod source;
@@ -40,6 +41,8 @@ pub struct Definition {
     pub images: BTreeSet<String>,
     pub nine_patches: BTreeSet<String>,
     pub image_sizes: BTreeMap<String, [u32; 2]>,
+    /// Declared 2D particle emitters keyed by node ID, each with its owning screen.
+    pub particles: BTreeMap<String, crate::particles::Emitter>,
     /// Independently registered events, also available as capture result callbacks.
     pub host_handlers: BTreeSet<String>,
     pub enter: bool,
@@ -230,6 +233,8 @@ pub enum Kind {
     ColorPicker {
         alpha: bool,
     },
+    /// One 2D image emitter; its configuration lives in `Definition::particles`.
+    Particles,
 }
 #[derive(Clone, Debug)]
 pub struct Node {
@@ -583,7 +588,7 @@ fn binding(
         return match id {
             "muted" | "autosave" | "skip_all" | "fullscreen" => Some(ValueKind::Bool),
             "text_speed" | "bgm_volume" | "voice_volume" | "se_volume" | "auto_delay"
-            | "video_volume" => Some(ValueKind::Number),
+            | "video_volume" | "master_volume" => Some(ValueKind::Number),
             _ => None,
         };
     }
@@ -660,6 +665,9 @@ struct Parser<'a> {
     page_vars: BTreeMap<String, String>,
     max_choices: usize,
     gallery_count: usize,
+    /// Parsed emitters with their author locations; the owning screen is resolved
+    /// once the whole screen tree exists.
+    particle_emitters: Vec<(String, crate::particles::Emitter)>,
 }
 impl Parser<'_> {
     fn nodes(
@@ -723,11 +731,18 @@ impl Parser<'_> {
         {
             let tag = xml.tag_name().name();
             let container = ["panel", "nine-patch", "repeat"].contains(&tag);
-            let mut attrs = vec![
-                "id", "x", "y", "width", "height", "color", "visible", "enabled",
-            ];
+            // Particle emitters own a narrower attribute set: no text, radius, bind,
+            // event or `enabled`; the shared id/rect/visible/tint attributes stay.
+            let mut attrs = if tag == "particles" {
+                vec!["id", "x", "y", "width", "height", "visible", "color"]
+            } else {
+                vec![
+                    "id", "x", "y", "width", "height", "color", "visible", "enabled",
+                ]
+            };
             match tag {
                 "scene" => {}
+                "particles" => attrs.extend(particles::ATTRIBUTES),
                 "panel" => attrs.extend([
                     "image",
                     "image-bind",
@@ -799,6 +814,7 @@ impl Parser<'_> {
                     "toggle",
                     "repeat",
                     "color-picker",
+                    "particles",
                 ]
             } else if matches!(tag, "label" | "button" | "toggle") {
                 vec!["text-arg"]
@@ -922,6 +938,38 @@ impl Parser<'_> {
                         ));
                     }
                     Kind::ColorPicker { alpha }
+                }
+                "particles" => {
+                    // Per-item copies would multiply instances silently; only pages and
+                    // plain containers may declare an emitter.
+                    if source.is_some() {
+                        return Err(error(
+                            self.file(),
+                            xml,
+                            crate::i18n::text("host-interface-particles-0003"),
+                        ));
+                    }
+                    let emitter = particles::parse(
+                        self.file(),
+                        xml,
+                        &id,
+                        rect,
+                        color(self.file(), xml, [255, 255, 255, 255])?,
+                        self.story,
+                    )?;
+                    let position = xml.document().text_pos_at(xml.range().start);
+                    self.particle_emitters.push((
+                        format!("{}:{}:{}", self.file(), position.row, position.col),
+                        emitter,
+                    ));
+                    if self.particle_emitters.len() > crate::particles::MAX_DECLARED {
+                        return Err(error(
+                            self.file(),
+                            xml,
+                            crate::i18n::text("host-interface-particles-0008"),
+                        ));
+                    }
+                    Kind::Particles
                 }
                 "slider" => {
                     let min = number(self.file(), xml, "min", None)?;
@@ -1890,6 +1938,7 @@ pub fn parse_localized(
             .max()
             .unwrap_or(0),
         gallery_count: gallery.len(),
+        particle_emitters: Vec::new(),
     };
     for (id, asset) in &story.assets {
         if asset.kind == AssetKind::Cg {
@@ -1925,6 +1974,7 @@ pub fn parse_localized(
             "toggle",
             "repeat",
             "color-picker",
+            "particles",
         ];
         screen_children.extend(components.tags());
         check(
@@ -2038,6 +2088,47 @@ pub fn parse_localized(
         .filter(|(_, asset)| matches!(asset.kind, AssetKind::Image | AssetKind::Cg))
         .map(|(id, _)| id.clone())
         .collect();
+    // Emitters belong to the screen that declares them; the per-page cap keeps the
+    // number of simultaneously visible instances bounded by the page stack.
+    let mut particle_screens: BTreeMap<String, String> = BTreeMap::new();
+    fn particle_owners(nodes: &[Node], screen: &str, owners: &mut BTreeMap<String, String>) {
+        for node in nodes {
+            if matches!(node.kind, Kind::Particles) {
+                owners.insert(node.id.clone(), screen.to_owned());
+            }
+            particle_owners(&node.children, screen, owners);
+        }
+    }
+    for (id, screen) in &screens {
+        particle_owners(&screen.nodes, id, &mut particle_screens);
+    }
+    let mut particle_count: BTreeMap<String, usize> = BTreeMap::new();
+    let mut particle_map = BTreeMap::new();
+    for (location, mut emitter) in std::mem::take(&mut parser.particle_emitters) {
+        let screen = particle_screens.get(&emitter.id).cloned().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                crate::i18n::format("host-interface-particles-0003", &[])
+            )
+        })?;
+        let count = particle_count.entry(screen.clone()).or_insert(0);
+        *count += 1;
+        if *count > crate::particles::MAX_PER_SCREEN {
+            return Err(anyhow::anyhow!(
+                "{}",
+                crate::i18n::format(
+                    "host-interface-particles-0007",
+                    &[
+                        ("arg0", screen.clone()),
+                        ("arg1", location),
+                        ("arg2", crate::particles::MAX_PER_SCREEN.to_string())
+                    ]
+                )
+            ));
+        }
+        emitter.screen = screen;
+        particle_map.insert(emitter.id.clone(), emitter);
+    }
     let media = presentation::Catalog::parse(root, file, story, &screens)?;
     fn validate_media(
         file: &str,
@@ -2315,6 +2406,7 @@ pub fn parse_localized(
             .map(|(id, _)| id.clone())
             .collect(),
         image_sizes: BTreeMap::new(),
+        particles: particle_map,
         host_handlers,
         enter,
     };

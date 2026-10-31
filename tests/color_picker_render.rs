@@ -108,6 +108,7 @@ fn frame(fixture: &mut Fixture, events: Vec<egui::Event>) -> Option<interface::E
                         data: &fixture.data,
                         frame: &fixture.frame,
                         assets: &fixture.assets,
+                        particles: &Default::default(),
                         visible_text: "",
                         blocked: false,
                         pickers: &mut fixture.pickers,

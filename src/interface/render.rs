@@ -16,6 +16,7 @@ pub struct Input<'a> {
     pub data: &'a Data,
     pub frame: &'a Frame,
     pub assets: &'a AssetCache,
+    pub particles: &'a crate::particles::System,
     pub visible_text: &'a str,
     pub blocked: bool,
     pub pickers: &'a mut PickerState,
@@ -541,6 +542,82 @@ impl Renderer<'_> {
                     ui.set_clip_rect(ui.clip_rect().intersect(bounds));
                     self.nodes(ui, &node.children, bounds.min, item, enabled, &id);
                 });
+            }
+            Kind::Particles => {
+                // Read-only: positions come from the prepared system, never from the
+                // drawing pass. One mesh per emitter keeps the quad count explicit.
+                let Some(emitter) = self.input.particles.emitter(&node.id) else {
+                    return;
+                };
+                let Some(particles) = self.input.particles.particles(&node.id) else {
+                    return;
+                };
+                let Some(texture) = self.input.assets.image(&emitter.image) else {
+                    return;
+                };
+                let texture_size = texture.size_vec2();
+                let aspect = if texture_size.x > 0.0 {
+                    texture_size.y / texture_size.x
+                } else {
+                    1.0
+                };
+                let tint = self.tint(node);
+                let channel = |a: u8, b: u8| (u16::from(a) * u16::from(b) / 255) as u8;
+                let red = channel(tint.r(), emitter.color[0]);
+                let green = channel(tint.g(), emitter.color[1]);
+                let blue = channel(tint.b(), emitter.color[2]);
+                let base_alpha = channel(tint.a(), emitter.color[3]);
+                if base_alpha == 0 {
+                    return;
+                }
+                let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
+                for particle in particles {
+                    let width = particle.size * self.scale;
+                    let height = width * aspect;
+                    if width <= 0.0 || height <= 0.0 {
+                        continue;
+                    }
+                    let center = bounds.min + Vec2::new(particle.x, particle.y) * self.scale;
+                    let (sin, cos) = particle.rotation.to_radians().sin_cos();
+                    let half = Vec2::new(width, height) * 0.5;
+                    let alpha = (f32::from(base_alpha) * particle.opacity(emitter.fade))
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let color = Color32::from_rgba_unmultiplied(red, green, blue, alpha);
+                    let corner = |sx: f32, sy: f32| {
+                        Pos2::new(
+                            center.x + sx * half.x * cos - sy * half.y * sin,
+                            center.y + sx * half.x * sin + sy * half.y * cos,
+                        )
+                    };
+                    let base = mesh.vertices.len() as u32;
+                    for (sx, sy, u, v) in [
+                        (-1.0, -1.0, 0.0, 0.0),
+                        (1.0, -1.0, 1.0, 0.0),
+                        (1.0, 1.0, 1.0, 1.0),
+                        (-1.0, 1.0, 0.0, 1.0),
+                    ] {
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: corner(sx, sy),
+                            uv: Pos2::new(u, v),
+                            color,
+                        });
+                    }
+                    mesh.indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
+                }
+                if !mesh.indices.is_empty() {
+                    painter.add(egui::Shape::mesh(mesh));
+                }
             }
             Kind::Label => {
                 let font = FontId::proportional(node.font * self.scale);

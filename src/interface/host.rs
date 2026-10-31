@@ -258,6 +258,11 @@ pub enum Command {
         target: String,
         animation: crate::model::effects::Animation,
     },
+    /// Explicit control of one declared 2D particle emitter on a visible page.
+    Particles {
+        id: String,
+        action: String,
+    },
     Open {
         screen: String,
     },
@@ -339,6 +344,8 @@ pub struct Plan {
     pub portraits: Vec<(crate::model::Slot, crate::model::effects::PortraitAnimation)>,
     pub transition: Option<crate::model::effects::Transition>,
     pub animations: Vec<(String, crate::model::effects::Animation)>,
+    /// Validated, order-preserving particle commands for the App presentation layer.
+    pub particles: Vec<(String, crate::particles::Action)>,
     pub state: State,
     pub settings: Settings,
     pub profile: Profile,
@@ -399,6 +406,7 @@ pub fn prepare_with_pages(
         portraits: Vec::new(),
         transition: None,
         animations: Vec::new(),
+        particles: Vec::new(),
         state: state.clone(),
         settings: settings.clone(),
         profile: profile.clone(),
@@ -412,6 +420,7 @@ pub fn prepare_with_pages(
     let mut keybinding_reset = false;
     let mut color_modified = BTreeSet::new();
     let mut color_reset = false;
+    let mut particle_modified = BTreeSet::new();
     for command in commands {
         if entering {
             ensure!(
@@ -639,6 +648,69 @@ pub fn prepare_with_pages(
                 );
                 crate::effects::validate_animation(animation).map_err(anyhow::Error::msg)?;
                 plan.animations.push((target, animation));
+            }
+            Command::Particles { id, action } => {
+                ensure!(
+                    !entering,
+                    "{}",
+                    crate::i18n::format("host-interface-host-0005", &[])
+                );
+                let emitter = def.particles.get(&id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-particles-0009",
+                            &[("arg0", id.to_string())]
+                        )
+                    )
+                })?;
+                // Only emitters on a page that will be visible after this batch may be
+                // controlled; a hidden page never accumulates transient state.
+                ensure!(
+                    plan.state.stack.contains(&emitter.screen),
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-particles-0010",
+                        &[
+                            ("arg0", id.to_string()),
+                            ("arg1", emitter.screen.to_string())
+                        ]
+                    )
+                );
+                let action = crate::particles::Action::parse(&action).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::format(
+                            "host-interface-particles-0011",
+                            &[("arg0", action.to_string())]
+                        )
+                    )
+                })?;
+                ensure!(
+                    !matches!(action, crate::particles::Action::Start) || emitter.rate > 0.0,
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-particles-0012",
+                        &[("arg0", id.to_string())]
+                    )
+                );
+                ensure!(
+                    !matches!(action, crate::particles::Action::Burst) || emitter.burst > 0,
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-particles-0013",
+                        &[("arg0", id.to_string())]
+                    )
+                );
+                ensure!(
+                    particle_modified.insert(id.clone()),
+                    "{}",
+                    crate::i18n::format(
+                        "host-interface-particles-0014",
+                        &[("arg0", id.to_string())]
+                    )
+                );
+                plan.particles.push((id, action));
             }
             Command::Open { screen } => {
                 let target = def.screens.get(&screen).ok_or_else(|| {
@@ -898,7 +970,11 @@ pub fn prepare_with_pages(
                 } else {
                     let value = value.as_f64().ok_or_else(|| {
                         anyhow::anyhow!("{}", crate::i18n::format("host-interface-host-0051", &[]))
-                    })? as f32;
+                    })?;
+                    // The accepted interval is checked in f64 before the f32 cast, so a
+                    // value barely outside it cannot round into the legal range.
+                    Settings::validate_number(&name, value)?;
+                    let value = value as f32;
                     match name.as_str() {
                         "auto_delay" => plan.settings.auto_delay = value,
                         "video_volume" => plan.settings.video_volume = value,
@@ -906,6 +982,7 @@ pub fn prepare_with_pages(
                         "bgm_volume" => plan.settings.bgm_volume = value,
                         "voice_volume" => plan.settings.voice_volume = value,
                         "se_volume" => plan.settings.se_volume = value,
+                        "master_volume" => plan.settings.master_volume = value,
                         _ => anyhow::bail!(
                             "{}",
                             crate::i18n::format(
@@ -968,6 +1045,7 @@ pub fn prepare_with_pages(
             matches!(plan.operation, Operation::None)
                 && plan.ui_actions.is_empty()
                 && plan.animations.is_empty()
+                && plan.particles.is_empty()
                 && plan.portraits.is_empty()
                 && plan.live2d.is_empty()
                 && plan.auto_play.is_none()

@@ -19,6 +19,7 @@ mod development;
 mod input;
 mod lifecycle;
 mod localization;
+mod particles;
 mod shortcuts;
 mod skip;
 mod ui_media;
@@ -67,6 +68,9 @@ pub struct PlayerApp {
     pickers: crate::interface::render::PickerState,
     ui_generation: u64,
     effects: crate::effects::Player,
+    /// Transient 2D particle instances; never part of Model, saves or preferences.
+    particles: crate::particles::System,
+    particle_clock: PresentationClock,
     story: Story,
     session: Session,
     logic: ScriptLogic,
@@ -174,6 +178,9 @@ impl PlayerApp {
         } else {
             Some(warnings.join("\n"))
         };
+        // Emitter configuration is copied once; instances start empty and follow the
+        // committed page stack from now on.
+        let particles = crate::particles::System::new(custom.definition.particles.clone());
         let mut app = Self {
             quit_requested: false,
             ui_media: ui_media::UiMedia::new(prefs),
@@ -203,6 +210,8 @@ impl PlayerApp {
             pickers: Default::default(),
             ui_generation: 0,
             effects: Default::default(),
+            particles,
+            particle_clock: PresentationClock::new(Instant::now()),
             story: loaded.story,
             session,
             logic,
@@ -419,6 +428,12 @@ impl PlayerApp {
         );
         self.pickers = Default::default();
         self.commit_ui(plan, false);
+        if restored || force_audio {
+            // Load, restart and the first entry rebuild the declared initial picture;
+            // a saved session never replays historical bursts.
+            let stack = self.custom.state.stack.clone();
+            self.particles.reset(&stack);
+        }
         self.apply_ui_media(prepared_ui);
         if restored {
             self.effects.age = 6.0;
@@ -555,6 +570,7 @@ impl PlayerApp {
         let paused = self.blocked() || ui_input || !focused || capture_active;
         let now = Instant::now();
         let elapsed = self.clock.elapsed(now, paused);
+        let particles_running = self.tick_particles(now, focused);
         // Keep the read-only skip decision at the frame boundary: text becoming
         // fully displayed below must not make an unread line skippable this tick.
         let may_fast_forward = self.may_fast_forward();
@@ -639,6 +655,7 @@ impl PlayerApp {
                             data: &custom.data,
                             frame,
                             assets: &self.assets,
+                            particles: &self.particles,
                             visible_text: if self.effects.has_entered {
                                 self.typewriter.visible_text()
                             } else {
@@ -741,6 +758,11 @@ impl PlayerApp {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         if self.ui_media.active() {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+        // Decorative emitters keep animating behind a story menu, so they schedule their
+        // own redraw and are frozen by the same predicate that stops their clock.
+        if particles_running && self.particles.animating() && !capture_busy && !debug_input {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         self.maybe_flush_read(now);

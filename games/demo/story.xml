@@ -17,6 +17,10 @@
     <image id="portrait.lin" src="assets/characters/lin.png" />
     <nine-patch id="ui.dialogue" src="assets/ui/dialogue.9.png" />
     <image id="ui.sprites" src="assets/ui/sprites.png" />
+    <image id="ui.rain" src="assets/ui/particle-rain.png" />
+    <image id="ui.snow" src="assets/ui/particle-snow.png" />
+    <image id="ui.petal" src="assets/ui/particle-petal.png" />
+    <image id="ui.spark" src="assets/ui/particle-spark.png" />
     <image id="ui.panel" src="assets/ui/panel.png" />
     <image id="ui.button" src="assets/ui/button.png" />
     <image id="ui.hover" src="assets/ui/button-hover.png" />

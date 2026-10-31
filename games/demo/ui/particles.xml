@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui schema="3">
+  <screen id="particles">
+    <panel id="particlesPanel" x="60" y="30" width="1160" height="660" image="ui.panel">
+      <label id="particlesTitle" x="30" y="20" width="640" height="40" text="2D 图片粒子" font-size="28" color="#F0CA89" />
+      <label id="particlesHint" x="30" y="62" width="1090" height="32"
+             text="雨、雪、花瓣随页面自动发射；星火只能手动触发。停止只停发射，清空立即移除。菜单打开时粒子继续，失焦或提示时冻结。" font-size="17" />
+      <button id="particlesStart" x="30" y="596" width="170" height="40" text="开始发射" event="particles-start" image="ui.button" />
+      <button id="particlesStop" x="215" y="596" width="170" height="40" text="停止发射" event="particles-stop" image="ui.button" />
+      <button id="particlesClear" x="400" y="596" width="170" height="40" text="清空" event="particles-clear" image="ui.button" />
+      <button id="particlesBurst" x="585" y="596" width="170" height="40" text="星火爆发" event="particles-burst" image="ui.button" />
+      <button id="particlesClose" x="770" y="596" width="120" height="40" text="返回" event="close" image="ui.button" />
+    </panel>
+    <!-- Emitters are screen children after the panel so they draw above it; each
+         rectangle also clips its own particles. -->
+    <particles id="rainFall" x="100" y="100" width="240" height="470" image="ui.rain"
+               rate="55" max="220" life="1.1" life-max="1.7" size="8" size-max="12"
+               vx="-24" vx-max="24" vy="420" vy-max="560" autostart="true" />
+    <particles id="snowFall" x="380" y="100" width="240" height="470" image="ui.snow"
+               rate="18" max="160" life="3" life-max="5" size="8" size-max="16"
+               vx="-30" vx-max="30" vy="40" vy-max="90" spin="-40" spin-max="40" autostart="true" />
+    <particles id="petals" x="660" y="100" width="240" height="470" image="ui.petal"
+               rate="10" max="110" life="3.5" life-max="5" size="14" size-max="22"
+               vx="-70" vx-max="-20" vy="45" vy-max="95" accel-y="18"
+               spin="-120" spin-max="120" autostart="true" />
+    <particles id="sparkle" x="940" y="100" width="240" height="470" image="ui.spark"
+               burst="36" max="120" life="0.7" life-max="1.4" size="10" size-max="26"
+               vx="-40" vx-max="40" vy="-70" vy-max="-20" accel-y="60" color="#FFF0BEFF" />
+  </screen>
+</ui>

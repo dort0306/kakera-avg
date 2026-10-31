@@ -135,6 +135,9 @@ impl PlayerApp {
         }
         custom.state.refresh(&custom.definition)?;
         let cpu_assets = runtime.images.clone();
+        // A hot reload never carries old instances across: the declared emitters are
+        // rebuilt and the retained pages re-sync in `commit_ui` below.
+        let particles = crate::particles::System::new(custom.definition.particles.clone());
         let mut candidate = Self {
             quit_requested: false,
             ui_media: super::ui_media::UiMedia::new(self.ui_media.prefs.clone()),
@@ -164,6 +167,8 @@ impl PlayerApp {
             pickers: Default::default(),
             ui_generation: self.ui_generation.wrapping_add(1),
             effects: Default::default(),
+            particles,
+            particle_clock: PresentationClock::new(Instant::now()),
             story: loaded.story,
             session,
             logic,

@@ -1,6 +1,15 @@
 # 版本说明
 
-当前应用版本为 v0.11.2。本文汇总各版本已实现的能力与入口；详细实现方案、验收记录和历史手册分别在对应版本文档与 [doc/archive](archive/) 中保留。旧版说明不能当作本轮复测结果。
+当前应用版本为 v0.11.3。本文汇总各版本已实现的能力与入口；详细实现方案、验收记录和历史手册分别在对应版本文档与 [doc/archive](archive/) 中保留。旧版说明不能当作本轮复测结果。
+
+## v0.11.3 — 总音量与 2D 图片粒子
+
+- **总音量**：新增 `settings.master_volume` / `ctx.setting("master_volume", value)`（0–1，默认 1）。有效增益 = `muted ? 0 : master × 分项`，覆盖音乐、语音、剧情音效、UI 音效与 UI sequence 视频；调节在播声音只改增益，不重播。数值范围在 f64 输入阶段先校验；settings.json 必须含全部当前字段，缺字段旧文件按坏设置提示并采用完整默认值。
+- **2D 图片粒子**：UI XML 新增 `<particles>` 节点，声明图片、发射区域、速率/burst、寿命、大小、速度、加速度、自转、颜色、淡入淡出与 `autostart`；JS 用 `ctx.particles(id).start()/stop()/clear()/burst()` 受约束地控制已声明发射器。粒子按页面归属并沿页面栈清理，使用 UI 演出时钟（菜单继续、失焦/提示/调试暂停冻结且不补积累），读档/重开/热更重建初态而不重放 burst。
+- 硬预算：每页最多 4 个发射器、整份 UI 32 个、全局存活 2048、单发射器 512、单次更新生成 256、单步 0.1 秒；实例、随机与纹理句柄只在 App 呈现层，不进入 Model、存档、隐藏交接或偏好。
+- demo 新增“效果演示 → 粒子”页面（雨/雪/花瓣/光点、开始/停止/清空/爆发）与设置页总音量滑条；粒子素材由 `tools/generate-demo-particles.ps1` 生成为几何占位图。
+
+接口与限制见 [API 第 39 节](xml-js-api.zh-cn.md)；方案见 [v0.11.3 实现计划](v0.11.3-implementation-plan.zh-cn.md)；实际检查与未验项见 [v0.11.3 验收记录](v0.11.3-validation.zh-cn.md)。story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2 与 demo content-version=11 不变，无旧格式迁移；旧 settings.json 缺 `master_volume` 会按既有“坏设置”规则重置为默认值。
 
 ## v0.11.2 — UI 组合与通用分页
 

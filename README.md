@@ -3,12 +3,12 @@
 Rust 与 QuickJS 驱动的 Windows x64 AVG（视觉小说）播放器。剧情、界面、样式和交互优先用 XML 与 JavaScript 描述；Rust 宿主只提供经过严格校验的受约束能力，只有现有 XML/JS 组合无法满足需求时才扩展。每个场景（Frame）是一份可独立恢复的完整显示状态。
 
 - **剧情与脚本**：帧式剧情、变量/条件/选项、历史检查点、自动播放、逐字显示与快进；条件、更新和生命周期在隔离 QuickJS 中执行，Rust 验证候选后原子提交。
-- **XML/JS 界面**：schema 3 UI、自定义皮肤与页面栈、按钮路由、动画与 UI 视频、加载期组合标签、通用分页、可配置快捷键与配色。
-- **媒体与呈现**：BGM、语音、音效和视频独立音量与总静音、图片效果、立绘动作、Live2D、D3D11 与 CPU fallback、固定 16:9 窗口与无边框全屏。
+- **XML/JS 界面**：schema 3 UI、自定义皮肤与页面栈、按钮路由、动画与 UI 视频、加载期组合标签、通用分页、可配置快捷键与配色、2D 图片粒子。
+- **媒体与呈现**：BGM、语音、音效和视频独立音量与总音量、总静音、图片效果、立绘动作、Live2D、D3D11 与 CPU fallback、固定 16:9 窗口与无边框全屏。
 - **存档与用户数据**：手动/自动槽、截图存档、CG 画廊、已读记录、隐藏生命周期交接槽；偏好文件独立于剧情槽。
 - **工程与发布**：严格 XML 校验、多文件剧情/UI、工程热更、KPAK 2 流式资源包与 KPAK 1 兼容、确定性打包和发布自检。
 
-当前应用版本为 v0.11.2；使用与格式说明见下方 [文档](#文档)。
+当前应用版本为 v0.11.3；使用与格式说明见下方 [文档](#文档)。
 
 ## 构建
 
@@ -26,7 +26,7 @@ cargo run --locked -- --project games/demo --save-dir target/dev-saves
 cargo run --locked -- --project games/demo --renderer cpu --no-audio
 ```
 
-本地发布目录用 `./tools/package.ps1`，默认输出 `target/package/kakera-avg-v0.11.2`；发布包、工程模式和调试的完整说明见 [工程、发布与窗口模式指南](doc/project-release-pack-guide.zh-cn.md)。
+本地发布目录用 `./tools/package.ps1`，默认输出 `target/package/kakera-avg-v0.11.3`；发布包、工程模式和调试的完整说明见 [工程、发布与窗口模式指南](doc/project-release-pack-guide.zh-cn.md)。
 
 ## 测试
 

@@ -74,6 +74,7 @@ event.register("load-slot", ctx => {
 
 event.register("text-speed", ctx => ctx.setting("text_speed", ctx.value));
 event.register("mute", ctx => ctx.setting("muted", ctx.value));
+event.register("master-volume", ctx => ctx.setting("master_volume", ctx.value));
 event.register("bgm-volume", ctx => ctx.setting("bgm_volume", ctx.value));
 event.register("voice-volume", ctx => ctx.setting("voice_volume", ctx.value));
 event.register("se-volume", ctx => ctx.setting("se_volume", ctx.value));
@@ -212,6 +213,20 @@ ui("$game").bind("game.enter", ctx => {
 });
 
 event.register("open-effects", ctx => ctx.open("effects"));
+event.register("open-particles", ctx => ctx.open("particles"));
+// v0.11.3: emitters declared in XML; JS only starts/stops/clears declared IDs.
+const continuousEmitters = ["rainFall", "snowFall", "petals"];
+event.register("particles-start", ctx => {
+  for (const id of continuousEmitters) ctx.particles(id).start();
+});
+event.register("particles-stop", ctx => {
+  for (const id of continuousEmitters) ctx.particles(id).stop();
+});
+// A stop/clear suppresses automatic emission until the page is reopened.
+event.register("particles-clear", ctx => {
+  for (const id of [...continuousEmitters, "sparkle"]) ctx.particles(id).clear();
+});
+event.register("particles-burst", ctx => ctx.particles("sparkle").burst());
 event.register("fx-duration", ctx => ctx.setUi("fxDuration", Math.round(ctx.value)));
 event.register("fx-pause", ctx => {ctx.setUi("fxTransition","fade-white");ctx.setUi("fxDuration",5000);ctx.close();ctx.open("history");ctx.restart("opening");});
 event.register("fx-skip-paused", ctx => {ctx.close();ctx.advance();});

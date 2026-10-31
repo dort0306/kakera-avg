@@ -160,6 +160,7 @@ impl PlayerApp {
         }
         plan.message = plan.message.or(base.message);
         plan.animations.splice(0..0, base.animations);
+        plan.particles.splice(0..0, base.particles);
         plan.portraits.splice(0..0, base.portraits);
         plan.live2d.splice(0..0, base.live2d);
         self.prepared_live2d
@@ -219,6 +220,10 @@ impl PlayerApp {
                 custom.auto_preview = images;
             }
         }
+        // Emitters follow the committed page stack; the command batch was validated
+        // against exactly this candidate stack before any IO ran.
+        self.particles.sync(&self.custom.state.stack);
+        self.particles.apply(&plan.particles);
         let mut pages_changed = self.sync_paged_slots(refresh_slots);
         if refresh_slots || pages_changed {
             self.rebuild_preview_images();

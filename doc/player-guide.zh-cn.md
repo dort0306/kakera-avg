@@ -1,6 +1,6 @@
 # 播放器使用指南
 
-当前应用版本 v0.11.2。本文说明启动、剧情运行、存档与用户数据；构建与测试命令见根目录 [README](../README.md)，工程与发布见 [工程、发布与窗口模式指南](project-release-pack-guide.zh-cn.md)，格式细节见 [数据契约](data-contracts.zh-cn.md)，资源边界与未支持项见 [验证与限制](limits.zh-cn.md)。
+当前应用版本 v0.11.3。本文说明启动、剧情运行、存档与用户数据；构建与测试命令见根目录 [README](../README.md)，工程与发布见 [工程、发布与窗口模式指南](project-release-pack-guide.zh-cn.md)，格式细节见 [数据契约](data-contracts.zh-cn.md)，资源边界与未支持项见 [验证与限制](limits.zh-cn.md)。
 
 ## 启动
 

@@ -348,7 +348,19 @@
       autoPlay(enabled) { emit({type:"auto_play",enabled}); },
       live2d(slot, motion) { emit({type:"live2d",slot,motion}); },
       portrait(slot, kind, duration = 600, strength = 32, easing = "ease-in-out") { emit({ type: "portrait", slot, animation: { kind, duration, strength, easing } }); },
-      animate(target, kind, duration = 400, strength = 12, easing = "ease-in-out") { emit({ type: "animate", target, animation: { kind, duration, strength, easing } }); }
+      animate(target, kind, duration = 400, strength = 12, easing = "ease-in-out") { emit({ type: "animate", target, animation: { kind, duration, strength, easing } }); },
+      // Explicit control of declared emitters; the host rejects unknown IDs, hidden
+      // pages, missing rate/burst and duplicate actions per emitter.
+      particles(id) {
+        if (typeof id !== "string" || id.length === 0) fail("host-bridge-0062", {});
+        const action = name => emit({ type: "particles", id, action: name });
+        return freeze({
+          start() { action("start"); },
+          stop() { action("stop"); },
+          clear() { action("clear"); },
+          burst() { action("burst"); }
+        });
+      }
     });
     const result = handler.run(ctx);
     if (result !== undefined) fail("host-bridge-0023", {});

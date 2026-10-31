@@ -228,3 +228,13 @@ story 8/UI 3/save 9/profile 1/read 1/KPAK 1/2/demo content-version=11 不变。W
 - `component.register('x-名称', { props, expand })` 只在脚本装配阶段注册，最多 128 个，封存后不可注册；属性表严格（string/bool/int/number/binding/event，required 或类型匹配 default 二选一，保留布局属性不可声明）。`expand` 同步返回单个 `panel`/`nine-patch` 根（根 id=`$root`）及有界节点描述；实例 ID 映射根，局部 ID 前缀化，嵌套追加前缀，作者子节点以宿主不透明占位按原序各插入一次。展开在受限 QuickJS 中执行，不接触 ctx/IO/时间/随机；结果重新走严格节点/资源/国际化/事件/动画/路由校验；单实例 256KiB、累计 1MiB、1024 实例、8 层嵌套与累计时间上限。热更、--check、两种 KPAK 与独立包重载共用同一流水线，源工程不改写。
 - repeat 的 `page-size`/`page-bind` 支持全部八种源；页变量必须 UI int、min=1、max 足够、独占且初始值落在启动候选页数内。`repeat.<完整ID>.<字段>` 与 `ctx.repeats[完整ID]` 只读，页数/范围/空源规则固定；源缩短时准备阶段夹取并写回候选 UI int，显式越界写页整批拒绝。分页列表按 repeat ID 缓存，不覆盖共享源，不读非当前范围的手动槽，不读写 saves.page；换页重置该 repeat 的滚动/交互身份，缩略图按真实槽去重。页状态不入剧情档/隐藏交接/偏好，--check 不读玩家存档。
 - story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2 与 demo content-version=11 不变；demo 在“效果演示 → 组合 / 分页”提供 x-section、画廊独立分页与手动槽独立分页示例。GUI、DPI、设备与穷举槽位组合需另行实机验收，不以 311 项自动化测试或历史窗口记录替代。
+
+## v0.11.3 总音量与 2D 图片粒子
+
+依据 doc/v0.11.3-implementation-plan.zh-cn.md、doc/v0.11.3-validation.zh-cn.md 与 API 第 39 节。
+
+- 总音量 `settings.master_volume` / `ctx.setting("master_volume", value)` 为必需字段（0–1，默认 1）；有效增益 = `muted ? 0 : master × 分项`，覆盖音乐、语音、剧情音效、UI 音效与 UI sequence 视频。在播调节只改增益，不重建/不重播 Sink；数值范围必须在 f64 输入阶段校验后再转 f32；settings.json 继续拒绝缺字段与未知字段，不做补齐。story 8/UI 3/save 9/profile 1/read 1/隐藏槽 1/KPAK 1、2/demo content-version=11 不变。
+- `<particles>` 只能作为 screen 或 panel/nine-patch 的子节点（禁止 repeat 模板内与组件根），参与既有层级、偏移与裁剪；每页 ≤4、整份 UI ≤32、单发射器存活 ≤512、全局 2048、单次更新生成 ≤256、物理步长 ≤0.1s、life 0.1–10s、size 0.5–512、速度/加速度 ±2000、自转 ±720；`rate` 与 `burst` 不可同时为 0，图片必须是已声明 image/cg。
+- 粒子实例、随机、时钟与纹理句柄只在 App 呈现层，不进入 Model、剧情槽、隐藏交接或偏好；JS 只提供 `ctx.particles(id)` 的 start/stop/clear/burst，整批校验发射器存在、页面可见、单发射器单操作与 rate/burst 前提，`game.enter` 与 screen 生命周期回调禁止粒子命令。
+- 时钟沿用 UI 演出：菜单（剧情暂停）继续，失焦/宿主提示/调试暂停冻结且不补积累；页面移出栈即清理实例，stop/clear 在本页保持关闭直到重新进入或 start；读档、重开、首次进入与成功热更重建声明初态，不重放历史 burst。绘制只读已准备几何与共享纹理，不做 IO/解码/上传。
+- 修改时覆盖：真实 JS 事件到播放增益、错误类型/近界值与整批回滚、缺字段 settings、页面清理与自动发射抑制、长帧有界生成、网格与 visible 门控、demo --check 与两种 KPAK 重载。GUI、真实音频设备流与主观听感须分别实机记录，不以自动化测试替代。

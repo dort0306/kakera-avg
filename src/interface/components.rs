@@ -18,7 +18,7 @@ pub const MAX_TAG_BYTES: usize = 64;
 /// Host layout attributes always come from the XML instance, never from props.
 pub const GENERIC: [&str; 7] = ["id", "x", "y", "width", "height", "visible", "enabled"];
 /// Host tags a component may produce (plus other registered component tags).
-pub const HOST_TAGS: [&str; 10] = [
+pub const HOST_TAGS: [&str; 11] = [
     "scene",
     "panel",
     "image",
@@ -29,6 +29,7 @@ pub const HOST_TAGS: [&str; 10] = [
     "toggle",
     "repeat",
     "color-picker",
+    "particles",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

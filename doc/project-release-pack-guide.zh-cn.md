@@ -1,6 +1,6 @@
-# 工程、发布与窗口模式指南（v0.11.2）
+# 工程、发布与窗口模式指南（v0.11.3）
 
-当前版本 0.11.2：UI 支持 `component.register` 组合标签和 repeat `page-size`/`page-bind` 分页（见 [API 第 38 节](xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页)）；事件先 `event.register(id, callback)` 独立定义，再由 XML event 或 `ui(controlId).bind(eventId)` 连接，旧普通两参数 bind 不再接受（见 [API 第 37 节](xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)）。生命周期入口、ctx 和数据格式不变；旧脚本包须作者迁移后重建，KPAK 不做 JS 转译。`tools/package.ps1` 默认输出 `target/package/kakera-avg-v0.11.2`。版本规划见 [PLAN.md](../PLAN.md)，播放器使用说明见 [播放器使用指南](player-guide.zh-cn.md)，本轮证据见 [v0.11.2 验收](v0.11.2-validation.zh-cn.md)。
+当前版本 0.11.3：UI 支持 `component.register` 组合标签、repeat `page-size`/`page-bind` 分页（见 [API 第 38 节](xml-js-api.zh-cn.md#38-v0112-组合标签与通用分页)）与 `<particles>` 2D 图片粒子、总音量 `settings.master_volume`（见 [API 第 39 节](xml-js-api.zh-cn.md#39-v0113-总音量与-2d-图片粒子)）；事件先 `event.register(id, callback)` 独立定义，再由 XML event 或 `ui(controlId).bind(eventId)` 连接，旧普通两参数 bind 不再接受（见 [API 第 37 节](xml-js-api.zh-cn.md#372-v0111-独立事件与可选控件绑定)）。生命周期入口、ctx 和数据格式不变；旧脚本包须作者迁移后重建，KPAK 不做 JS 转译。`tools/package.ps1` 默认输出 `target/package/kakera-avg-v0.11.3`。版本规划见 [PLAN.md](../PLAN.md)，播放器使用说明见 [播放器使用指南](player-guide.zh-cn.md)，本轮证据见 [v0.11.3 验收](v0.11.3-validation.zh-cn.md)。
 
 唯一数据契约 story 8 / UI 3 / save 9；资源包为 KPAK 2（流式）并保留 KPAK 1 小包兼容。旧剧情/UI/存档格式解析与旧档导入已删除，历史指南在 [v0.7.3 归档](archive/v0.7.3-project-release-pack-guide.zh-cn.md)。Frame 视频已移除，视频只在 UI sequence 中；幕与页面以生命周期回调双向交接，隐藏交接使用 flow-checkpoint.json，详见 [API 第 32 节](xml-js-api.zh-cn.md#32-v090-幕与页面生命周期隐藏交接槽)。
 
@@ -38,10 +38,10 @@ kakera-pack 两个位置参数先于选项。支持 --format 1|2（默认 2）�
 
 打包先记录引擎实际读取的依赖，建立只含发布文件的固定快照；合并 next 链到包内 story.xml，移除链上的源章节，UI include 另行展开为原入口路径的单个完整 UI，并移除实际子文件；JS/资源及其他显式附加文件保留逻辑路径，不改源工程。完整候选校验、包自检/独立加载和所选源文件指纹复查通过后原子写出；输出须在工程根外，已有输出没有 --force 就拒绝。KPAK 按逻辑路径排序、同字节去重、Zstandard 压缩与 SHA-256 损坏检测，未加密。2 使用独立 1MiB 原文块，1 保持整包 solid。素材不有损转码。默认只含引擎依赖、assets/licenses 与 licenses 目录的普通文件。其他文件须在根 kakera.package.json 以 schema 1/include 列表明确声明；不支持目录/通配，清单自身不入包。未引用的设计稿、模型权重和编辑器索引不会自动收集。
 
-发布脚本默认 `target/package/kakera-avg-v0.11.2`，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
+发布脚本默认 `target/package/kakera-avg-v0.11.3`，支持 -Project、-Output、-CompressionLevel、-Format 1|2（默认 2）。目标已存在（包括空目录）就拒绝，失败目录保留诊断；本地操作不公开上传。输出结构：
 
 ```text
-kakera-avg-v0.11.2/
+kakera-avg-v0.11.3/
   kakera-avg.exe
   game.kpak
   Live2DCubismCore.dll
@@ -114,7 +114,7 @@ frame.id 可省略，改用稳定 name 作为作者入口/JS 引用；工程用�
 
 用户 JSON（settings.json/profile.json/read.json/ui-audio.json/keybindings.json/ui-colors.json/slot-*/auto-*/flow-checkpoint.json，含大小写变体）、.git/.idea/.vscode/target/saves/node_modules 和备份/临时文件不入包与工程监控；游戏内容勿使用保留用户文件名。路径统一 /，禁止绝对/盘符/../反斜杠/大小写碰撞/越界链接。KPAK 2 包及逻辑总量最多 1TiB、单文件 64GiB、100000 文件、索引 128MiB；KPAK 1 仍为包 512MiB、单文件 128MiB、10000 文件；剧本链最多 128 文件、源和合并 XML 各 16MiB。
 
-数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.11.2 验收](v0.11.2-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
+数据检查不等于 GUI 或听感验收，结果和未覆盖项见 [v0.11.3 验收](v0.11.3-validation.zh-cn.md)。完整创作契约见 [API 手册](xml-js-api.zh-cn.md)。
 
 
 v0.8.4 附加清单也拒绝保留用户文件/目录及临时文件（如 settings.json、read.json、keybindings.json、ui-colors.json、slot-/auto- JSON、saves/、target/、.git/、*.tmp）；不能用显式 include 绕过原有排除规则。v0.10.0 起键位/配色偏好同样只保存在玩家 --save-dir，不属于发布内容。

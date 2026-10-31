@@ -17,6 +17,7 @@ pub mod localization;
 pub mod media;
 pub mod model;
 pub mod package;
+pub mod particles;
 pub mod presentation;
 pub mod read_history;
 pub mod render;

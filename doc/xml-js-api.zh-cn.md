@@ -690,6 +690,7 @@ repeat 自身矩形是垂直滚动视口；模板内坐标相对每项左上角�
 | `game.continueText` | string | 转场时“跳过转场”，未完整时“补全”，否则“继续” |
 | `settings.text_speed` | number | 0–80，每秒字素簇；0 为整句 |
 | `settings.muted` | bool | 总静音 |
+| `settings.master_volume` | number | 0–1，总音量；与各分项相乘，不重写分项 |
 | `settings.bgm_volume` | number | 0–1 |
 | `settings.voice_volume` | number | 0–1 |
 | `settings.se_volume` | number | 0–1 |
@@ -817,6 +818,7 @@ ctx.setting(name, value);
 | --- | --- | --- |
 | `text_speed` | Number，有限，0–80 | 30 |
 | `muted` | boolean | false |
+| `master_volume` | Number，有限，0–1 | 1（有效增益 = muted ? 0 : master × 分项） |
 | `bgm_volume` | Number，有限，0–1 | 0.35 |
 | `voice_volume` | Number，有限，0–1 | 0.8 |
 | `se_volume` | Number，有限，0–1 | 0.7 |
@@ -826,7 +828,7 @@ ctx.setting(name, value);
 | `fullscreen` | boolean | false（窗口化；true 为当前显示器无边框全屏） |
 | `auto_delay` | Number，有限，0.2–15 秒 | 1.5 |
 
-名称区分大小写，不接受其他设置项。数值在宿主按 f32 存储，不是精确十进制。变更原子写入独立 settings.json，成功后生效；text_speed=0 会立即补全当前句。autosave 控制后续场景进入时的自动写档；关闭后不删除已存在自动槽。skip_all 只改变按住 Ctrl 时的快进范围，见第 23 节。
+名称区分大小写，不接受其他设置项。数值在宿主按 f32 存储，不是精确小数；范围按 f64 输入先校验再转 f32，`1.0000001` 之类的近界值会被拒绝。变更原子写入独立 settings.json，成功后生效；text_speed=0 会立即补全当前句。autosave 控制后续场景进入时的自动写档；关闭后不删除已存在自动槽。skip_all 只改变按住 Ctrl 时的快进范围，见第 23 节。
 
 ```javascript
 event.register("reset-audio", ctx => {
@@ -2799,7 +2801,7 @@ component.register('x-card', {
 - `props` 是严格属性表：每项必须声明 `type`，类型为 `string`、`bool`、`int`、`number`、`binding`、`event`，并**恰好**声明 `required: true` 或类型匹配的 `default` 之一。`int/number` 可加 `min/max`，`string` 可加 `maxLength`（1–32768），`binding` 必须声明 `valueType`（`bool`/`int`/`number`/`string`），`event` 为事件 ID 字符串。`id/x/y/width/height/visible/enabled` 是保留的实例布局属性，不能声明为 prop。
 - 实例属性由宿主按声明转换；未声明属性、缺少必需属性、类型/范围/长度不符都报错，不会把原始字符串交给作者解释。
 - `expand` 必须同步返回**恰好一个**节点描述 `{ tag, attrs?, children? }`；只允许这三个键。`attrs` 是字符串/布尔/有限数值的普通对象，最多 64 项；`children` 是有界数组。禁止 Promise、函数、访问器、自定义原型、循环对象、未知键和隐式字符串化。
-- 根必须是 `panel` 或 `nine-patch`，且根 `attrs.id` 必须为 `$root`。可输出 `scene`、`panel`、`image`、`nine-patch`、`label`、`button`、`slider`、`toggle`、`repeat`、`color-picker` 及已注册的其他组合标签；不能生成 `ui/screen/include/variables/gallery/palette/ui-media` 等根级声明，也不能新增宿主命令、路径或 IO。
+- 根必须是 `panel` 或 `nine-patch`，且根 `attrs.id` 必须为 `$root`。可输出 `scene`、`panel`、`image`、`nine-patch`、`label`、`button`、`slider`、`toggle`、`repeat`、`color-picker`、`particles`（v0.11.3 起）及已注册的其他组合标签；不能生成 `ui/screen/include/variables/gallery/palette/ui-media` 等根级声明，也不能新增宿主命令、路径或 IO。
 - 实例的 `id` 映射为展开根 `$root`；其他局部 ID 变成 `实例ID.局部ID`，嵌套组件继续追加前缀，例如 `helpCard.title`、`helpCard.body`、`helpCard.helpText`。实例的 `x/y/width/height/visible/enabled` 覆盖展开根对应属性（`id` 由 `$root` 映射，不按普通属性覆盖）。
 - `children` 里的对象是宿主提供的不透明占位；必须按原顺序各插入一次，丢弃、复制、调换或自造占位都拒绝。作者子节点先完整解析，再插回展开树，因此错误仍指向原 XML。
 - 展开在独立、受限 QuickJS 中执行；每次实例重新加载同一固定脚本快照，不继承上一次实例的全局副作用，也不能访问 `ctx`、会话、玩家偏好、时钟、随机、网络或文件。展开结果重新进入与手写 XML 完全相同的严格节点/资源/国际化/事件/动画/路由校验。
@@ -2858,3 +2860,70 @@ event.register('gallery-next', ctx => {
 ### 38.4 兼容与示例
 
 story 8 / UI 3 / save 9 / profile 1 / read 1 / 隐藏槽 1 / KPAK 1、2 与 demo content-version=11 不变；没有旧格式迁移或回退分支。demo 在“效果演示 → 组合 / 分页”提供组件展开、画廊独立分页与手动槽独立分页示例（`games/demo/ui/composition.xml`、`games/demo/scripts/ui.js`）。
+
+## 39. v0.11.3 总音量与 2D 图片粒子
+
+### 39.1 总音量
+
+`settings.master_volume` / `ctx.setting("master_volume", value)`（0–1，默认 1）与四项分项相乘：有效增益 = `muted ? 0 : master_volume × 分项`。音乐、语音、剧情音效、UI 音效（`se_volume`）与 UI sequence 视频音轨都走同一规则，在播声音只更新增益，不重建、不重播、不改变进度或暂停条件；新建 Sink 在首次播放前就应用已提交的设置。修改总音量不重写任何分项值，`master=0` 与 `muted` 都不清除分项。settings.json 必须包含 `master_volume`；缺少该字段的旧文件按“坏设置”提示并使用完整默认值，不做字段补齐。story 8 / UI 3 / save 9 / profile 1 / read 1 / 隐藏槽 1 / KPAK 1、2 与 demo content-version=11 均不变。
+
+### 39.2 粒子节点
+
+`<particles>` 是普通 UI 节点，可放在 screen 或 panel/nine-patch 的直接子节点位置（不能放在 repeat 模板里），参与既有层级与裁剪：位置由父节点偏移决定，绘制顺序按兄弟顺序，粒子被本节点矩形裁剪。
+
+```xml
+<particles id="rainFall" x="100" y="100" width="240" height="470" image="ui.rain"
+           rate="55" max="220" life="1.1" life-max="1.7" size="8" size-max="12"
+           vx="-24" vx-max="24" vy="420" vy-max="560" autostart="true" />
+```
+
+| 属性 | 类型 | 默认 | 含义 |
+| --- | --- | --- | --- |
+| `id` | 必填 | — | 与其它控件共享唯一 ID 命名空间 |
+| `image` | 必填 | — | 已声明的 image/cg 资源；纹理与其他图片节点共用缓存 |
+| `x` / `y` | Number | 0 | 发射区域相对父节点偏移 |
+| `width` / `height` | 必填 > 0 | — | 发射区域大小，同时是裁剪矩形 |
+| `rate` | Number 0–200 | 0 | 每秒持续发射数量；0 表示只支持 burst |
+| `burst` | Int 0–128 | 0 | 单次 `burst()` 生成数量；0 表示不支持 burst。`rate` 与 `burst` 不能同时为 0 |
+| `max` | Int 1–512 | 128 | 本发射器同时存活粒子上限 |
+| `life` / `life-max` | Number 0.1–10 秒 | 2 | 生命周期最小值/最大值，`life-max ≥ life` |
+| `size` / `size-max` | Number 0.5–512 | 16 | 粒子宽度（逻辑单位，高度按图片比例），`size-max ≥ size` |
+| `vx` / `vx-max`、`vy` / `vy-max` | Number ±2000 | 0 | 初速度范围（逻辑单位/秒） |
+| `accel-x` / `accel-y` | Number ±2000 | 0 | 加速度（逻辑单位/秒²） |
+| `spin` / `spin-max` | Number ±720 | 0 | 每秒旋转角度范围，`spin-max ≥ spin` |
+| `color` | `#RRGGBB`/`#RRGGBBAA` | `#FFFFFFFF` | 粒子着色与基础透明度 |
+| `fade` | `true`/`false` | true | 出生/消亡淡入淡出包络；false 保持 `color` 的不透明度 |
+| `autostart` | `true`/`false` | false | 所在页面出现在页面栈时自动开始发射 |
+| `visible` | bool 绑定 | `true` | 只控制绘制；不停止发射 |
+
+- 未知属性、非法数值、非有限值、越界、范围倒置、未声明图片、`repeat` 内声明都按原严格 XML 报错并保留文件名与位置。
+- 预算：每个页面最多 4 个发射器，整份 UI 最多 32 个；页面栈最多 8 页，因此同时活动的发射器不超过 32。全局存活粒子硬上限 2048，单发射器上限 512；单次更新最多生成 256 个粒子，物理步长最多 0.1 秒。超预算只钳制生成，不使候选失败。
+- 持续发射使用累积器，被 `max`/全局上限挡住时累积器不增长，长帧或卡顿不会在恢复后补发大量粒子。
+- 粒子纹理不复制、不逐帧上传；GPU 与 CPU fallback 使用同一张网格与纹理缓存，设备重建后按图片 ID 重新解析，不保留旧句柄。
+
+### 39.3 JS 命令
+
+```javascript
+event.register('particles-start', ctx => {
+  for (const id of ['rainFall', 'snowFall', 'petals']) ctx.particles(id).start();
+});
+event.register('particles-stop', ctx => ctx.particles('rainFall').stop());
+event.register('particles-clear', ctx => ctx.particles('sparkle').clear());
+event.register('particles-burst', ctx => ctx.particles('sparkle').burst());
+```
+
+- `ctx.particles(id)` 只接受非空字符串，返回冻结对象，方法固定为 `start()`、`stop()`、`clear()`、`burst()`；不开放逐粒子写入、路径、原生对象、随机或时钟。
+- `start()` 开始/恢复持续发射（发射器必须有 `rate > 0`）；`stop()` 停止发射但保留存活粒子；`clear()` 立即移除实例并停止发射；`burst()` 请求一次 burst（发射器必须有 `burst > 0`）。停止或清空后该发射器在本页保持关闭，不会因普通 UI 提交重新自动开启；重新进入页面或显式 `start()` 才恢复。
+- 整批校验：发射器必须存在、其所有页面必须出现在本批提交后的页面栈中、同一发射器一次只能有一个操作；`game.enter` 与 `screen.open`/`screen.close` 生命周期回调不接受粒子命令。任一命令失败整批不提交，保留旧 Session/UI/音频/效果。粒子命令不产生持久 IO，也不开放剧情跳转。
+- 粒子命令与页面切换同批时，先按提交后的页面栈同步自动发射器，再按声明顺序应用显式命令。
+
+### 39.4 时钟、清理与恢复
+
+- 粒子使用 UI 演出时钟：菜单打开（剧情暂停）时继续，失焦、宿主提示与调试暂停时冻结且不补积累时间。时钟、随机状态、实例与纹理句柄都不进入 Model、存档、隐藏交接、偏好或截图。
+- 页面关闭或移出页面栈时，其发射器实例与自动发射状态一起清除；显式停止状态在离开页面后失效。
+- 读档、重开、首次进入与成功热更按当前页面栈重建声明初态，不重放历史 burst；热更不重播剧情事件与音频。
+- 随机只在宿主呈现层使用；测试使用固定种子验证运动、寿命与回收，不影响剧情重放结果。
+
+### 39.5 demo 示例
+
+`games/demo/ui/particles.xml` 提供雨、雪、花瓣与光点四个发射器（`autostart` + `burst`），入口为“效果演示 → 粒子”。`games/demo/ui/settings.xml` 提供总音量滑条，事件 `master-volume` 写入 `settings.master_volume`。

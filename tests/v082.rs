@@ -322,6 +322,7 @@ fn regions_share_one_texture_and_switch_uv_without_uploading_images() -> Result<
                             data: &data,
                             frame: story.frame(&session).unwrap(),
                             assets: &cache,
+                            particles: &Default::default(),
                             visible_text: "",
                             blocked: false,
                         },

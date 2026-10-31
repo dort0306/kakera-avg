@@ -145,7 +145,7 @@ fn plan(f: &Fixture, commands: Vec<Command>) -> anyhow::Result<host::Plan> {
 #[test]
 fn author_defined_pages_skins_and_callbacks_load_without_native_screen_code() {
     let f = fixture();
-    assert_eq!(f.definition.screens.len(), 20);
+    assert_eq!(f.definition.screens.len(), 21);
     let opened = plan(&f, commands(&f, "open-save", Value::Null, Value::Null)).unwrap();
     assert_eq!(opened.state.stack, vec!["hud", "save"]);
     assert!(opened.state.paused(&f.definition));
@@ -631,6 +631,7 @@ fn render_frame(
                             data,
                             frame: &f.story.frames[&session.frame_id],
                             assets,
+                            particles: &Default::default(),
                             visible_text: if data.flag("game.complete", &Value::Null) {
                                 &f.story.frames[&session.frame_id].text
                             } else {
